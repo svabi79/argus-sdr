@@ -41,6 +41,10 @@ static void sdrplay_set_gain(sdrplay_api_DeviceParamsT *p, unsigned int grDb) {
 	if (p && p->rxChannelA) p->rxChannelA->tunerParams.gain.gRdB = grDb;
 }
 
+static void sdrplay_set_bw(sdrplay_api_DeviceParamsT *p, sdrplay_api_Bw_MHzT bw) {
+	if (p && p->rxChannelA) p->rxChannelA->tunerParams.bwType = bw;
+}
+
 static void sdrplay_set_if_zero(sdrplay_api_DeviceParamsT *p) {
 	if (p && p->rxChannelA) p->rxChannelA->tunerParams.ifType = sdrplay_api_IF_Zero;
 }
@@ -87,20 +91,22 @@ type Source struct {
 	gainDb     float64
 	agc        bool
 	buf        []complex64
+	bwKHz      int
 }
 
-func New(sampleRate int, centerHz float64, gainDb float64) (sdr.Source, error) {
+func New(sampleRate int, centerHz float64, gainDb float64, bwKHz int) (sdr.Source, error) {
 	s := &Source{
 		ch:         make(chan []complex64, 16),
 		sampleRate: sampleRate,
 		centerHz:   centerHz,
 		gainDb:     gainDb,
+		bwKHz:      bwKHz,
 	}
 	s.handle = cgo.NewHandle(s)
-	return s, s.configure(sampleRate, centerHz, gainDb)
+	return s, s.configure(sampleRate, centerHz, gainDb, bwKHz)
 }
 
-func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64) error {
+func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64, bwKHz int) error {
 	if err := cErr(C.sdrplay_api_Open()); err != nil {
 		return fmt.Errorf("sdrplay_api_Open: %w", err)
 	}
@@ -127,6 +133,12 @@ func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64) err
 	C.sdrplay_set_fs(s.params, C.double(sampleRate))
 	C.sdrplay_set_rf(s.params, C.double(centerHz))
 	C.sdrplay_set_gain(s.params, C.uint(gainDb))
+	if bw := bwEnum(bwKHz); bw != 0 {
+		C.sdrplay_set_bw(s.params, bw)
+		if bwKHz > 0 {
+			s.bwKHz = bwKHz
+		}
+	}
 	C.sdrplay_set_if_zero(s.params)
 	C.sdrplay_disable_agc(s.params)
 
@@ -140,7 +152,7 @@ func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64) err
 
 func (s *Source) Start() error { return nil }
 
-func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, agc bool) error {
+func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, agc bool, bwKHz int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.params == nil {
@@ -172,6 +184,13 @@ func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, 
 		updateReasons |= C.int(C.sdrplay_api_Update_Ctrl_Agc)
 		s.agc = agc
 	}
+	if bwKHz > 0 && bwKHz != s.bwKHz {
+		if bw := bwEnum(bwKHz); bw != 0 {
+			C.sdrplay_set_bw(s.params, bw)
+			updateReasons |= C.int(C.sdrplay_api_Update_Tuner_BwType)
+			s.bwKHz = bwKHz
+		}
+	}
 	if updateReasons == 0 {
 		return nil
 	}
@@ -179,6 +198,29 @@ func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, 
 		return err
 	}
 	return nil
+}
+
+func bwEnum(khz int) C.sdrplay_api_Bw_MHzT {
+	switch khz {
+	case 200:
+		return C.sdrplay_api_BW_0_200
+	case 300:
+		return C.sdrplay_api_BW_0_300
+	case 600:
+		return C.sdrplay_api_BW_0_600
+	case 1536:
+		return C.sdrplay_api_BW_1_536
+	case 5000:
+		return C.sdrplay_api_BW_5_000
+	case 6000:
+		return C.sdrplay_api_BW_6_000
+	case 7000:
+		return C.sdrplay_api_BW_7_000
+	case 8000:
+		return C.sdrplay_api_BW_8_000
+	default:
+		return 0
+	}
 }
 
 func (s *Source) Stop() error {

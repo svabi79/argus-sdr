@@ -14,11 +14,13 @@ func TestApplyConfigUpdate(t *testing.T) {
 	sampleRate := 1_024_000
 	fftSize := 4096
 	threshold := -35.0
+	bw := 1536
 
 	updated, err := mgr.ApplyConfig(ConfigUpdate{
 		CenterHz:   &center,
 		SampleRate: &sampleRate,
 		FFTSize:    &fftSize,
+		TunerBwKHz: &bw,
 		Detector: &DetectorUpdate{
 			ThresholdDb: &threshold,
 		},
@@ -37,6 +39,9 @@ func TestApplyConfigUpdate(t *testing.T) {
 	}
 	if updated.Detector.ThresholdDb != threshold {
 		t.Fatalf("threshold: %v", updated.Detector.ThresholdDb)
+	}
+	if updated.TunerBwKHz != bw {
+		t.Fatalf("tuner bw: %v", updated.TunerBwKHz)
 	}
 }
 

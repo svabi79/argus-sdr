@@ -27,7 +27,7 @@ func New(sampleRate int) *Source {
 func (s *Source) Start() error { return nil }
 func (s *Source) Stop() error  { return nil }
 
-func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, agc bool) error {
+func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, agc bool, bwKHz int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if sampleRate > 0 {

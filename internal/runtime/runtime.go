@@ -12,6 +12,7 @@ type ConfigUpdate struct {
 	SampleRate *int            `json:"sample_rate"`
 	FFTSize    *int            `json:"fft_size"`
 	GainDb     *float64        `json:"gain_db"`
+	TunerBwKHz *int            `json:"tuner_bw_khz"`
 	Detector   *DetectorUpdate `json:"detector"`
 }
 
@@ -70,6 +71,12 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 	}
 	if update.GainDb != nil {
 		next.GainDb = *update.GainDb
+	}
+	if update.TunerBwKHz != nil {
+		if *update.TunerBwKHz <= 0 {
+			return m.cfg, errors.New("tuner_bw_khz must be > 0")
+		}
+		next.TunerBwKHz = *update.TunerBwKHz
 	}
 	if update.Detector != nil {
 		if update.Detector.ThresholdDb != nil {

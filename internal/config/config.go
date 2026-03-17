@@ -25,6 +25,7 @@ type Config struct {
 	SampleRate     int            `yaml:"sample_rate" json:"sample_rate"`
 	FFTSize        int            `yaml:"fft_size" json:"fft_size"`
 	GainDb         float64        `yaml:"gain_db" json:"gain_db"`
+	TunerBwKHz     int            `yaml:"tuner_bw_khz" json:"tuner_bw_khz"`
 	AGC            bool           `yaml:"agc" json:"agc"`
 	DCBlock        bool           `yaml:"dc_block" json:"dc_block"`
 	IQBalance      bool           `yaml:"iq_balance" json:"iq_balance"`
@@ -45,6 +46,7 @@ func Default() Config {
 		SampleRate:     2_048_000,
 		FFTSize:        2048,
 		GainDb:         30,
+		TunerBwKHz:     1536,
 		AGC:            false,
 		DCBlock:        false,
 		IQBalance:      false,
@@ -92,6 +94,9 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.FFTSize <= 0 {
 		cfg.FFTSize = 2048
+	}
+	if cfg.TunerBwKHz <= 0 {
+		cfg.TunerBwKHz = 1536
 	}
 	if cfg.CenterHz == 0 {
 		cfg.CenterHz = 100.0e6

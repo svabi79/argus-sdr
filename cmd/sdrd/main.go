@@ -99,7 +99,7 @@ func (m *sourceManager) ApplyConfig(cfg config.Config) error {
 	defer m.mu.Unlock()
 
 	if updatable, ok := m.src.(sdr.ConfigurableSource); ok {
-		if err := updatable.UpdateConfig(cfg.SampleRate, cfg.CenterHz, cfg.GainDb, cfg.AGC); err == nil {
+		if err := updatable.UpdateConfig(cfg.SampleRate, cfg.CenterHz, cfg.GainDb, cfg.AGC, cfg.TunerBwKHz); err == nil {
 			return nil
 		}
 	}
@@ -158,16 +158,16 @@ func main() {
 		if mockFlag {
 			src := mock.New(cfg.SampleRate)
 			if updatable, ok := interface{}(src).(sdr.ConfigurableSource); ok {
-				_ = updatable.UpdateConfig(cfg.SampleRate, cfg.CenterHz, cfg.GainDb, cfg.AGC)
+				_ = updatable.UpdateConfig(cfg.SampleRate, cfg.CenterHz, cfg.GainDb, cfg.AGC, cfg.TunerBwKHz)
 			}
 			return src, nil
 		}
-		src, err := sdrplay.New(cfg.SampleRate, cfg.CenterHz, cfg.GainDb)
+		src, err := sdrplay.New(cfg.SampleRate, cfg.CenterHz, cfg.GainDb, cfg.TunerBwKHz)
 		if err != nil {
 			return nil, err
 		}
 		if updatable, ok := src.(sdr.ConfigurableSource); ok {
-			_ = updatable.UpdateConfig(cfg.SampleRate, cfg.CenterHz, cfg.GainDb, cfg.AGC)
+			_ = updatable.UpdateConfig(cfg.SampleRate, cfg.CenterHz, cfg.GainDb, cfg.AGC, cfg.TunerBwKHz)
 		}
 		return src, nil
 	}
@@ -241,7 +241,7 @@ func main() {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			sourceChanged := prev.CenterHz != next.CenterHz || prev.SampleRate != next.SampleRate || prev.GainDb != next.GainDb || prev.AGC != next.AGC
+			sourceChanged := prev.CenterHz != next.CenterHz || prev.SampleRate != next.SampleRate || prev.GainDb != next.GainDb || prev.AGC != next.AGC || prev.TunerBwKHz != next.TunerBwKHz
 			if sourceChanged {
 				if err := srcMgr.ApplyConfig(next); err != nil {
 					cfgManager.Replace(prev)
@@ -295,10 +295,10 @@ func main() {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if prev.AGC != next.AGC {
+		if prev.AGC != next.AGC || prev.TunerBwKHz != next.TunerBwKHz {
 			if err := srcMgr.ApplyConfig(next); err != nil {
 				cfgManager.Replace(prev)
-				http.Error(w, "failed to apply agc", http.StatusInternalServerError)
+				http.Error(w, "failed to apply sdr settings", http.StatusInternalServerError)
 				return
 			}
 		}

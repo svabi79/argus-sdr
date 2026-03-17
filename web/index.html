@@ -46,6 +46,20 @@
           </select>
         </div>
 
+        <label class="control-label" for="bwSelect">Tuner BW (kHz)</label>
+        <div class="control-row">
+          <select id="bwSelect">
+            <option value="200">200</option>
+            <option value="300">300</option>
+            <option value="600">600</option>
+            <option value="1536">1536</option>
+            <option value="5000">5000</option>
+            <option value="6000">6000</option>
+            <option value="7000">7000</option>
+            <option value="8000">8000</option>
+          </select>
+        </div>
+
         <label class="control-label" for="fftSelect">FFT Size</label>
         <div class="control-row">
           <select id="fftSelect">
@@ -86,6 +100,23 @@
             <input id="iqToggle" type="checkbox" />
             <span>IQ Balance</span>
           </label>
+        </div>
+
+        <label class="control-label">Display</label>
+        <div class="control-row">
+          <select id="avgSelect">
+            <option value="0">Averaging Off</option>
+            <option value="0.4">Averaging Fast</option>
+            <option value="0.2">Averaging Medium</option>
+            <option value="0.1">Averaging Slow</option>
+          </select>
+        </div>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input id="maxHoldToggle" type="checkbox" />
+            <span>Max Hold</span>
+          </label>
+          <button id="maxHoldReset" type="button" class="preset-btn">Reset Max</button>
         </div>
       </div>
     </section>

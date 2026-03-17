@@ -18,6 +18,7 @@ const centerInput = document.getElementById('centerInput');
 const spanInput = document.getElementById('spanInput');
 const sampleRateSelect = document.getElementById('sampleRateSelect');
 const fftSelect = document.getElementById('fftSelect');
+const bwSelect = document.getElementById('bwSelect');
 const gainRange = document.getElementById('gainRange');
 const gainInput = document.getElementById('gainInput');
 const thresholdRange = document.getElementById('thresholdRange');
@@ -25,6 +26,9 @@ const thresholdInput = document.getElementById('thresholdInput');
 const agcToggle = document.getElementById('agcToggle');
 const dcToggle = document.getElementById('dcToggle');
 const iqToggle = document.getElementById('iqToggle');
+const avgSelect = document.getElementById('avgSelect');
+const maxHoldToggle = document.getElementById('maxHoldToggle');
+const maxHoldReset = document.getElementById('maxHoldReset');
 const presetButtons = Array.from(document.querySelectorAll('.preset-btn'));
 
 let latest = null;
@@ -42,6 +46,11 @@ let pendingSettingsUpdate = null;
 let configTimer = null;
 let settingsTimer = null;
 const GAIN_MAX = 60;
+let avgAlpha = 0;
+let avgSpectrum = null;
+let maxHold = false;
+let maxSpectrum = null;
+let lastFFTSize = null;
 
 const events = [];
 const eventsById = new Map();
@@ -95,6 +104,14 @@ function applyConfigToUI(cfg) {
   const spanMHz = toMHz(cfg.sample_rate / zoom);
   spanInput.value = spanMHz.toFixed(3);
   fftSelect.value = String(cfg.fft_size);
+  if (lastFFTSize !== cfg.fft_size) {
+    avgSpectrum = null;
+    maxSpectrum = null;
+    lastFFTSize = cfg.fft_size;
+  }
+  if (bwSelect) {
+    bwSelect.value = String(cfg.tuner_bw_khz || 1536);
+  }
   const uiGain = Math.max(0, Math.min(GAIN_MAX, GAIN_MAX - cfg.gain_db));
   gainRange.value = uiGain;
   gainInput.value = uiGain;
@@ -213,6 +230,32 @@ function maxInBinRange(spectrum, b0, b1) {
   return max;
 }
 
+function processSpectrum(spectrum) {
+  if (!spectrum) return spectrum;
+  let base = spectrum;
+  if (avgAlpha > 0) {
+    if (!avgSpectrum || avgSpectrum.length !== spectrum.length) {
+      avgSpectrum = spectrum.slice();
+    } else {
+      for (let i = 0; i < spectrum.length; i++) {
+        avgSpectrum[i] = avgAlpha * spectrum[i] + (1 - avgAlpha) * avgSpectrum[i];
+      }
+    }
+    base = avgSpectrum;
+  }
+  if (maxHold) {
+    if (!maxSpectrum || maxSpectrum.length !== base.length) {
+      maxSpectrum = base.slice();
+    } else {
+      for (let i = 0; i < base.length; i++) {
+        if (base[i] > maxSpectrum[i]) maxSpectrum[i] = base[i];
+      }
+    }
+    base = maxSpectrum;
+  }
+  return base;
+}
+
 function snrColor(snr) {
   const norm = Math.max(0, Math.min(1, (snr + 5) / 30));
   const [r, g, b] = colorMap(norm);
@@ -238,7 +281,8 @@ function renderSpectrum() {
   }
 
   const { spectrum_db, sample_rate, center_hz } = latest;
-  const n = spectrum_db.length;
+  const display = processSpectrum(spectrum_db);
+  const n = display.length;
   const span = sample_rate / zoom;
   const startHz = center_hz - span / 2 + pan * span;
   const endHz = center_hz + span / 2 + pan * span;
@@ -257,7 +301,7 @@ function renderSpectrum() {
     const f2 = startHz + ((x + 1) / w) * (endHz - startHz);
     const b0 = binForFreq(f1, center_hz, sample_rate, n);
     const b1 = binForFreq(f2, center_hz, sample_rate, n);
-    const v = maxInBinRange(spectrum_db, b0, b1);
+    const v = maxInBinRange(display, b0, b1);
     const y = h - ((v - minDb) / (maxDb - minDb)) * h;
     if (x === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
@@ -296,7 +340,8 @@ function renderWaterfall() {
   ctx.putImageData(image, 0, 1);
 
   const { spectrum_db, sample_rate, center_hz } = latest;
-  const n = spectrum_db.length;
+  const display = processSpectrum(spectrum_db);
+  const n = display.length;
   const span = sample_rate / zoom;
   const startHz = center_hz - span / 2 + pan * span;
   const endHz = center_hz + span / 2 + pan * span;
@@ -310,7 +355,7 @@ function renderWaterfall() {
     const b0 = binForFreq(f1, center_hz, sample_rate, n);
     const b1 = binForFreq(f2, center_hz, sample_rate, n);
     if (b0 < n && b1 >= 0) {
-      const v = maxInBinRange(spectrum_db, b0, b1);
+      const v = maxInBinRange(display, b0, b1);
       const norm = Math.max(0, Math.min(1, (v - minDb) / (maxDb - minDb)));
       const [r, g, b] = colorMap(norm);
       row.data[x * 4 + 0] = r;
@@ -411,7 +456,8 @@ function renderDetailSpectrogram(ev) {
   const endHz = ev.center_hz + span / 2;
 
   const { spectrum_db, sample_rate, center_hz } = latest;
-  const n = spectrum_db.length;
+  const display = processSpectrum(spectrum_db);
+  const n = display.length;
   const minDb = -120;
   const maxDb = 0;
 
@@ -422,7 +468,7 @@ function renderDetailSpectrogram(ev) {
     const b0 = binForFreq(f1, center_hz, sample_rate, n);
     const b1 = binForFreq(f2, center_hz, sample_rate, n);
     if (b0 < n && b1 >= 0) {
-      const v = maxInBinRange(spectrum_db, b0, b1);
+      const v = maxInBinRange(display, b0, b1);
       const norm = Math.max(0, Math.min(1, (v - minDb) / (maxDb - minDb)));
       const [r, g, b] = colorMap(norm);
       row.data[x * 4 + 0] = r;
@@ -515,6 +561,37 @@ if (sampleRateSelect) {
     if (Number.isFinite(mhz) && mhz > 0) {
       queueConfigUpdate({ sample_rate: Math.round(fromMHz(mhz)) });
     }
+  });
+}
+
+if (bwSelect) {
+  bwSelect.addEventListener('change', () => {
+    const bw = parseInt(bwSelect.value, 10);
+    if (Number.isFinite(bw)) {
+      queueConfigUpdate({ tuner_bw_khz: bw });
+    }
+  });
+}
+
+if (avgSelect) {
+  avgSelect.addEventListener('change', () => {
+    avgAlpha = parseFloat(avgSelect.value) || 0;
+    avgSpectrum = null;
+  });
+}
+
+if (maxHoldToggle) {
+  maxHoldToggle.addEventListener('change', () => {
+    maxHold = maxHoldToggle.checked;
+    if (!maxHold) {
+      maxSpectrum = null;
+    }
+  });
+}
+
+if (maxHoldReset) {
+  maxHoldReset.addEventListener('click', () => {
+    maxSpectrum = null;
   });
 }
 

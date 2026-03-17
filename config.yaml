@@ -6,6 +6,7 @@ center_hz: 7.1e6
 sample_rate: 2048000
 fft_size: 2048
 gain_db: 30
+tuner_bw_khz: 1536
 agc: false
 dc_block: false
 iq_balance: false
