@@ -80,9 +80,12 @@ func (e *Engine) Exec(in []complex64) ([]complex64, error) {
 	if C.cufftExecC2C(e.plan, e.data, e.data, C.CUFFT_FORWARD) != C.CUFFT_SUCCESS {
 		return nil, errors.New("cufftExecC2C failed")
 	}
-	if C.cudaMemcpy(unsafe.Pointer(&in[0]), unsafe.Pointer(e.data), e.bytes, C.cudaMemcpyDeviceToHost) != C.cudaSuccess {
+	if C.cudaDeviceSynchronize() != C.cudaSuccess {
+		return nil, errors.New("cudaDeviceSynchronize failed")
+	}
+	out := make([]complex64, e.n)
+	if C.cudaMemcpy(unsafe.Pointer(&out[0]), unsafe.Pointer(e.data), e.bytes, C.cudaMemcpyDeviceToHost) != C.cudaSuccess {
 		return nil, errors.New("cudaMemcpy D2H failed")
 	}
-	_ = C.cudaDeviceSynchronize()
-	return in, nil
+	return out, nil
 }

@@ -113,8 +113,7 @@ func New(sampleRate int, centerHz float64, gainDb float64, bwKHz int) (sdr.Sourc
 	s.resizeBuffer(sampleRate, 0)
 	s.handle = cgo.NewHandle(s)
 	if err := s.configure(sampleRate, centerHz, gainDb, bwKHz); err != nil {
-		s.handle.Delete()
-		s.handle = 0
+		_ = s.Stop()
 		return nil, err
 	}
 	return s, nil
@@ -329,11 +328,15 @@ func max(a, b int) int {
 
 func (s *Source) Stop() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.params != nil {
+	params := s.params
+	s.params = nil
+	s.mu.Unlock()
+	if params != nil {
 		_ = cErr(C.sdrplay_api_Uninit(s.dev.dev))
-		s.params = nil
 	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.open {
 		_ = cErr(C.sdrplay_api_ReleaseDevice(&s.dev))
 		_ = cErr(C.sdrplay_api_Close())

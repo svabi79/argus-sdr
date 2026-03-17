@@ -56,6 +56,9 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 
 	next := m.cfg
 	if update.CenterHz != nil {
+		if *update.CenterHz < 1e3 || *update.CenterHz > 2e9 {
+			return m.cfg, errors.New("center_hz out of range")
+		}
 		next.CenterHz = *update.CenterHz
 	}
 	if update.SampleRate != nil {

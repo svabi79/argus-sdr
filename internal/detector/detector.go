@@ -129,11 +129,21 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 	used := make(map[int64]bool, len(d.active))
 	for _, s := range signals {
 		var best *activeEvent
+		var candidates []struct {
+			ev   *activeEvent
+			dist float64
+		}
 		for _, ev := range d.active {
 			if overlapHz(s.CenterHz, s.BWHz, ev.centerHz, ev.bwHz) && math.Abs(s.CenterHz-ev.centerHz) < (s.BWHz+ev.bwHz)/2.0 {
-				best = ev
-				break
+				candidates = append(candidates, struct {
+					ev   *activeEvent
+					dist float64
+				}{ev: ev, dist: math.Abs(s.CenterHz - ev.centerHz)})
 			}
+		}
+		if len(candidates) > 0 {
+			sort.Slice(candidates, func(i, j int) bool { return candidates[i].dist < candidates[j].dist })
+			best = candidates[0].ev
 		}
 		if best == nil {
 			id := d.nextID

@@ -265,6 +265,7 @@ func main() {
 		log.Fatalf("open events: %v", err)
 	}
 	defer eventFile.Close()
+	eventMu := &sync.Mutex{}
 
 	det := detector.New(cfg.Detector.ThresholdDb, cfg.SampleRate, cfg.FFTSize,
 		time.Duration(cfg.Detector.MinDurationMs)*time.Millisecond,
@@ -277,9 +278,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, dspUpdates, gpuState)
+	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState)
 
-	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	return origin == "" || strings.HasPrefix(origin, "http://localhost") || strings.HasPrefix(origin, "http://127.0.0.1")
+}}
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		c, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -289,6 +293,21 @@ func main() {
 		defer func() {
 			h.remove(c)
 			_ = c.Close()
+		}()
+		c.SetReadDeadline(time.Now().Add(60 * time.Second))
+		c.SetPongHandler(func(string) error {
+			c.SetReadDeadline(time.Now().Add(60 * time.Second))
+			return nil
+		})
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			}
 		}()
 		for {
 			_, _, err := c.ReadMessage()
@@ -414,7 +433,10 @@ func main() {
 				return
 			}
 		}
-		evs, err := events.ReadRecent(cfg.EventPath, limit, since)
+		snap := cfgManager.Snapshot()
+		eventMu.Lock()
+		evs, err := events.ReadRecent(snap.EventPath, limit, since)
+		eventMu.Unlock()
 		if err != nil {
 			http.Error(w, "failed to read events", http.StatusInternalServerError)
 			return
@@ -440,7 +462,7 @@ func main() {
 	_ = server.Shutdown(ctxTimeout)
 }
 
-func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, updates <-chan dspUpdate, gpuState *gpuStatus) {
+func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.Mutex, updates <-chan dspUpdate, gpuState *gpuStatus) {
 	ticker := time.NewTicker(cfg.FrameInterval())
 	defer ticker.Stop()
 	logTicker := time.NewTicker(5 * time.Second)
@@ -543,7 +565,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						gpuState.set(false, err)
 					}
 					useGPU = false
-					spectrum = fftutil.Spectrum(iq, window)
+					spectrum = fftutil.SpectrumWithPlan(iq, nil, plan)
 				} else {
 					spectrum = fftutil.SpectrumFromFFT(out)
 				}
@@ -552,9 +574,11 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			now := time.Now()
 			finished, signals := det.Process(now, spectrum, cfg.CenterHz)
+			eventMu.Lock()
 			for _, ev := range finished {
 				_ = enc.Encode(ev)
 			}
+			eventMu.Unlock()
 			h.broadcast(SpectrumFrame{
 				Timestamp: now.UnixMilli(),
 				CenterHz:  cfg.CenterHz,

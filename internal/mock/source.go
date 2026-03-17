@@ -16,13 +16,14 @@ type Source struct {
 	phase3     float64
 	sampleRate float64
 	noise      float64
+	rng        *rand.Rand
 }
 
 func New(sampleRate int) *Source {
-	rand.Seed(time.Now().UnixNano())
 	return &Source{
 		sampleRate: float64(sampleRate),
 		noise:      0.02,
+		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -45,14 +46,27 @@ func (s *Source) ReadIQ(n int) ([]complex64, error) {
 	f1 := 50e3
 	f2 := -120e3
 	f3 := 300e3
+	const twoPi = 2 * math.Pi
 	for i := 0; i < n; i++ {
-		s.phase += 2 * math.Pi * f1 / s.sampleRate
-		s.phase2 += 2 * math.Pi * f2 / s.sampleRate
-		s.phase3 += 2 * math.Pi * f3 / s.sampleRate
+		s.phase += twoPi * f1 / s.sampleRate
+		s.phase2 += twoPi * f2 / s.sampleRate
+		s.phase3 += twoPi * f3 / s.sampleRate
+		if s.phase > twoPi {
+			s.phase -= twoPi
+		}
+		if s.phase2 > twoPi {
+			s.phase2 -= twoPi
+		}
+		if s.phase2 < 0 {
+			s.phase2 += twoPi
+		}
+		if s.phase3 > twoPi {
+			s.phase3 -= twoPi
+		}
 		re := math.Cos(s.phase) + 0.7*math.Cos(s.phase2) + 0.4*math.Cos(s.phase3)
 		im := math.Sin(s.phase) + 0.7*math.Sin(s.phase2) + 0.4*math.Sin(s.phase3)
-		re += s.noise * rand.NormFloat64()
-		im += s.noise * rand.NormFloat64()
+		re += s.noise * s.rng.NormFloat64()
+		im += s.noise * s.rng.NormFloat64()
 		out[i] = complex(float32(re), float32(im))
 	}
 	return out, nil
