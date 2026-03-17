@@ -449,6 +449,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 	dcBlocker := dsp.NewDCBlocker(0.995)
 	dcEnabled := cfg.DCBlock
 	iqEnabled := cfg.IQBalance
+	plan := fftutil.NewCmplxPlan(cfg.FFTSize)
 	useGPU := cfg.UseGPUFFT
 	var gpuEngine *gpufft.Engine
 	if useGPU && gpuState != nil && gpuState.Available {
@@ -480,6 +481,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			if upd.window != nil {
 				window = upd.window
+				plan = fftutil.NewCmplxPlan(cfg.FFTSize)
 			}
 			dcEnabled = upd.dcBlock
 			iqEnabled = upd.iqBalance
@@ -546,7 +548,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					spectrum = fftutil.SpectrumFromFFT(out)
 				}
 			} else {
-				spectrum = fftutil.Spectrum(iq, window)
+				spectrum = fftutil.SpectrumWithPlan(iq, window, plan)
 			}
 			now := time.Now()
 			finished, signals := det.Process(now, spectrum, cfg.CenterHz)

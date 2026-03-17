@@ -1,10 +1,6 @@
 package fftutil
 
-import (
-	"math"
-
-	"gonum.org/v1/gonum/dsp/fourier"
-)
+import "math"
 
 func Hann(n int) []float64 {
 	w := make([]float64, n)
@@ -21,6 +17,11 @@ func Hann(n int) []float64 {
 }
 
 func Spectrum(iq []complex64, window []float64) []float64 {
+	plan := NewCmplxPlan(len(iq))
+	return SpectrumWithPlan(iq, window, plan)
+}
+
+func SpectrumWithPlan(iq []complex64, window []float64, plan *CmplxPlan) []float64 {
 	n := len(iq)
 	if n == 0 {
 		return nil
@@ -34,9 +35,12 @@ func Spectrum(iq []complex64, window []float64) []float64 {
 		}
 		in[i] = complex(float64(real(v))*w, float64(imag(v))*w)
 	}
-	fft := fourier.NewCmplxFFT(n)
 	out := make([]complex128, n)
-	fft.Coefficients(out, in)
+	if plan != nil && plan.N() == n {
+		plan.FFT(out, in)
+	} else {
+		NewCmplxPlan(n).FFT(out, in)
+	}
 
 	power := make([]float64, n)
 	eps := 1e-12
