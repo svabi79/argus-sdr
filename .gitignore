@@ -12,3 +12,9 @@ data/events.jsonl
 
 # local prompts
 prompt*.txt
+
+# local cuda import libs
+cuda-mingw/
+
+# temp binaries
+sdrd.exe~

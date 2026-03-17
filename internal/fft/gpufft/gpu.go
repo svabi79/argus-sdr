@@ -3,7 +3,7 @@
 package gpufft
 
 /*
-#cgo windows LDFLAGS: -lcufft -lcudart
+#cgo windows LDFLAGS: -lcufft64_12 -lcudart64_13
 #include <cuda_runtime.h>
 #include <cufft.h>
 */
