@@ -190,6 +190,27 @@ function colorMap(v) {
   return [r, g, b];
 }
 
+function binForFreq(freq, centerHz, sampleRate, n) {
+  return Math.floor((freq - (centerHz - sampleRate / 2)) / (sampleRate / n));
+}
+
+function maxInBinRange(spectrum, b0, b1) {
+  const n = spectrum.length;
+  let start = Math.max(0, Math.min(n - 1, b0));
+  let end = Math.max(0, Math.min(n - 1, b1));
+  if (end < start) {
+    const tmp = start;
+    start = end;
+    end = tmp;
+  }
+  let max = -1e9;
+  for (let i = start; i <= end; i++) {
+    const v = spectrum[i];
+    if (v > max) max = v;
+  }
+  return max;
+}
+
 function snrColor(snr) {
   const norm = Math.max(0, Math.min(1, (snr + 5) / 30));
   const [r, g, b] = colorMap(norm);
@@ -229,13 +250,14 @@ function renderSpectrum() {
   ctx.strokeStyle = '#48d1b8';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  for (let i = 0; i < n; i++) {
-    const freq = center_hz + (i - n / 2) * (sample_rate / n);
-    if (freq < startHz || freq > endHz) continue;
-    const x = ((freq - startHz) / (endHz - startHz)) * w;
-    const v = spectrum_db[i];
+  for (let x = 0; x < w; x++) {
+    const f1 = startHz + (x / w) * (endHz - startHz);
+    const f2 = startHz + ((x + 1) / w) * (endHz - startHz);
+    const b0 = binForFreq(f1, center_hz, sample_rate, n);
+    const b1 = binForFreq(f2, center_hz, sample_rate, n);
+    const v = maxInBinRange(spectrum_db, b0, b1);
     const y = h - ((v - minDb) / (maxDb - minDb)) * h;
-    if (i === 0) ctx.moveTo(x, y);
+    if (x === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
   ctx.stroke();
@@ -257,7 +279,8 @@ function renderSpectrum() {
     }
   }
 
-  metaEl.textContent = `Center ${(center_hz/1e6).toFixed(3)} MHz | Span ${(span/1e6).toFixed(3)} MHz`;
+  const binHz = sample_rate / n;
+  metaEl.textContent = `Center ${(center_hz/1e6).toFixed(3)} MHz | Span ${(span/1e6).toFixed(3)} MHz | Res ${binHz.toFixed(1)} Hz/bin`;
 }
 
 function renderWaterfall() {
@@ -280,10 +303,12 @@ function renderWaterfall() {
 
   const row = ctx.createImageData(w, 1);
   for (let x = 0; x < w; x++) {
-    const freq = startHz + (x / (w - 1)) * (endHz - startHz);
-    const bin = Math.floor((freq - (center_hz - sample_rate / 2)) / (sample_rate / n));
-    if (bin >= 0 && bin < n) {
-      const v = spectrum_db[bin];
+    const f1 = startHz + (x / w) * (endHz - startHz);
+    const f2 = startHz + ((x + 1) / w) * (endHz - startHz);
+    const b0 = binForFreq(f1, center_hz, sample_rate, n);
+    const b1 = binForFreq(f2, center_hz, sample_rate, n);
+    if (b0 < n && b1 >= 0) {
+      const v = maxInBinRange(spectrum_db, b0, b1);
       const norm = Math.max(0, Math.min(1, (v - minDb) / (maxDb - minDb)));
       const [r, g, b] = colorMap(norm);
       row.data[x * 4 + 0] = r;
@@ -390,10 +415,12 @@ function renderDetailSpectrogram(ev) {
 
   const row = ctx.createImageData(w, 1);
   for (let x = 0; x < w; x++) {
-    const freq = startHz + (x / (w - 1)) * (endHz - startHz);
-    const bin = Math.floor((freq - (center_hz - sample_rate / 2)) / (sample_rate / n));
-    if (bin >= 0 && bin < n) {
-      const v = spectrum_db[bin];
+    const f1 = startHz + (x / w) * (endHz - startHz);
+    const f2 = startHz + ((x + 1) / w) * (endHz - startHz);
+    const b0 = binForFreq(f1, center_hz, sample_rate, n);
+    const b1 = binForFreq(f2, center_hz, sample_rate, n);
+    if (b0 < n && b1 >= 0) {
+      const v = maxInBinRange(spectrum_db, b0, b1);
       const norm = Math.max(0, Math.min(1, (v - minDb) / (maxDb - minDb)));
       const [r, g, b] = colorMap(norm);
       row.data[x * 4 + 0] = r;
