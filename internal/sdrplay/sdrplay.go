@@ -9,12 +9,11 @@ package sdrplay
 #include <stdlib.h>
 #include <string.h>
 
-extern void goStreamCallback(short *xi, short *xq, unsigned int numSamples, void *cbContext);
+extern void goStreamCallback(short *xi, short *xq, unsigned int numSamples, unsigned int reset, void *cbContext);
 
 static void StreamACallback(short *xi, short *xq, sdrplay_api_StreamCbParamsT *params, unsigned int numSamples, unsigned int reset, void *cbContext) {
 	(void)params;
-	(void)reset;
-	goStreamCallback(xi, xq, numSamples, cbContext);
+	goStreamCallback(xi, xq, numSamples, reset, cbContext);
 }
 
 static void EventCallback(sdrplay_api_EventT eventId, sdrplay_api_TunerSelectT tuner, sdrplay_api_EventParamsT *params, void *cbContext) {
@@ -239,11 +238,16 @@ func (s *Source) ReadIQ(n int) ([]complex64, error) {
 }
 
 //export goStreamCallback
-func goStreamCallback(xi *C.short, xq *C.short, numSamples C.uint, ctx unsafe.Pointer) {
+func goStreamCallback(xi *C.short, xq *C.short, numSamples C.uint, reset C.uint, ctx unsafe.Pointer) {
 	h := cgo.Handle(uintptr(ctx))
 	src, ok := h.Value().(*Source)
 	if !ok || src == nil {
 		return
+	}
+	if reset != 0 {
+		src.mu.Lock()
+		src.buf = nil
+		src.mu.Unlock()
 	}
 	n := int(numSamples)
 	if n <= 0 {
