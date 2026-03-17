@@ -363,6 +363,7 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 	dcEnabled := cfg.DCBlock
 	iqEnabled := cfg.IQBalance
 
+	gotSamples := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -384,6 +385,10 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 			if err != nil {
 				log.Printf("read IQ: %v", err)
 				continue
+			}
+			if !gotSamples {
+				log.Printf("received IQ samples")
+				gotSamples = true
 			}
 			if dcEnabled {
 				dcBlocker.Apply(iq)

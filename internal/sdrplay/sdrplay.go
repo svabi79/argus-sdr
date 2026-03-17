@@ -70,6 +70,7 @@ import (
 	"fmt"
 	"runtime/cgo"
 	"sync"
+	"time"
 	"unsafe"
 
 	"sdr-visual-suite/internal/sdr"
@@ -133,6 +134,11 @@ func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64) err
 
 	if err := cErr(C.sdrplay_api_Init(s.dev.dev, &cb, unsafe.Pointer(uintptr(s.handle)))); err != nil {
 		return fmt.Errorf("sdrplay_api_Init: %w", err)
+	}
+	// Apply initial settings explicitly to ensure streaming starts.
+	updateReasons := C.int(C.sdrplay_api_Update_Dev_Fs | C.sdrplay_api_Update_Tuner_Frf | C.sdrplay_api_Update_Tuner_Gr | C.sdrplay_api_Update_Ctrl_Agc)
+	if err := cErr(C.sdrplay_update(unsafe.Pointer(s.dev.dev), updateReasons)); err != nil {
+		return fmt.Errorf("sdrplay_api_Update: %w", err)
 	}
 	return nil
 }
@@ -200,11 +206,15 @@ func (s *Source) Stop() error {
 }
 
 func (s *Source) ReadIQ(n int) ([]complex64, error) {
-	buf := <-s.ch
-	if len(buf) >= n {
-		return buf[:n], nil
+	select {
+	case buf := <-s.ch:
+		if len(buf) >= n {
+			return buf[:n], nil
+		}
+		return buf, nil
+	case <-time.After(1500 * time.Millisecond):
+		return nil, errors.New("timeout waiting for IQ samples")
 	}
-	return buf, nil
 }
 
 //export goStreamCallback

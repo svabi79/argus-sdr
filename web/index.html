@@ -30,7 +30,20 @@
 
         <label class="control-label" for="spanInput">Span (MHz)</label>
         <div class="control-row">
-          <input id="spanInput" type="number" step="0.1" min="0.1" />
+          <input id="spanInput" type="number" step="0.05" min="0.05" />
+        </div>
+
+        <label class="control-label" for="sampleRateSelect">Sample Rate (MHz)</label>
+        <div class="control-row">
+          <select id="sampleRateSelect">
+            <option value="0.5">0.5</option>
+            <option value="1.0">1.0</option>
+            <option value="1.536">1.536</option>
+            <option value="2.048">2.048</option>
+            <option value="2.5">2.5</option>
+            <option value="3.072">3.072</option>
+            <option value="4.096">4.096</option>
+          </select>
         </div>
 
         <label class="control-label" for="fftSelect">FFT Size</label>

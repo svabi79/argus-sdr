@@ -16,6 +16,7 @@ const detailSpectrogram = document.getElementById('detailSpectrogram');
 const configStatusEl = document.getElementById('configStatus');
 const centerInput = document.getElementById('centerInput');
 const spanInput = document.getElementById('spanInput');
+const sampleRateSelect = document.getElementById('sampleRateSelect');
 const fftSelect = document.getElementById('fftSelect');
 const gainRange = document.getElementById('gainRange');
 const gainInput = document.getElementById('gainInput');
@@ -87,7 +88,11 @@ function applyConfigToUI(cfg) {
   if (!cfg) return;
   isSyncingConfig = true;
   centerInput.value = toMHz(cfg.center_hz).toFixed(6);
-  spanInput.value = toMHz(cfg.sample_rate).toFixed(3);
+  if (sampleRateSelect) {
+    sampleRateSelect.value = toMHz(cfg.sample_rate).toFixed(3).replace(/\.0+$/, '').replace(/\.$/, '');
+  }
+  const spanMHz = toMHz(cfg.sample_rate / zoom);
+  spanInput.value = spanMHz.toFixed(3);
   fftSelect.value = String(cfg.fft_size);
   gainRange.value = cfg.gain_db;
   gainInput.value = cfg.gain_db;
@@ -214,6 +219,9 @@ function renderSpectrum() {
   const span = sample_rate / zoom;
   const startHz = center_hz - span / 2 + pan * span;
   const endHz = center_hz + span / 2 + pan * span;
+  if (!isSyncingConfig && spanInput) {
+    spanInput.value = (span / 1e6).toFixed(3);
+  }
 
   const minDb = -120;
   const maxDb = 0;
@@ -465,10 +473,21 @@ centerInput.addEventListener('change', () => {
 
 spanInput.addEventListener('change', () => {
   const mhz = parseFloat(spanInput.value);
-  if (Number.isFinite(mhz) && mhz > 0) {
-    queueConfigUpdate({ sample_rate: Math.round(fromMHz(mhz)) });
-  }
+  if (!Number.isFinite(mhz) || mhz <= 0) return;
+  const baseRate = currentConfig ? currentConfig.sample_rate : (latest ? latest.sample_rate : 0);
+  if (!baseRate) return;
+  zoom = Math.max(0.25, Math.min(20, baseRate / fromMHz(mhz)));
+  timelineDirty = true;
 });
+
+if (sampleRateSelect) {
+  sampleRateSelect.addEventListener('change', () => {
+    const mhz = parseFloat(sampleRateSelect.value);
+    if (Number.isFinite(mhz) && mhz > 0) {
+      queueConfigUpdate({ sample_rate: Math.round(fromMHz(mhz)) });
+    }
+  });
+}
 
 fftSelect.addEventListener('change', () => {
   const size = parseInt(fftSelect.value, 10);
