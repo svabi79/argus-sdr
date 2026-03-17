@@ -41,6 +41,7 @@ let pendingConfigUpdate = null;
 let pendingSettingsUpdate = null;
 let configTimer = null;
 let settingsTimer = null;
+const GAIN_MAX = 60;
 
 const events = [];
 const eventsById = new Map();
@@ -94,8 +95,9 @@ function applyConfigToUI(cfg) {
   const spanMHz = toMHz(cfg.sample_rate / zoom);
   spanInput.value = spanMHz.toFixed(3);
   fftSelect.value = String(cfg.fft_size);
-  gainRange.value = cfg.gain_db;
-  gainInput.value = cfg.gain_db;
+  const uiGain = Math.max(0, Math.min(GAIN_MAX, GAIN_MAX - cfg.gain_db));
+  gainRange.value = uiGain;
+  gainInput.value = uiGain;
   thresholdRange.value = cfg.detector.threshold_db;
   thresholdInput.value = cfg.detector.threshold_db;
   agcToggle.checked = !!cfg.agc;
@@ -525,14 +527,19 @@ fftSelect.addEventListener('change', () => {
 
 gainRange.addEventListener('input', () => {
   gainInput.value = gainRange.value;
-  queueConfigUpdate({ gain_db: parseFloat(gainRange.value) });
+  const uiVal = parseFloat(gainRange.value);
+  if (Number.isFinite(uiVal)) {
+    const gr = Math.max(0, Math.min(GAIN_MAX, GAIN_MAX - uiVal));
+    queueConfigUpdate({ gain_db: gr });
+  }
 });
 
 gainInput.addEventListener('change', () => {
   const v = parseFloat(gainInput.value);
   if (Number.isFinite(v)) {
     gainRange.value = v;
-    queueConfigUpdate({ gain_db: v });
+    const gr = Math.max(0, Math.min(GAIN_MAX, GAIN_MAX - v));
+    queueConfigUpdate({ gain_db: gr });
   }
 });
 
