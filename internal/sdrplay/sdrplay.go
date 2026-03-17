@@ -97,6 +97,7 @@ type Source struct {
 	bwKHz      int
 	dropped    uint64
 	resets     uint64
+	lastSample time.Time
 	cond       *sync.Cond
 }
 
@@ -284,7 +285,11 @@ func (s *Source) appendRing(samples []complex64) {
 func (s *Source) Stats() sdr.SourceStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return sdr.SourceStats{BufferSamples: s.size, Dropped: s.dropped, Resets: s.resets}
+	ago := int64(-1)
+	if !s.lastSample.IsZero() {
+		ago = time.Since(s.lastSample).Milliseconds()
+	}
+	return sdr.SourceStats{BufferSamples: s.size, Dropped: s.dropped, Resets: s.resets, LastSampleAgoMs: ago}
 }
 
 func (s *Source) Flush() {
@@ -383,6 +388,7 @@ func goStreamCallback(xi *C.short, xq *C.short, numSamples C.uint, reset C.uint,
 		iq[i] = complex(re, im)
 	}
 	src.mu.Lock()
+	src.lastSample = time.Now()
 	src.appendRing(iq)
 	src.mu.Unlock()
 }

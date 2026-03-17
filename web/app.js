@@ -353,7 +353,8 @@ function renderSpectrum() {
 
   const binHz = sample_rate / n;
   const gpuState = gpuInfo.active ? 'GPU:ON' : (gpuInfo.available ? 'GPU:OFF' : 'GPU:N/A');
-  metaEl.textContent = `Center ${(center_hz/1e6).toFixed(3)} MHz | Span ${(span/1e6).toFixed(3)} MHz | Res ${binHz.toFixed(1)} Hz/bin | Buf ${stats.buffer_samples} Drop ${stats.dropped} Reset ${stats.resets} | ${gpuState}`;
+  const lastAge = stats.last_sample_ago_ms >= 0 ? `${stats.last_sample_ago_ms}ms` : 'n/a';
+  metaEl.textContent = `Center ${(center_hz/1e6).toFixed(3)} MHz | Span ${(span/1e6).toFixed(3)} MHz | Res ${binHz.toFixed(1)} Hz/bin | Buf ${stats.buffer_samples} Drop ${stats.dropped} Reset ${stats.resets} Last ${lastAge} | ${gpuState}`;
 }
 
 function renderWaterfall() {

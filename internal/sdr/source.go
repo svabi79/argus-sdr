@@ -13,9 +13,10 @@ type ConfigurableSource interface {
 }
 
 type SourceStats struct {
-	BufferSamples int    `json:"buffer_samples"`
-	Dropped       uint64 `json:"dropped"`
-	Resets        uint64 `json:"resets"`
+	BufferSamples   int    `json:"buffer_samples"`
+	Dropped         uint64 `json:"dropped"`
+	Resets          uint64 `json:"resets"`
+	LastSampleAgoMs int64  `json:"last_sample_ago_ms"`
 }
 
 type StatsProvider interface {

@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -95,6 +96,36 @@ type sourceManager struct {
 	mu        sync.RWMutex
 	src       sdr.Source
 	newSource func(cfg config.Config) (sdr.Source, error)
+}
+
+func (m *sourceManager) Restart(cfg config.Config) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	old := m.src
+	_ = old.Stop()
+	next, err := m.newSource(cfg)
+	if err != nil {
+		_ = old.Start()
+		m.src = old
+		return err
+	}
+	if err := next.Start(); err != nil {
+		_ = next.Stop()
+		_ = old.Start()
+		m.src = old
+		return err
+	}
+	m.src = next
+	return nil
+}
+
+func (m *sourceManager) Stats() sdr.SourceStats {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if sp, ok := m.src.(sdr.StatsProvider); ok {
+		return sp.Stats()
+	}
+	return sdr.SourceStats{}
 }
 
 func newSourceManager(src sdr.Source, newSource func(cfg config.Config) (sdr.Source, error)) *sourceManager {
@@ -463,6 +494,11 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 			iq, err := src.ReadIQ(cfg.FFTSize)
 			if err != nil {
 				log.Printf("read IQ: %v", err)
+				if strings.Contains(err.Error(), "timeout") {
+					if err := src.Restart(cfg); err != nil {
+						log.Printf("restart failed: %v", err)
+					}
+				}
 				continue
 			}
 			if !gotSamples {
