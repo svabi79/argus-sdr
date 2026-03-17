@@ -38,9 +38,14 @@ type SpectrumFrame struct {
 	Signals   []detector.Signal `json:"signals"`
 }
 
+type client struct {
+	conn *websocket.Conn
+	send chan []byte
+}
+
 type hub struct {
 	mu      sync.Mutex
-	clients map[*websocket.Conn]struct{}
+	clients map[*client]struct{}
 }
 
 type gpuStatus struct {
@@ -68,33 +73,40 @@ func (g *gpuStatus) snapshot() gpuStatus {
 }
 
 func newHub() *hub {
-	return &hub{clients: map[*websocket.Conn]struct{}{}}
+	return &hub{clients: map[*client]struct{}{}}
 }
 
-func (h *hub) add(c *websocket.Conn) {
+func (h *hub) add(c *client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.clients[c] = struct{}{}
 }
 
-func (h *hub) remove(c *websocket.Conn) {
+func (h *hub) remove(c *client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.clients, c)
+	close(c.send)
 }
 
 func (h *hub) broadcast(frame SpectrumFrame) {
+	b, err := json.Marshal(frame)
+	if err != nil {
+		log.Printf("marshal frame: %v", err)
+		return
+	}
+
 	h.mu.Lock()
-	clients := make([]*websocket.Conn, 0, len(h.clients))
+	clients := make([]*client, 0, len(h.clients))
 	for c := range h.clients {
 		clients = append(clients, c)
 	}
 	h.mu.Unlock()
 
-	b, _ := json.Marshal(frame)
 	for _, c := range clients {
-		_ = c.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
-		if err := c.WriteMessage(websocket.TextMessage, b); err != nil {
+		select {
+		case c.send <- b:
+		default:
 			h.remove(c)
 		}
 	}
@@ -285,32 +297,44 @@ func main() {
 	return origin == "" || strings.HasPrefix(origin, "http://localhost") || strings.HasPrefix(origin, "http://127.0.0.1")
 }}
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		c, err := upgrader.Upgrade(w, r, nil)
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
+		c := &client{conn: conn, send: make(chan []byte, 32)}
 		h.add(c)
 		defer func() {
 			h.remove(c)
-			_ = c.Close()
+			_ = conn.Close()
 		}()
-		c.SetReadDeadline(time.Now().Add(60 * time.Second))
-		c.SetPongHandler(func(string) error {
-			c.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetPongHandler(func(string) error {
+			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 			return nil
 		})
 		go func() {
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for range ticker.C {
-				_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
-					return
+			ping := time.NewTicker(30 * time.Second)
+			defer ping.Stop()
+			for {
+				select {
+				case msg, ok := <-c.send:
+					if !ok {
+						return
+					}
+					_ = conn.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
+					if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+						return
+					}
+				case <-ping.C:
+					_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+					if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+						return
+					}
 				}
 			}
 		}()
 		for {
-			_, _, err := c.ReadMessage()
+			_, _, err := conn.ReadMessage()
 			if err != nil {
 				return
 			}

@@ -83,6 +83,7 @@ type Source struct {
 	mu         sync.Mutex
 	dev        C.sdrplay_api_DeviceT
 	params     *C.sdrplay_api_DeviceParamsT
+	devSelected bool
 	ch         chan []complex64
 	handle     cgo.Handle
 	open       bool
@@ -127,20 +128,24 @@ func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64, bwK
 	if err := cErr(C.sdrplay_api_LockDeviceApi()); err != nil {
 		return fmt.Errorf("sdrplay_api_LockDeviceApi: %w", err)
 	}
-	defer func() { _ = cErr(C.sdrplay_api_UnlockDeviceApi()) }()
 
 	var numDevs C.uint
 	var devices [8]C.sdrplay_api_DeviceT
 	if err := cErr(C.sdrplay_api_GetDevices(&devices[0], &numDevs, C.uint(len(devices)))); err != nil {
+		_ = cErr(C.sdrplay_api_UnlockDeviceApi())
 		return fmt.Errorf("sdrplay_api_GetDevices: %w", err)
 	}
 	if numDevs == 0 {
+		_ = cErr(C.sdrplay_api_UnlockDeviceApi())
 		return errors.New("no SDRplay devices found")
 	}
 	s.dev = devices[0]
 	if err := cErr(C.sdrplay_api_SelectDevice(&s.dev)); err != nil {
+		_ = cErr(C.sdrplay_api_UnlockDeviceApi())
 		return fmt.Errorf("sdrplay_api_SelectDevice: %w", err)
 	}
+	s.devSelected = true
+	_ = cErr(C.sdrplay_api_UnlockDeviceApi())
 
 	var params *C.sdrplay_api_DeviceParamsT
 	if err := cErr(C.sdrplay_api_GetDeviceParams(s.dev.dev, &params)); err != nil {
@@ -338,7 +343,10 @@ func (s *Source) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.open {
-		_ = cErr(C.sdrplay_api_ReleaseDevice(&s.dev))
+		if s.devSelected {
+			_ = cErr(C.sdrplay_api_ReleaseDevice(&s.dev))
+			s.devSelected = false
+		}
 		_ = cErr(C.sdrplay_api_Close())
 		s.open = false
 	}
