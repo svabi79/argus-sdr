@@ -385,6 +385,9 @@ func goStreamCallback(xi *C.short, xq *C.short, numSamples C.uint, reset C.uint,
 		src.size = 0
 		src.resets++
 		src.mu.Unlock()
+		if src.cond != nil {
+			src.cond.Broadcast()
+		}
 	}
 	n := int(numSamples)
 	if n <= 0 {

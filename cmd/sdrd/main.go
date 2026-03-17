@@ -85,10 +85,18 @@ func (h *hub) remove(c *websocket.Conn) {
 
 func (h *hub) broadcast(frame SpectrumFrame) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	b, _ := json.Marshal(frame)
+	clients := make([]*websocket.Conn, 0, len(h.clients))
 	for c := range h.clients {
-		_ = c.WriteMessage(websocket.TextMessage, b)
+		clients = append(clients, c)
+	}
+	h.mu.Unlock()
+
+	b, _ := json.Marshal(frame)
+	for _, c := range clients {
+		_ = c.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
+		if err := c.WriteMessage(websocket.TextMessage, b); err != nil {
+			h.remove(c)
+		}
 	}
 }
 
