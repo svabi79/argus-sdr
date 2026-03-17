@@ -87,6 +87,7 @@ type Source struct {
 	centerHz   float64
 	gainDb     float64
 	agc        bool
+	buf        []complex64
 }
 
 func New(sampleRate int, centerHz float64, gainDb float64) (sdr.Source, error) {
@@ -134,11 +135,6 @@ func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64) err
 
 	if err := cErr(C.sdrplay_api_Init(s.dev.dev, &cb, unsafe.Pointer(uintptr(s.handle)))); err != nil {
 		return fmt.Errorf("sdrplay_api_Init: %w", err)
-	}
-	// Apply initial settings explicitly to ensure streaming starts.
-	updateReasons := C.int(C.sdrplay_api_Update_Dev_Fs | C.sdrplay_api_Update_Tuner_Frf | C.sdrplay_api_Update_Tuner_Gr | C.sdrplay_api_Update_Ctrl_Agc)
-	if err := cErr(C.sdrplay_update(unsafe.Pointer(s.dev.dev), updateReasons)); err != nil {
-		return fmt.Errorf("sdrplay_api_Update: %w", err)
 	}
 	return nil
 }
@@ -206,14 +202,39 @@ func (s *Source) Stop() error {
 }
 
 func (s *Source) ReadIQ(n int) ([]complex64, error) {
-	select {
-	case buf := <-s.ch:
-		if len(buf) >= n {
-			return buf[:n], nil
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for {
+		s.mu.Lock()
+		if len(s.buf) >= n {
+			out := make([]complex64, n)
+			copy(out, s.buf[:n])
+			s.buf = s.buf[n:]
+			s.mu.Unlock()
+			return out, nil
 		}
-		return buf, nil
-	case <-time.After(1500 * time.Millisecond):
-		return nil, errors.New("timeout waiting for IQ samples")
+		s.mu.Unlock()
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			s.mu.Lock()
+			if len(s.buf) > 0 {
+				out := make([]complex64, len(s.buf))
+				copy(out, s.buf)
+				s.buf = nil
+				s.mu.Unlock()
+				return out, errors.New("timeout waiting for full IQ buffer")
+			}
+			s.mu.Unlock()
+			return nil, errors.New("timeout waiting for IQ samples")
+		}
+
+		select {
+		case buf := <-s.ch:
+			s.mu.Lock()
+			s.buf = append(s.buf, buf...)
+			s.mu.Unlock()
+		case <-time.After(remaining / 4):
+		}
 	}
 }
 
