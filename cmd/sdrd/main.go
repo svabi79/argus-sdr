@@ -128,6 +128,14 @@ func (m *sourceManager) Stats() sdr.SourceStats {
 	return sdr.SourceStats{}
 }
 
+func (m *sourceManager) Flush() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if fl, ok := m.src.(sdr.Flushable); ok {
+		fl.Flush()
+	}
+}
+
 func newSourceManager(src sdr.Source, newSource func(cfg config.Config) (sdr.Source, error)) *sourceManager {
 	return &sourceManager{src: src, newSource: newSource}
 }
@@ -428,7 +436,7 @@ func main() {
 	_ = server.Shutdown(ctxTimeout)
 }
 
-func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, updates <-chan dspUpdate, gpuState *gpuStatus) {
+func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, updates <-chan dspUpdate, gpuState *gpuStatus) {
 	ticker := time.NewTicker(cfg.FrameInterval())
 	defer ticker.Stop()
 	enc := json.NewEncoder(eventFile)
@@ -467,9 +475,7 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 			dcEnabled = upd.dcBlock
 			iqEnabled = upd.iqBalance
 			if cfg.FFTSize != prevFFT || cfg.UseGPUFFT != prevUseGPU {
-				if flushable, ok := src.(sdr.Flushable); ok {
-					flushable.Flush()
-				}
+				srcMgr.Flush()
 				gotSamples = false
 				if gpuEngine != nil {
 					gpuEngine.Close()
@@ -491,11 +497,11 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 			dcBlocker.Reset()
 			ticker.Reset(cfg.FrameInterval())
 		case <-ticker.C:
-			iq, err := src.ReadIQ(cfg.FFTSize)
+			iq, err := srcMgr.ReadIQ(cfg.FFTSize)
 			if err != nil {
 				log.Printf("read IQ: %v", err)
 				if strings.Contains(err.Error(), "timeout") {
-					if err := src.Restart(cfg); err != nil {
+					if err := srcMgr.Restart(cfg); err != nil {
 						log.Printf("restart failed: %v", err)
 					}
 				}
