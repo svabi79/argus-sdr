@@ -22,4 +22,8 @@ type StatsProvider interface {
 	Stats() SourceStats
 }
 
+type Flushable interface {
+	Flush()
+}
+
 var ErrNotImplemented = errors.New("sdrplay support not built; build with -tags sdrplay or use --mock")

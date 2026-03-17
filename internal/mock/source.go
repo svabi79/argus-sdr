@@ -61,3 +61,5 @@ func (s *Source) ReadIQ(n int) ([]complex64, error) {
 func (s *Source) Stats() sdr.SourceStats {
 	return sdr.SourceStats{}
 }
+
+func (s *Source) Flush() {}

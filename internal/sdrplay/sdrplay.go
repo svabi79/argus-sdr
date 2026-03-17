@@ -287,6 +287,16 @@ func (s *Source) Stats() sdr.SourceStats {
 	return sdr.SourceStats{BufferSamples: s.size, Dropped: s.dropped, Resets: s.resets}
 }
 
+func (s *Source) Flush() {
+	s.mu.Lock()
+	s.head = 0
+	s.size = 0
+	s.mu.Unlock()
+	if s.cond != nil {
+		s.cond.Broadcast()
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

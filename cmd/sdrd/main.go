@@ -436,6 +436,10 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 			dcEnabled = upd.dcBlock
 			iqEnabled = upd.iqBalance
 			if cfg.FFTSize != prevFFT || cfg.UseGPUFFT != prevUseGPU {
+				if flushable, ok := src.(sdr.Flushable); ok {
+					flushable.Flush()
+				}
+				gotSamples = false
 				if gpuEngine != nil {
 					gpuEngine.Close()
 					gpuEngine = nil
