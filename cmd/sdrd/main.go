@@ -439,6 +439,8 @@ func main() {
 func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, updates <-chan dspUpdate, gpuState *gpuStatus) {
 	ticker := time.NewTicker(cfg.FrameInterval())
 	defer ticker.Stop()
+	logTicker := time.NewTicker(5 * time.Second)
+	defer logTicker.Stop()
 	enc := json.NewEncoder(eventFile)
 	dcBlocker := dsp.NewDCBlocker(0.995)
 	dcEnabled := cfg.DCBlock
@@ -462,6 +464,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 		select {
 		case <-ctx.Done():
 			return
+		case <-logTicker.C:
+			st := srcMgr.Stats()
+			log.Printf("stats: buf=%d drop=%d reset=%d last=%dms", st.BufferSamples, st.Dropped, st.Resets, st.LastSampleAgoMs)
 		case upd := <-updates:
 			prevFFT := cfg.FFTSize
 			prevUseGPU := useGPU
