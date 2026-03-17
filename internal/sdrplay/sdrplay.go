@@ -120,6 +120,9 @@ func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64, bwK
 		return fmt.Errorf("sdrplay_api_Open: %w", err)
 	}
 	s.open = true
+	if err := cErr(C.sdrplay_api_LockDeviceApi()); err != nil {
+		return fmt.Errorf("sdrplay_api_LockDeviceApi: %w", err)
+	}
 
 	var numDevs C.uint
 	var devices [8]C.sdrplay_api_DeviceT
@@ -131,13 +134,17 @@ func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64, bwK
 	}
 	s.dev = devices[0]
 	if err := cErr(C.sdrplay_api_SelectDevice(&s.dev)); err != nil {
+		_ = cErr(C.sdrplay_api_UnlockDeviceApi())
 		return fmt.Errorf("sdrplay_api_SelectDevice: %w", err)
 	}
+	_ = cErr(C.sdrplay_api_UnlockDeviceApi())
 
 	var params *C.sdrplay_api_DeviceParamsT
 	if err := cErr(C.sdrplay_api_GetDeviceParams(s.dev.dev, &params)); err != nil {
 		return fmt.Errorf("sdrplay_api_GetDeviceParams: %w", err)
 	}
+	// Enable verbose debug from SDRplay service.
+	_ = cErr(C.sdrplay_api_DebugEnable(s.dev.dev, C.sdrplay_api_DbgLvl_Verbose))
 	s.params = params
 	C.sdrplay_set_fs(s.params, C.double(sampleRate))
 	C.sdrplay_set_rf(s.params, C.double(centerHz))
@@ -340,13 +347,21 @@ func (s *Source) ReadIQ(n int) ([]complex64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for s.size < n {
-		if time.Now().After(deadline) {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
 			return nil, errors.New("timeout waiting for IQ samples")
 		}
-		// Timed wait to avoid indefinite block if callbacks stop.
-		s.mu.Unlock()
-		time.Sleep(20 * time.Millisecond)
-		s.mu.Lock()
+		if s.cond != nil {
+			timer := time.AfterFunc(remaining, func() {
+				s.cond.Broadcast()
+			})
+			s.cond.Wait()
+			timer.Stop()
+		} else {
+			s.mu.Unlock()
+			time.Sleep(20 * time.Millisecond)
+			s.mu.Lock()
+		}
 	}
 	out := make([]complex64, n)
 	for i := 0; i < n; i++ {
