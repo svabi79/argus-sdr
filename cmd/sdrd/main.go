@@ -389,11 +389,7 @@ func main() {
 
 	http.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if sp, ok := src.(sdr.StatsProvider); ok {
-			_ = json.NewEncoder(w).Encode(sp.Stats())
-			return
-		}
-		_ = json.NewEncoder(w).Encode(sdr.SourceStats{})
+		_ = json.NewEncoder(w).Encode(srcMgr.Stats())
 	})
 
 	http.HandleFunc("/api/gpu", func(w http.ResponseWriter, r *http.Request) {

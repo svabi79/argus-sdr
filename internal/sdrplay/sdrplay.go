@@ -112,7 +112,12 @@ func New(sampleRate int, centerHz float64, gainDb float64, bwKHz int) (sdr.Sourc
 	s.cond = sync.NewCond(&s.mu)
 	s.resizeBuffer(sampleRate, 0)
 	s.handle = cgo.NewHandle(s)
-	return s, s.configure(sampleRate, centerHz, gainDb, bwKHz)
+	if err := s.configure(sampleRate, centerHz, gainDb, bwKHz); err != nil {
+		s.handle.Delete()
+		s.handle = 0
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64, bwKHz int) error {
