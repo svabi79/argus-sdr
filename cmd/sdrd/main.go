@@ -21,6 +21,7 @@ import (
 	"sdr-visual-suite/internal/dsp"
 	"sdr-visual-suite/internal/events"
 	fftutil "sdr-visual-suite/internal/fft"
+	"sdr-visual-suite/internal/fft/gpufft"
 	"sdr-visual-suite/internal/mock"
 	"sdr-visual-suite/internal/runtime"
 	"sdr-visual-suite/internal/sdr"
@@ -39,6 +40,30 @@ type SpectrumFrame struct {
 type hub struct {
 	mu      sync.Mutex
 	clients map[*websocket.Conn]struct{}
+}
+
+type gpuStatus struct {
+	mu        sync.RWMutex
+	Available bool   `json:"available"`
+	Active    bool   `json:"active"`
+	Error     string `json:"error"`
+}
+
+func (g *gpuStatus) set(active bool, err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.Active = active
+	if err != nil {
+		g.Error = err.Error()
+	} else {
+		g.Error = ""
+	}
+}
+
+func (g *gpuStatus) snapshot() gpuStatus {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return gpuStatus{Available: g.Available, Active: g.Active, Error: g.Error}
 }
 
 func newHub() *hub {
@@ -126,6 +151,7 @@ type dspUpdate struct {
 	window    []float64
 	dcBlock   bool
 	iqBalance bool
+	useGPUFFT bool
 }
 
 func pushDSPUpdate(ch chan dspUpdate, update dspUpdate) {
@@ -153,6 +179,7 @@ func main() {
 	}
 
 	cfgManager := runtime.New(cfg)
+	gpuState := &gpuStatus{Available: gpufft.Available()}
 
 	newSource := func(cfg config.Config) (sdr.Source, error) {
 		if mockFlag {
@@ -203,7 +230,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, dspUpdates)
+	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, dspUpdates, gpuState)
 
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +298,7 @@ func main() {
 				window:    newWindow,
 				dcBlock:   next.DCBlock,
 				iqBalance: next.IQBalance,
+				useGPUFFT: next.UseGPUFFT,
 			})
 			_ = json.NewEncoder(w).Encode(next)
 		default:
@@ -321,6 +349,11 @@ func main() {
 		_ = json.NewEncoder(w).Encode(sdr.SourceStats{})
 	})
 
+	http.HandleFunc("/api/gpu", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(gpuState.snapshot())
+	})
+
 	http.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		limit := 200
@@ -364,13 +397,26 @@ func main() {
 	_ = server.Shutdown(ctxTimeout)
 }
 
-func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, updates <-chan dspUpdate) {
+func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, updates <-chan dspUpdate, gpuState *gpuStatus) {
 	ticker := time.NewTicker(cfg.FrameInterval())
 	defer ticker.Stop()
 	enc := json.NewEncoder(eventFile)
 	dcBlocker := dsp.NewDCBlocker(0.995)
 	dcEnabled := cfg.DCBlock
 	iqEnabled := cfg.IQBalance
+	useGPU := cfg.UseGPUFFT
+	var gpuEngine *gpufft.Engine
+	if useGPU && gpuState != nil && gpuState.Available {
+		if eng, err := gpufft.New(cfg.FFTSize); err == nil {
+			gpuEngine = eng
+			gpuState.set(true, nil)
+		} else {
+			gpuState.set(false, err)
+			useGPU = false
+		}
+	} else if gpuState != nil {
+		gpuState.set(false, nil)
+	}
 
 	gotSamples := false
 	for {
@@ -378,6 +424,8 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 		case <-ctx.Done():
 			return
 		case upd := <-updates:
+			prevFFT := cfg.FFTSize
+			prevUseGPU := useGPU
 			cfg = upd.cfg
 			if upd.det != nil {
 				det = upd.det
@@ -387,6 +435,24 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 			}
 			dcEnabled = upd.dcBlock
 			iqEnabled = upd.iqBalance
+			if cfg.FFTSize != prevFFT || cfg.UseGPUFFT != prevUseGPU {
+				if gpuEngine != nil {
+					gpuEngine.Close()
+					gpuEngine = nil
+				}
+				useGPU = cfg.UseGPUFFT
+				if useGPU && gpuState != nil && gpuState.Available {
+					if eng, err := gpufft.New(cfg.FFTSize); err == nil {
+						gpuEngine = eng
+						gpuState.set(true, nil)
+					} else {
+						gpuState.set(false, err)
+						useGPU = false
+					}
+				} else if gpuState != nil {
+					gpuState.set(false, nil)
+				}
+			}
 			dcBlocker.Reset()
 			ticker.Reset(cfg.FrameInterval())
 		case <-ticker.C:
@@ -405,7 +471,28 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 			if iqEnabled {
 				dsp.IQBalance(iq)
 			}
-			spectrum := fftutil.Spectrum(iq, window)
+			var spectrum []float64
+			if useGPU && gpuEngine != nil {
+				if len(window) == len(iq) {
+					for i := 0; i < len(iq); i++ {
+						v := iq[i]
+						w := float32(window[i])
+						iq[i] = complex(real(v)*w, imag(v)*w)
+					}
+				}
+				out, err := gpuEngine.Exec(iq)
+				if err != nil {
+					if gpuState != nil {
+						gpuState.set(false, err)
+					}
+					useGPU = false
+					spectrum = fftutil.Spectrum(iq, window)
+				} else {
+					spectrum = fftutil.SpectrumFromFFT(out)
+				}
+			} else {
+				spectrum = fftutil.Spectrum(iq, window)
+			}
 			now := time.Now()
 			finished, signals := det.Process(now, spectrum, cfg.CenterHz)
 			for _, ev := range finished {

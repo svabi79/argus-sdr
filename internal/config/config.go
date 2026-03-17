@@ -26,6 +26,7 @@ type Config struct {
 	FFTSize        int            `yaml:"fft_size" json:"fft_size"`
 	GainDb         float64        `yaml:"gain_db" json:"gain_db"`
 	TunerBwKHz     int            `yaml:"tuner_bw_khz" json:"tuner_bw_khz"`
+	UseGPUFFT      bool           `yaml:"use_gpu_fft" json:"use_gpu_fft"`
 	AGC            bool           `yaml:"agc" json:"agc"`
 	DCBlock        bool           `yaml:"dc_block" json:"dc_block"`
 	IQBalance      bool           `yaml:"iq_balance" json:"iq_balance"`
@@ -47,6 +48,7 @@ func Default() Config {
 		FFTSize:        2048,
 		GainDb:         30,
 		TunerBwKHz:     1536,
+		UseGPUFFT:      false,
 		AGC:            false,
 		DCBlock:        false,
 		IQBalance:      false,

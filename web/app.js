@@ -29,6 +29,7 @@ const iqToggle = document.getElementById('iqToggle');
 const avgSelect = document.getElementById('avgSelect');
 const maxHoldToggle = document.getElementById('maxHoldToggle');
 const maxHoldReset = document.getElementById('maxHoldReset');
+const gpuToggle = document.getElementById('gpuToggle');
 const presetButtons = Array.from(document.querySelectorAll('.preset-btn'));
 
 let latest = null;
@@ -52,6 +53,7 @@ let maxHold = false;
 let maxSpectrum = null;
 let lastFFTSize = null;
 let stats = { buffer_samples: 0, dropped: 0, resets: 0 };
+let gpuInfo = { available: false, active: false, error: '' };
 
 const events = [];
 const eventsById = new Map();
@@ -121,6 +123,7 @@ function applyConfigToUI(cfg) {
   agcToggle.checked = !!cfg.agc;
   dcToggle.checked = !!cfg.dc_block;
   iqToggle.checked = !!cfg.iq_balance;
+  if (gpuToggle) gpuToggle.checked = !!cfg.use_gpu_fft;
   isSyncingConfig = false;
 }
 
@@ -146,6 +149,17 @@ async function loadStats() {
     if (!res.ok) return;
     const data = await res.json();
     stats = data || stats;
+  } catch (err) {
+    // ignore
+  }
+}
+
+async function loadGPU() {
+  try {
+    const res = await fetch('/api/gpu');
+    if (!res.ok) return;
+    const data = await res.json();
+    gpuInfo = data || gpuInfo;
   } catch (err) {
     // ignore
   }
@@ -338,7 +352,8 @@ function renderSpectrum() {
   }
 
   const binHz = sample_rate / n;
-  metaEl.textContent = `Center ${(center_hz/1e6).toFixed(3)} MHz | Span ${(span/1e6).toFixed(3)} MHz | Res ${binHz.toFixed(1)} Hz/bin | Buf ${stats.buffer_samples} Drop ${stats.dropped} Reset ${stats.resets}`;
+  const gpuState = gpuInfo.active ? 'GPU:ON' : (gpuInfo.available ? 'GPU:OFF' : 'GPU:N/A');
+  metaEl.textContent = `Center ${(center_hz/1e6).toFixed(3)} MHz | Span ${(span/1e6).toFixed(3)} MHz | Res ${binHz.toFixed(1)} Hz/bin | Buf ${stats.buffer_samples} Drop ${stats.dropped} Reset ${stats.resets} | ${gpuState}`;
 }
 
 function renderWaterfall() {
@@ -607,6 +622,12 @@ if (maxHoldReset) {
   });
 }
 
+if (gpuToggle) {
+  gpuToggle.addEventListener('change', () => {
+    queueConfigUpdate({ use_gpu_fft: gpuToggle.checked });
+  });
+}
+
 fftSelect.addEventListener('change', () => {
   const size = parseInt(fftSelect.value, 10);
   if (Number.isFinite(size)) {
@@ -771,3 +792,4 @@ requestAnimationFrame(tick);
 fetchEvents(true);
 setInterval(() => fetchEvents(false), 2000);
 setInterval(loadStats, 1000);
+setInterval(loadGPU, 1000);

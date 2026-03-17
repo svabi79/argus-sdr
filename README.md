@@ -10,6 +10,7 @@ Go-based SDRplay RSP1b live spectrum + waterfall visualizer with a minimal event
 - Events API (`/api/events?limit=...&since=...`)
 - Runtime UI controls for center frequency, span, sample rate, tuner bandwidth, FFT size, gain, AGC, DC block, IQ balance, detector threshold
 - Display controls: averaging + max-hold
+- Optional GPU FFT (cuFFT) with toggle + `/api/gpu`
 - Recorded clips list placeholder (metadata only for now)
 - Windows + Linux support
 - Mock mode for testing without hardware
@@ -34,6 +35,16 @@ go build -tags sdrplay ./cmd/sdrd
 .\sdrd.exe -config config.yaml
 ```
 
+#### Windows (GPU FFT / cuFFT)
+Requires the NVIDIA CUDA Toolkit installed (cuFFT + cudart). Ensure CUDA `bin` and `lib/x64` are on PATH/LIB.
+```powershell
+$env:CGO_CFLAGS='-IC:\Program Files\SDRplay\API\inc -IC:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\include'
+$env:CGO_LDFLAGS='-LC:\Program Files\SDRplay\API\x64 -lsdrplay_api -LC:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\lib\x64 -lcufft -lcudart'
+
+go build -tags "sdrplay,cufft" ./cmd/sdrd
+.\sdrd.exe -config config.yaml
+```
+
 ### Linux
 ```bash
 export CGO_CFLAGS='-I/opt/sdrplay_api/include'
@@ -51,6 +62,7 @@ Edit `config.yaml`:
 - `fft_size`: FFT size
 - `gain_db`: device gain (gain reduction)
 - `tuner_bw_khz`: tuner bandwidth (200/300/600/1536/5000/6000/7000/8000)
+- `use_gpu_fft`: enable GPU FFT (requires CUDA + cufft build tag)
 - `agc`: enable automatic gain control
 - `dc_block`: enable DC blocking filter
 - `iq_balance`: enable basic IQ imbalance correction
@@ -69,8 +81,9 @@ Use the right-side controls to adjust center frequency, span (zoom), sample rate
 
 ### Config API
 - `GET /api/config`: returns the current runtime configuration.
-- `POST /api/config`: updates `center_hz`, `sample_rate`, `fft_size`, `gain_db`, and `detector.threshold_db` at runtime.
+- `POST /api/config`: updates `center_hz`, `sample_rate`, `fft_size`, `gain_db`, `tuner_bw_khz`, `use_gpu_fft`, and `detector.threshold_db` at runtime.
 - `POST /api/sdr/settings`: updates `agc`, `dc_block`, and `iq_balance` at runtime.
+- `GET /api/gpu`: reports GPU FFT availability/active status.
 
 ### Events API
 `/api/events` reads from the JSONL event log and returns the most recent events:

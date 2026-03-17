@@ -13,6 +13,7 @@ type ConfigUpdate struct {
 	FFTSize    *int            `json:"fft_size"`
 	GainDb     *float64        `json:"gain_db"`
 	TunerBwKHz *int            `json:"tuner_bw_khz"`
+	UseGPUFFT  *bool           `json:"use_gpu_fft"`
 	Detector   *DetectorUpdate `json:"detector"`
 }
 
@@ -77,6 +78,9 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 			return m.cfg, errors.New("tuner_bw_khz must be > 0")
 		}
 		next.TunerBwKHz = *update.TunerBwKHz
+	}
+	if update.UseGPUFFT != nil {
+		next.UseGPUFFT = *update.UseGPUFFT
 	}
 	if update.Detector != nil {
 		if update.Detector.ThresholdDb != nil {
