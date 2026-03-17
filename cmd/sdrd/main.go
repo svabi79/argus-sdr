@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -17,6 +18,7 @@ import (
 
 	"sdr-visual-suite/internal/config"
 	"sdr-visual-suite/internal/detector"
+	"sdr-visual-suite/internal/events"
 	fftutil "sdr-visual-suite/internal/fft"
 	"sdr-visual-suite/internal/mock"
 	"sdr-visual-suite/internal/sdr"
@@ -134,6 +136,31 @@ func main() {
 		_ = json.NewEncoder(w).Encode(cfg)
 	})
 
+	http.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		limit := 200
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil {
+				limit = parsed
+			}
+		}
+		var since time.Time
+		if v := r.URL.Query().Get("since"); v != "" {
+			if parsed, err := parseSince(v); err == nil {
+				since = parsed
+			} else {
+				http.Error(w, "invalid since", http.StatusBadRequest)
+				return
+			}
+		}
+		evs, err := events.ReadRecent(cfg.EventPath, limit, since)
+		if err != nil {
+			http.Error(w, "failed to read events", http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(evs)
+	})
+
 	http.Handle("/", http.FileServer(http.Dir(cfg.WebRoot)))
 
 	server := &http.Server{Addr: cfg.WebAddr}
@@ -183,4 +210,20 @@ func runDSP(ctx context.Context, src sdr.Source, cfg config.Config, det *detecto
 			})
 		}
 	}
+}
+
+func parseSince(raw string) (time.Time, error) {
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	if ms, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		if ms > 1e12 {
+			return time.UnixMilli(ms), nil
+		}
+		return time.Unix(ms, 0), nil
+	}
+	if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, raw)
 }

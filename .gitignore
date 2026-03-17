@@ -11,4 +11,4 @@
 data/events.jsonl
 
 # local prompts
-prompt.txt
+prompt*.txt

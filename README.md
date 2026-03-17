@@ -4,7 +4,11 @@ Go-based SDRplay RSP1b live spectrum + waterfall visualizer with a minimal event
 
 ## Features
 - Live spectrum + waterfall web UI (WebSocket streaming)
+- Event timeline view (time vs frequency) with detail drawer
+- In-browser spectrogram slice for selected events
 - Basic detector with event JSONL output (`data/events.jsonl`)
+- Events API (`/api/events?limit=...&since=...`)
+- Recorded clips list placeholder (metadata only for now)
 - Windows + Linux support
 - Mock mode for testing without hardware
 
@@ -49,6 +53,20 @@ Edit `config.yaml`:
 
 ## Web UI
 The UI is served from `web/` and connects to `/ws` for spectrum frames.
+
+### Event Timeline
+- The timeline panel displays recent events (time vs frequency).
+- Click any event block to open the detail drawer with event stats and a mini spectrogram slice from the latest frame.
+
+### Events API
+`/api/events` reads from the JSONL event log and returns the most recent events:
+- `limit` (optional): max number of events (default 200, max 2000)
+- `since` (optional): Unix milliseconds or RFC3339 timestamp
+
+Example:
+```bash
+curl "http://localhost:8080/api/events?limit=100&since=1700000000000"
+```
 
 ## Tests
 ```bash

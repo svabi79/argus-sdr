@@ -1,7 +1,18 @@
 const spectrumCanvas = document.getElementById('spectrum');
 const waterfallCanvas = document.getElementById('waterfall');
+const timelineCanvas = document.getElementById('timeline');
 const statusEl = document.getElementById('status');
 const metaEl = document.getElementById('meta');
+const timelineRangeEl = document.getElementById('timelineRange');
+const drawerEl = document.getElementById('eventDrawer');
+const drawerCloseBtn = document.getElementById('drawerClose');
+const detailCenterEl = document.getElementById('detailCenter');
+const detailBwEl = document.getElementById('detailBw');
+const detailStartEl = document.getElementById('detailStart');
+const detailEndEl = document.getElementById('detailEnd');
+const detailSnrEl = document.getElementById('detailSnr');
+const detailDurEl = document.getElementById('detailDur');
+const detailSpectrogram = document.getElementById('detailSpectrogram');
 
 let latest = null;
 let zoom = 1.0;
@@ -9,6 +20,15 @@ let pan = 0.0;
 let isDragging = false;
 let dragStartX = 0;
 let dragStartPan = 0;
+let timelineDirty = true;
+let detailDirty = false;
+
+const events = [];
+const eventsById = new Map();
+let lastEventEndMs = 0;
+let eventsFetchInFlight = false;
+let timelineRects = [];
+let selectedEventId = null;
 
 function resize() {
   const dpr = window.devicePixelRatio || 1;
@@ -18,6 +38,14 @@ function resize() {
   const rect2 = waterfallCanvas.getBoundingClientRect();
   waterfallCanvas.width = rect2.width * dpr;
   waterfallCanvas.height = rect2.height * dpr;
+  const rect3 = timelineCanvas.getBoundingClientRect();
+  timelineCanvas.width = rect3.width * dpr;
+  timelineCanvas.height = rect3.height * dpr;
+  const rect4 = detailSpectrogram.getBoundingClientRect();
+  detailSpectrogram.width = rect4.width * dpr;
+  detailSpectrogram.height = rect4.height * dpr;
+  timelineDirty = true;
+  detailDirty = true;
 }
 
 window.addEventListener('resize', resize);
@@ -29,6 +57,12 @@ function colorMap(v) {
   const g = Math.min(255, Math.max(0, Math.floor(255 * Math.pow(v, 1.1))));
   const b = Math.min(255, Math.max(0, Math.floor(180 * Math.pow(1 - v, 1.2))));
   return [r, g, b];
+}
+
+function snrColor(snr) {
+  const norm = Math.max(0, Math.min(1, (snr + 5) / 30));
+  const [r, g, b] = colorMap(norm);
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 function renderSpectrum() {
@@ -129,9 +163,130 @@ function renderWaterfall() {
   ctx.putImageData(row, 0, 0);
 }
 
+function renderTimeline() {
+  const ctx = timelineCanvas.getContext('2d');
+  const w = timelineCanvas.width;
+  const h = timelineCanvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  if (events.length === 0) {
+    timelineRangeEl.textContent = 'No events yet';
+    return;
+  }
+
+  const now = Date.now();
+  const windowMs = 5 * 60 * 1000;
+  const endMs = now;
+  const startMs = endMs - windowMs;
+
+  let minHz = Infinity;
+  let maxHz = -Infinity;
+  if (latest) {
+    minHz = latest.center_hz - latest.sample_rate / 2;
+    maxHz = latest.center_hz + latest.sample_rate / 2;
+  } else {
+    for (const ev of events) {
+      minHz = Math.min(minHz, ev.center_hz - ev.bandwidth_hz / 2);
+      maxHz = Math.max(maxHz, ev.center_hz + ev.bandwidth_hz / 2);
+    }
+  }
+  if (!isFinite(minHz) || !isFinite(maxHz) || minHz === maxHz) {
+    minHz = 0;
+    maxHz = 1;
+  }
+
+  ctx.strokeStyle = '#13263b';
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 6; i++) {
+    const y = (h / 6) * i;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  timelineRects = [];
+  for (const ev of events) {
+    if (ev.end_ms < startMs || ev.start_ms > endMs) continue;
+    const x1 = ((Math.max(ev.start_ms, startMs) - startMs) / (endMs - startMs)) * w;
+    const x2 = ((Math.min(ev.end_ms, endMs) - startMs) / (endMs - startMs)) * w;
+    const bw = Math.max(ev.bandwidth_hz, 1);
+    const topHz = ev.center_hz + bw / 2;
+    const bottomHz = ev.center_hz - bw / 2;
+    const y1 = ((maxHz - topHz) / (maxHz - minHz)) * h;
+    const y2 = ((maxHz - bottomHz) / (maxHz - minHz)) * h;
+    const rectH = Math.max(2, y2 - y1);
+
+    ctx.fillStyle = snrColor(ev.snr_db || 0);
+    ctx.fillRect(x1, y1, Math.max(2, x2 - x1), rectH);
+
+    const rect = { x: x1, y: y1, w: Math.max(2, x2 - x1), h: rectH, id: ev.id };
+    timelineRects.push(rect);
+  }
+
+  if (selectedEventId) {
+    const hit = timelineRects.find((r) => r.id === selectedEventId);
+    if (hit) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(hit.x - 1, hit.y - 1, hit.w + 2, hit.h + 2);
+    }
+  }
+
+  const startLabel = new Date(startMs).toLocaleTimeString();
+  const endLabel = new Date(endMs).toLocaleTimeString();
+  timelineRangeEl.textContent = `${startLabel} - ${endLabel}`;
+}
+
+function renderDetailSpectrogram(ev) {
+  const ctx = detailSpectrogram.getContext('2d');
+  const w = detailSpectrogram.width;
+  const h = detailSpectrogram.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!latest || !ev) return;
+
+  const span = Math.min(latest.sample_rate, Math.max(ev.bandwidth_hz * 3, latest.sample_rate / 8));
+  const startHz = ev.center_hz - span / 2;
+  const endHz = ev.center_hz + span / 2;
+
+  const { spectrum_db, sample_rate, center_hz } = latest;
+  const n = spectrum_db.length;
+  const minDb = -120;
+  const maxDb = 0;
+
+  const row = ctx.createImageData(w, 1);
+  for (let x = 0; x < w; x++) {
+    const freq = startHz + (x / (w - 1)) * (endHz - startHz);
+    const bin = Math.floor((freq - (center_hz - sample_rate / 2)) / (sample_rate / n));
+    if (bin >= 0 && bin < n) {
+      const v = spectrum_db[bin];
+      const norm = Math.max(0, Math.min(1, (v - minDb) / (maxDb - minDb)));
+      const [r, g, b] = colorMap(norm);
+      row.data[x * 4 + 0] = r;
+      row.data[x * 4 + 1] = g;
+      row.data[x * 4 + 2] = b;
+      row.data[x * 4 + 3] = 255;
+    } else {
+      row.data[x * 4 + 3] = 255;
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    ctx.putImageData(row, 0, y);
+  }
+}
+
 function tick() {
   renderSpectrum();
   renderWaterfall();
+  if (timelineDirty) {
+    renderTimeline();
+    timelineDirty = false;
+  }
+  if (detailDirty && drawerEl.classList.contains('open')) {
+    const ev = eventsById.get(selectedEventId);
+    renderDetailSpectrogram(ev);
+    detailDirty = false;
+  }
   requestAnimationFrame(tick);
 }
 
@@ -143,6 +298,8 @@ function connect() {
   };
   ws.onmessage = (ev) => {
     latest = JSON.parse(ev.data);
+    detailDirty = true;
+    timelineDirty = true;
   };
   ws.onclose = () => {
     statusEl.textContent = 'Disconnected - retrying...';
@@ -173,5 +330,105 @@ window.addEventListener('mousemove', (ev) => {
   pan = Math.max(-0.5, Math.min(0.5, pan));
 });
 
+function normalizeEvent(ev) {
+  const startMs = new Date(ev.start).getTime();
+  const endMs = new Date(ev.end).getTime();
+  return {
+    ...ev,
+    start_ms: startMs,
+    end_ms: endMs,
+    duration_ms: Math.max(0, endMs - startMs),
+  };
+}
+
+function upsertEvents(list, replace) {
+  if (replace) {
+    events.length = 0;
+    eventsById.clear();
+  }
+  for (const raw of list) {
+    if (eventsById.has(raw.id)) continue;
+    const ev = normalizeEvent(raw);
+    eventsById.set(ev.id, ev);
+    events.push(ev);
+  }
+  events.sort((a, b) => a.end_ms - b.end_ms);
+  const maxEvents = 1500;
+  if (events.length > maxEvents) {
+    const drop = events.length - maxEvents;
+    for (let i = 0; i < drop; i++) {
+      eventsById.delete(events[i].id);
+    }
+    events.splice(0, drop);
+  }
+  if (events.length > 0) {
+    lastEventEndMs = events[events.length - 1].end_ms;
+  }
+  timelineDirty = true;
+}
+
+async function fetchEvents(initial) {
+  if (eventsFetchInFlight) return;
+  eventsFetchInFlight = true;
+  try {
+    let url = '/api/events?limit=1000';
+    if (!initial && lastEventEndMs > 0) {
+      url = `/api/events?since=${lastEventEndMs - 1}`;
+    }
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      upsertEvents(data, initial);
+    }
+  } finally {
+    eventsFetchInFlight = false;
+  }
+}
+
+function openDrawer(ev) {
+  if (!ev) return;
+  selectedEventId = ev.id;
+  detailCenterEl.textContent = `${(ev.center_hz / 1e6).toFixed(6)} MHz`;
+  detailBwEl.textContent = `${(ev.bandwidth_hz / 1e3).toFixed(2)} kHz`;
+  detailStartEl.textContent = new Date(ev.start_ms).toLocaleString();
+  detailEndEl.textContent = new Date(ev.end_ms).toLocaleString();
+  detailSnrEl.textContent = `${(ev.snr_db || 0).toFixed(1)} dB`;
+  detailDurEl.textContent = `${(ev.duration_ms / 1000).toFixed(2)} s`;
+  drawerEl.classList.add('open');
+  drawerEl.setAttribute('aria-hidden', 'false');
+  resize();
+  detailDirty = true;
+  timelineDirty = true;
+}
+
+function closeDrawer() {
+  drawerEl.classList.remove('open');
+  drawerEl.setAttribute('aria-hidden', 'true');
+  selectedEventId = null;
+  timelineDirty = true;
+}
+
+drawerCloseBtn.addEventListener('click', closeDrawer);
+
+timelineCanvas.addEventListener('click', (ev) => {
+  const rect = timelineCanvas.getBoundingClientRect();
+  const scaleX = timelineCanvas.width / rect.width;
+  const scaleY = timelineCanvas.height / rect.height;
+  const x = (ev.clientX - rect.left) * scaleX;
+  const y = (ev.clientY - rect.top) * scaleY;
+
+  for (let i = timelineRects.length - 1; i >= 0; i--) {
+    const r = timelineRects[i];
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+      const hit = eventsById.get(r.id);
+      openDrawer(hit);
+      return;
+    }
+  }
+});
+
 connect();
 requestAnimationFrame(tick);
+fetchEvents(true);
+setInterval(() => fetchEvents(false), 2000);

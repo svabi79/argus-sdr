@@ -18,7 +18,40 @@
     <section class="panel">
       <canvas id="waterfall"></canvas>
     </section>
+    <section class="panel timeline-panel">
+      <div class="panel-header">
+        <div>Event Timeline</div>
+        <div class="panel-subtitle" id="timelineRange">Waiting for events...</div>
+      </div>
+      <canvas id="timeline"></canvas>
+    </section>
   </main>
+  <aside class="drawer" id="eventDrawer" aria-hidden="true">
+    <div class="drawer-header">
+      <div>Event Detail</div>
+      <button class="drawer-close" id="drawerClose" type="button">Close</button>
+    </div>
+    <div class="drawer-body">
+      <div class="detail-grid">
+        <div class="detail-label">Center</div>
+        <div id="detailCenter">-</div>
+        <div class="detail-label">Bandwidth</div>
+        <div id="detailBw">-</div>
+        <div class="detail-label">Start</div>
+        <div id="detailStart">-</div>
+        <div class="detail-label">End</div>
+        <div id="detailEnd">-</div>
+        <div class="detail-label">SNR</div>
+        <div id="detailSnr">-</div>
+        <div class="detail-label">Duration</div>
+        <div id="detailDur">-</div>
+      </div>
+      <div class="detail-section-title">Latest Spectrogram Slice</div>
+      <canvas id="detailSpectrogram"></canvas>
+      <div class="detail-section-title">Recorded Clips (placeholder)</div>
+      <div class="clips-empty">No clips recorded yet.</div>
+    </div>
+  </aside>
   <footer>
     <div id="status">Connecting...</div>
   </footer>
