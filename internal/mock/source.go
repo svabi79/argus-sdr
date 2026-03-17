@@ -5,6 +5,8 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+
+	"sdr-visual-suite/internal/sdr"
 )
 
 type Source struct {
@@ -54,4 +56,8 @@ func (s *Source) ReadIQ(n int) ([]complex64, error) {
 		out[i] = complex(float32(re), float32(im))
 	}
 	return out, nil
+}
+
+func (s *Source) Stats() sdr.SourceStats {
+	return sdr.SourceStats{}
 }

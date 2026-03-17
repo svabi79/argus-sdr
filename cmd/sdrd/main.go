@@ -312,6 +312,15 @@ func main() {
 		_ = json.NewEncoder(w).Encode(next)
 	})
 
+	http.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if sp, ok := src.(sdr.StatsProvider); ok {
+			_ = json.NewEncoder(w).Encode(sp.Stats())
+			return
+		}
+		_ = json.NewEncoder(w).Encode(sdr.SourceStats{})
+	})
+
 	http.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		limit := 200

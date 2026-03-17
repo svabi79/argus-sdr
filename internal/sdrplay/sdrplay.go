@@ -91,7 +91,13 @@ type Source struct {
 	gainDb     float64
 	agc        bool
 	buf        []complex64
+	capSamples int
+	head       int
+	size       int
 	bwKHz      int
+	dropped    uint64
+	resets     uint64
+	cond       *sync.Cond
 }
 
 func New(sampleRate int, centerHz float64, gainDb float64, bwKHz int) (sdr.Source, error) {
@@ -102,6 +108,8 @@ func New(sampleRate int, centerHz float64, gainDb float64, bwKHz int) (sdr.Sourc
 		gainDb:     gainDb,
 		bwKHz:      bwKHz,
 	}
+	s.cond = sync.NewCond(&s.mu)
+	s.resizeBuffer(sampleRate, 0)
 	s.handle = cgo.NewHandle(s)
 	return s, s.configure(sampleRate, centerHz, gainDb, bwKHz)
 }
@@ -164,6 +172,7 @@ func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, 
 		C.sdrplay_set_fs(s.params, C.double(sampleRate))
 		updateReasons |= C.int(C.sdrplay_api_Update_Dev_Fs)
 		s.sampleRate = sampleRate
+		s.resizeBuffer(sampleRate, 0)
 	}
 	if centerHz != 0 && centerHz != s.centerHz {
 		C.sdrplay_set_rf(s.params, C.double(centerHz))
@@ -223,6 +232,75 @@ func bwEnum(khz int) C.sdrplay_api_Bw_MHzT {
 	}
 }
 
+func (s *Source) resizeBuffer(sampleRate int, fftSize int) {
+	capSamples := sampleRate
+	if fftSize > 0 && fftSize*4 > capSamples {
+		capSamples = fftSize * 4
+	}
+	if capSamples < 4096 {
+		capSamples = 4096
+	}
+	if s.capSamples == capSamples && len(s.buf) == capSamples {
+		return
+	}
+	newBuf := make([]complex64, capSamples)
+	// copy existing data from ring
+	toCopy := s.size
+	if toCopy > capSamples {
+		toCopy = capSamples
+	}
+	for i := 0; i < toCopy; i++ {
+		newBuf[i] = s.buf[(s.head+i)%max(1, s.capSamples)]
+	}
+	s.buf = newBuf
+	s.capSamples = capSamples
+	s.head = 0
+	s.size = toCopy
+}
+
+func (s *Source) appendRing(samples []complex64) {
+	if len(samples) == 0 || s.capSamples == 0 {
+		return
+	}
+	incoming := len(samples)
+	over := s.size + incoming - s.capSamples
+	if over > 0 {
+		s.head = (s.head + over) % s.capSamples
+		s.size -= over
+		s.dropped += uint64(over)
+	}
+	start := (s.head + s.size) % s.capSamples
+	first := min(incoming, s.capSamples-start)
+	copy(s.buf[start:start+first], samples[:first])
+	if first < incoming {
+		copy(s.buf[0:incoming-first], samples[first:])
+	}
+	s.size += incoming
+	if s.cond != nil {
+		s.cond.Broadcast()
+	}
+}
+
+func (s *Source) Stats() sdr.SourceStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return sdr.SourceStats{BufferSamples: s.size, Dropped: s.dropped, Resets: s.resets}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (s *Source) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -243,40 +321,28 @@ func (s *Source) Stop() error {
 }
 
 func (s *Source) ReadIQ(n int) ([]complex64, error) {
-	deadline := time.Now().Add(1500 * time.Millisecond)
-	for {
-		s.mu.Lock()
-		if len(s.buf) >= n {
-			out := make([]complex64, n)
-			copy(out, s.buf[:n])
-			s.buf = s.buf[n:]
-			s.mu.Unlock()
-			return out, nil
-		}
-		s.mu.Unlock()
-
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			s.mu.Lock()
-			if len(s.buf) > 0 {
-				out := make([]complex64, len(s.buf))
-				copy(out, s.buf)
-				s.buf = nil
-				s.mu.Unlock()
-				return out, errors.New("timeout waiting for full IQ buffer")
-			}
-			s.mu.Unlock()
+	deadline := time.Now().Add(5 * time.Second)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for s.size < n {
+		if time.Now().After(deadline) {
 			return nil, errors.New("timeout waiting for IQ samples")
 		}
-
-		select {
-		case buf := <-s.ch:
-			s.mu.Lock()
-			s.buf = append(s.buf, buf...)
+		if s.cond != nil {
+			s.cond.Wait()
+		} else {
 			s.mu.Unlock()
-		case <-time.After(remaining / 4):
+			time.Sleep(50 * time.Millisecond)
+			s.mu.Lock()
 		}
 	}
+	out := make([]complex64, n)
+	for i := 0; i < n; i++ {
+		out[i] = s.buf[(s.head+i)%s.capSamples]
+	}
+	s.head = (s.head + n) % s.capSamples
+	s.size -= n
+	return out, nil
 }
 
 //export goStreamCallback
@@ -288,7 +354,9 @@ func goStreamCallback(xi *C.short, xq *C.short, numSamples C.uint, reset C.uint,
 	}
 	if reset != 0 {
 		src.mu.Lock()
-		src.buf = nil
+		src.head = 0
+		src.size = 0
+		src.resets++
 		src.mu.Unlock()
 	}
 	n := int(numSamples)
@@ -304,11 +372,9 @@ func goStreamCallback(xi *C.short, xq *C.short, numSamples C.uint, reset C.uint,
 		im := float32(float64(xqSlice[i]) * scale)
 		iq[i] = complex(re, im)
 	}
-	select {
-	case src.ch <- iq:
-	default:
-		// Drop if consumer is slow.
-	}
+	src.mu.Lock()
+	src.appendRing(iq)
+	src.mu.Unlock()
 }
 
 func cErr(err C.sdrplay_api_ErrT) error {

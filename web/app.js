@@ -51,6 +51,7 @@ let avgSpectrum = null;
 let maxHold = false;
 let maxSpectrum = null;
 let lastFFTSize = null;
+let stats = { buffer_samples: 0, dropped: 0, resets: 0 };
 
 const events = [];
 const eventsById = new Map();
@@ -136,6 +137,17 @@ async function loadConfig() {
     setConfigStatus('Synced');
   } catch (err) {
     setConfigStatus('Offline');
+  }
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) return;
+    const data = await res.json();
+    stats = data || stats;
+  } catch (err) {
+    // ignore
   }
 }
 
@@ -326,7 +338,7 @@ function renderSpectrum() {
   }
 
   const binHz = sample_rate / n;
-  metaEl.textContent = `Center ${(center_hz/1e6).toFixed(3)} MHz | Span ${(span/1e6).toFixed(3)} MHz | Res ${binHz.toFixed(1)} Hz/bin`;
+  metaEl.textContent = `Center ${(center_hz/1e6).toFixed(3)} MHz | Span ${(span/1e6).toFixed(3)} MHz | Res ${binHz.toFixed(1)} Hz/bin | Buf ${stats.buffer_samples} Drop ${stats.dropped} Reset ${stats.resets}`;
 }
 
 function renderWaterfall() {
@@ -758,3 +770,4 @@ connect();
 requestAnimationFrame(tick);
 fetchEvents(true);
 setInterval(() => fetchEvents(false), 2000);
+setInterval(loadStats, 1000);

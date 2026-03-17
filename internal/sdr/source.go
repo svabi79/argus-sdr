@@ -12,4 +12,14 @@ type ConfigurableSource interface {
 	UpdateConfig(sampleRate int, centerHz float64, gainDb float64, agc bool, bwKHz int) error
 }
 
+type SourceStats struct {
+	BufferSamples int    `json:"buffer_samples"`
+	Dropped       uint64 `json:"dropped"`
+	Resets        uint64 `json:"resets"`
+}
+
+type StatsProvider interface {
+	Stats() SourceStats
+}
+
 var ErrNotImplemented = errors.New("sdrplay support not built; build with -tags sdrplay or use --mock")
