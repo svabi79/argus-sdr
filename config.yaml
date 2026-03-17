@@ -1,0 +1,17 @@
+bands:
+  - name: fm-test
+    start_hz: 99.5e6
+    end_hz: 100.5e6
+center_hz: 100.0e6
+sample_rate: 2048000
+fft_size: 2048
+gain_db: 30
+detector:
+  threshold_db: -20
+  min_duration_ms: 250
+  hold_ms: 500
+web_addr: ":8080"
+event_path: "data/events.jsonl"
+frame_rate: 15
+waterfall_lines: 200
+web_root: "web"

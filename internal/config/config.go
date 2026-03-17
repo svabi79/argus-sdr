@@ -1,0 +1,102 @@
+package config
+
+import (
+	"os"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+type Band struct {
+	Name     string  `yaml:"name"`
+	StartHz  float64 `yaml:"start_hz"`
+	EndHz    float64 `yaml:"end_hz"`
+}
+
+type DetectorConfig struct {
+	ThresholdDb   float64       `yaml:"threshold_db"`
+	MinDurationMs int           `yaml:"min_duration_ms"`
+	HoldMs        int           `yaml:"hold_ms"`
+}
+
+type Config struct {
+	Bands           []Band         `yaml:"bands"`
+	CenterHz        float64        `yaml:"center_hz"`
+	SampleRate      int            `yaml:"sample_rate"`
+	FFTSize         int            `yaml:"fft_size"`
+	GainDb          float64        `yaml:"gain_db"`
+	Detector        DetectorConfig `yaml:"detector"`
+	WebAddr         string         `yaml:"web_addr"`
+	EventPath       string         `yaml:"event_path"`
+	FrameRate       int            `yaml:"frame_rate"`
+	WaterfallLines  int            `yaml:"waterfall_lines"`
+	WebRoot         string         `yaml:"web_root"`
+}
+
+func Default() Config {
+	return Config{
+		Bands: []Band{
+			{Name: "example", StartHz: 99.5e6, EndHz: 100.5e6},
+		},
+		CenterHz:       100.0e6,
+		SampleRate:     2_048_000,
+		FFTSize:        2048,
+		GainDb:         30,
+		Detector:       DetectorConfig{ThresholdDb: -20, MinDurationMs: 250, HoldMs: 500},
+		WebAddr:        ":8080",
+		EventPath:      "data/events.jsonl",
+		FrameRate:      15,
+		WaterfallLines: 200,
+		WebRoot:        "web",
+	}
+}
+
+func Load(path string) (Config, error) {
+	cfg := Default()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return cfg, err
+	}
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		return cfg, err
+	}
+	if cfg.Detector.MinDurationMs <= 0 {
+		cfg.Detector.MinDurationMs = 250
+	}
+	if cfg.Detector.HoldMs <= 0 {
+		cfg.Detector.HoldMs = 500
+	}
+	if cfg.FrameRate <= 0 {
+		cfg.FrameRate = 15
+	}
+	if cfg.WaterfallLines <= 0 {
+		cfg.WaterfallLines = 200
+	}
+	if cfg.WebRoot == "" {
+		cfg.WebRoot = "web"
+	}
+	if cfg.WebAddr == "" {
+		cfg.WebAddr = ":8080"
+	}
+	if cfg.EventPath == "" {
+		cfg.EventPath = "data/events.jsonl"
+	}
+	if cfg.SampleRate <= 0 {
+		cfg.SampleRate = 2_048_000
+	}
+	if cfg.FFTSize <= 0 {
+		cfg.FFTSize = 2048
+	}
+	if cfg.CenterHz == 0 {
+		cfg.CenterHz = 100.0e6
+	}
+	return cfg, nil
+}
+
+func (c Config) FrameInterval() time.Duration {
+	fps := c.FrameRate
+	if fps <= 0 {
+		fps = 15
+	}
+	return time.Second / time.Duration(fps)
+}

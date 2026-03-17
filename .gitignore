@@ -1,0 +1,14 @@
+# binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# build artifacts
+/bin/
+
+# runtime data
+data/events.jsonl
+
+# local prompts
+prompt.txt

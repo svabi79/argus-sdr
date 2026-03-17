@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SDR Spectrum + Waterfall</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="title">SDRplay RSP1b Visualizer</div>
+    <div class="meta" id="meta"></div>
+  </header>
+  <main>
+    <section class="panel">
+      <canvas id="spectrum"></canvas>
+    </section>
+    <section class="panel">
+      <canvas id="waterfall"></canvas>
+    </section>
+  </main>
+  <footer>
+    <div id="status">Connecting...</div>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>
