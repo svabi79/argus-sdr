@@ -8,6 +8,7 @@ Go-based SDRplay RSP1b live spectrum + waterfall visualizer with a minimal event
 - In-browser spectrogram slice for selected events
 - Basic detector with event JSONL output (`data/events.jsonl`)
 - Events API (`/api/events?limit=...&since=...`)
+- Runtime UI controls for center frequency, span, FFT size, gain, AGC, DC block, IQ balance, detector threshold
 - Recorded clips list placeholder (metadata only for now)
 - Windows + Linux support
 - Mock mode for testing without hardware
@@ -48,15 +49,26 @@ Edit `config.yaml`:
 - `sample_rate`: sample rate
 - `fft_size`: FFT size
 - `gain_db`: device gain
+- `agc`: enable automatic gain control
+- `dc_block`: enable DC blocking filter
+- `iq_balance`: enable basic IQ imbalance correction
 - `detector.threshold_db`: power threshold in dB
 - `detector.min_duration_ms`, `detector.hold_ms`: debounce/merge
 
 ## Web UI
 The UI is served from `web/` and connects to `/ws` for spectrum frames.
 
+### Controls Panel
+Use the right-side controls to adjust center frequency, span, FFT size, gain, AGC, DC block, IQ balance, and detector threshold. Preset buttons provide quick jumps to 40m/20m/17m.
+
 ### Event Timeline
 - The timeline panel displays recent events (time vs frequency).
 - Click any event block to open the detail drawer with event stats and a mini spectrogram slice from the latest frame.
+
+### Config API
+- `GET /api/config`: returns the current runtime configuration.
+- `POST /api/config`: updates `center_hz`, `sample_rate`, `fft_size`, `gain_db`, and `detector.threshold_db` at runtime.
+- `POST /api/sdr/settings`: updates `agc`, `dc_block`, and `iq_balance` at runtime.
 
 ### Events API
 `/api/events` reads from the JSONL event log and returns the most recent events:

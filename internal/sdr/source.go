@@ -8,4 +8,8 @@ type Source interface {
 	ReadIQ(n int) ([]complex64, error)
 }
 
+type ConfigurableSource interface {
+	UpdateConfig(sampleRate int, centerHz float64, gainDb float64, agc bool) error
+}
+
 var ErrNotImplemented = errors.New("sdrplay support not built; build with -tags sdrplay or use --mock")

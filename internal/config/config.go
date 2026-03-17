@@ -8,29 +8,32 @@ import (
 )
 
 type Band struct {
-	Name     string  `yaml:"name"`
-	StartHz  float64 `yaml:"start_hz"`
-	EndHz    float64 `yaml:"end_hz"`
+	Name    string  `yaml:"name" json:"name"`
+	StartHz float64 `yaml:"start_hz" json:"start_hz"`
+	EndHz   float64 `yaml:"end_hz" json:"end_hz"`
 }
 
 type DetectorConfig struct {
-	ThresholdDb   float64       `yaml:"threshold_db"`
-	MinDurationMs int           `yaml:"min_duration_ms"`
-	HoldMs        int           `yaml:"hold_ms"`
+	ThresholdDb   float64 `yaml:"threshold_db" json:"threshold_db"`
+	MinDurationMs int     `yaml:"min_duration_ms" json:"min_duration_ms"`
+	HoldMs        int     `yaml:"hold_ms" json:"hold_ms"`
 }
 
 type Config struct {
-	Bands           []Band         `yaml:"bands"`
-	CenterHz        float64        `yaml:"center_hz"`
-	SampleRate      int            `yaml:"sample_rate"`
-	FFTSize         int            `yaml:"fft_size"`
-	GainDb          float64        `yaml:"gain_db"`
-	Detector        DetectorConfig `yaml:"detector"`
-	WebAddr         string         `yaml:"web_addr"`
-	EventPath       string         `yaml:"event_path"`
-	FrameRate       int            `yaml:"frame_rate"`
-	WaterfallLines  int            `yaml:"waterfall_lines"`
-	WebRoot         string         `yaml:"web_root"`
+	Bands          []Band         `yaml:"bands" json:"bands"`
+	CenterHz       float64        `yaml:"center_hz" json:"center_hz"`
+	SampleRate     int            `yaml:"sample_rate" json:"sample_rate"`
+	FFTSize        int            `yaml:"fft_size" json:"fft_size"`
+	GainDb         float64        `yaml:"gain_db" json:"gain_db"`
+	AGC            bool           `yaml:"agc" json:"agc"`
+	DCBlock        bool           `yaml:"dc_block" json:"dc_block"`
+	IQBalance      bool           `yaml:"iq_balance" json:"iq_balance"`
+	Detector       DetectorConfig `yaml:"detector" json:"detector"`
+	WebAddr        string         `yaml:"web_addr" json:"web_addr"`
+	EventPath      string         `yaml:"event_path" json:"event_path"`
+	FrameRate      int            `yaml:"frame_rate" json:"frame_rate"`
+	WaterfallLines int            `yaml:"waterfall_lines" json:"waterfall_lines"`
+	WebRoot        string         `yaml:"web_root" json:"web_root"`
 }
 
 func Default() Config {
@@ -42,6 +45,9 @@ func Default() Config {
 		SampleRate:     2_048_000,
 		FFTSize:        2048,
 		GainDb:         30,
+		AGC:            false,
+		DCBlock:        false,
+		IQBalance:      false,
 		Detector:       DetectorConfig{ThresholdDb: -20, MinDurationMs: 250, HoldMs: 500},
 		WebAddr:        ":8080",
 		EventPath:      "data/events.jsonl",

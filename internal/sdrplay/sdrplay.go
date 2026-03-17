@@ -7,6 +7,7 @@ package sdrplay
 #cgo linux LDFLAGS: -lsdrplay_api
 #include "sdrplay_api.h"
 #include <stdlib.h>
+#include <string.h>
 
 extern void goStreamCallback(short *xi, short *xq, unsigned int numSamples, void *cbContext);
 
@@ -18,6 +19,15 @@ static void StreamACallback(short *xi, short *xq, sdrplay_api_StreamCbParamsT *p
 
 static void EventCallback(sdrplay_api_EventT eventId, sdrplay_api_TunerSelectT tuner, sdrplay_api_EventParamsT *params, void *cbContext) {
 	(void)eventId; (void)tuner; (void)params; (void)cbContext;
+}
+
+static sdrplay_api_CallbackFnsT sdrplay_get_callbacks() {
+	sdrplay_api_CallbackFnsT cb;
+	memset(&cb, 0, sizeof(cb));
+	cb.StreamACbFn = StreamACallback;
+	cb.StreamBCbFn = NULL;
+	cb.EventCbFn = EventCallback;
+	return cb;
 }
 
 static void sdrplay_set_fs(sdrplay_api_DeviceParamsT *p, double fsHz) {
@@ -39,6 +49,15 @@ static void sdrplay_set_if_zero(sdrplay_api_DeviceParamsT *p) {
 static void sdrplay_disable_agc(sdrplay_api_DeviceParamsT *p) {
 	if (p && p->rxChannelA) p->rxChannelA->ctrlParams.agc.enable = sdrplay_api_AGC_DISABLE;
 }
+
+static void sdrplay_set_agc(sdrplay_api_DeviceParamsT *p, int enable) {
+	if (!p || !p->rxChannelA) return;
+	if (enable) {
+		p->rxChannelA->ctrlParams.agc.enable = sdrplay_api_AGC_100;
+	} else {
+		p->rxChannelA->ctrlParams.agc.enable = sdrplay_api_AGC_DISABLE;
+	}
+}
 */
 import "C"
 
@@ -53,17 +72,24 @@ import (
 )
 
 type Source struct {
-	mu     sync.Mutex
-	dev    C.sdrplay_api_DeviceT
-	params *C.sdrplay_api_DeviceParamsT
-	ch     chan []complex64
-	handle cgo.Handle
-	open   bool
+	mu         sync.Mutex
+	dev        C.sdrplay_api_DeviceT
+	params     *C.sdrplay_api_DeviceParamsT
+	ch         chan []complex64
+	handle     cgo.Handle
+	open       bool
+	sampleRate int
+	centerHz   float64
+	gainDb     float64
+	agc        bool
 }
 
 func New(sampleRate int, centerHz float64, gainDb float64) (sdr.Source, error) {
 	s := &Source{
-		ch: make(chan []complex64, 16),
+		ch:         make(chan []complex64, 16),
+		sampleRate: sampleRate,
+		centerHz:   centerHz,
+		gainDb:     gainDb,
 	}
 	s.handle = cgo.NewHandle(s)
 	return s, s.configure(sampleRate, centerHz, gainDb)
@@ -99,10 +125,7 @@ func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64) err
 	C.sdrplay_set_if_zero(s.params)
 	C.sdrplay_disable_agc(s.params)
 
-	cb := C.sdrplay_api_CallbackFnsT{}
-	cb.StreamACbFn = (C.sdrplay_api_StreamCallback_t)(unsafe.Pointer(C.StreamACallback))
-	cb.StreamBCbFn = nil
-	cb.EventCbFn = (C.sdrplay_api_EventCallback_t)(unsafe.Pointer(C.EventCallback))
+	cb := C.sdrplay_get_callbacks()
 
 	if err := cErr(C.sdrplay_api_Init(s.dev.dev, &cb, unsafe.Pointer(uintptr(s.handle)))); err != nil {
 		return fmt.Errorf("sdrplay_api_Init: %w", err)
@@ -111,6 +134,47 @@ func (s *Source) configure(sampleRate int, centerHz float64, gainDb float64) err
 }
 
 func (s *Source) Start() error { return nil }
+
+func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, agc bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.params == nil {
+		return errors.New("sdrplay not initialized")
+	}
+
+	updateReasons := C.int(0)
+	if sampleRate > 0 && sampleRate != s.sampleRate {
+		C.sdrplay_set_fs(s.params, C.double(sampleRate))
+		updateReasons |= C.int(C.sdrplay_api_Update_Dev_Fs)
+		s.sampleRate = sampleRate
+	}
+	if centerHz != 0 && centerHz != s.centerHz {
+		C.sdrplay_set_rf(s.params, C.double(centerHz))
+		updateReasons |= C.int(C.sdrplay_api_Update_Tuner_Frf)
+		s.centerHz = centerHz
+	}
+	if gainDb != s.gainDb {
+		C.sdrplay_set_gain(s.params, C.uint(gainDb))
+		updateReasons |= C.int(C.sdrplay_api_Update_Tuner_Gr)
+		s.gainDb = gainDb
+	}
+	if agc != s.agc {
+		if agc {
+			C.sdrplay_set_agc(s.params, 1)
+		} else {
+			C.sdrplay_set_agc(s.params, 0)
+		}
+		updateReasons |= C.int(C.sdrplay_api_Update_Ctrl_Agc)
+		s.agc = agc
+	}
+	if updateReasons == 0 {
+		return nil
+	}
+	if err := cErr(C.sdrplay_api_Update(s.dev.dev, C.sdrplay_api_Tuner_A, C.sdrplay_api_UpdateReasonT(updateReasons), C.sdrplay_api_Update_Ext1_None)); err != nil {
+		return err
+	}
+	return nil
+}
 
 func (s *Source) Stop() error {
 	s.mu.Lock()

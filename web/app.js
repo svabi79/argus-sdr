@@ -13,6 +13,18 @@ const detailEndEl = document.getElementById('detailEnd');
 const detailSnrEl = document.getElementById('detailSnr');
 const detailDurEl = document.getElementById('detailDur');
 const detailSpectrogram = document.getElementById('detailSpectrogram');
+const configStatusEl = document.getElementById('configStatus');
+const centerInput = document.getElementById('centerInput');
+const spanInput = document.getElementById('spanInput');
+const fftSelect = document.getElementById('fftSelect');
+const gainRange = document.getElementById('gainRange');
+const gainInput = document.getElementById('gainInput');
+const thresholdRange = document.getElementById('thresholdRange');
+const thresholdInput = document.getElementById('thresholdInput');
+const agcToggle = document.getElementById('agcToggle');
+const dcToggle = document.getElementById('dcToggle');
+const iqToggle = document.getElementById('iqToggle');
+const presetButtons = Array.from(document.querySelectorAll('.preset-btn'));
 
 let latest = null;
 let zoom = 1.0;
@@ -22,6 +34,12 @@ let dragStartX = 0;
 let dragStartPan = 0;
 let timelineDirty = true;
 let detailDirty = false;
+let currentConfig = null;
+let isSyncingConfig = false;
+let pendingConfigUpdate = null;
+let pendingSettingsUpdate = null;
+let configTimer = null;
+let settingsTimer = null;
 
 const events = [];
 const eventsById = new Map();
@@ -50,6 +68,114 @@ function resize() {
 
 window.addEventListener('resize', resize);
 resize();
+
+function setConfigStatus(text) {
+  if (configStatusEl) {
+    configStatusEl.textContent = text;
+  }
+}
+
+function toMHz(hz) {
+  return hz / 1e6;
+}
+
+function fromMHz(mhz) {
+  return mhz * 1e6;
+}
+
+function applyConfigToUI(cfg) {
+  if (!cfg) return;
+  isSyncingConfig = true;
+  centerInput.value = toMHz(cfg.center_hz).toFixed(6);
+  spanInput.value = toMHz(cfg.sample_rate).toFixed(3);
+  fftSelect.value = String(cfg.fft_size);
+  gainRange.value = cfg.gain_db;
+  gainInput.value = cfg.gain_db;
+  thresholdRange.value = cfg.detector.threshold_db;
+  thresholdInput.value = cfg.detector.threshold_db;
+  agcToggle.checked = !!cfg.agc;
+  dcToggle.checked = !!cfg.dc_block;
+  iqToggle.checked = !!cfg.iq_balance;
+  isSyncingConfig = false;
+}
+
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) {
+      setConfigStatus('Failed to load');
+      return;
+    }
+    const data = await res.json();
+    currentConfig = data;
+    applyConfigToUI(currentConfig);
+    setConfigStatus('Synced');
+  } catch (err) {
+    setConfigStatus('Offline');
+  }
+}
+
+function queueConfigUpdate(partial) {
+  if (isSyncingConfig) return;
+  pendingConfigUpdate = { ...(pendingConfigUpdate || {}), ...partial };
+  setConfigStatus('Updating...');
+  if (configTimer) clearTimeout(configTimer);
+  configTimer = setTimeout(sendConfigUpdate, 200);
+}
+
+function queueSettingsUpdate(partial) {
+  if (isSyncingConfig) return;
+  pendingSettingsUpdate = { ...(pendingSettingsUpdate || {}), ...partial };
+  setConfigStatus('Updating...');
+  if (settingsTimer) clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(sendSettingsUpdate, 100);
+}
+
+async function sendConfigUpdate() {
+  if (!pendingConfigUpdate) return;
+  const payload = pendingConfigUpdate;
+  pendingConfigUpdate = null;
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      setConfigStatus('Apply failed');
+      return;
+    }
+    const data = await res.json();
+    currentConfig = data;
+    applyConfigToUI(currentConfig);
+    setConfigStatus('Applied');
+  } catch (err) {
+    setConfigStatus('Offline');
+  }
+}
+
+async function sendSettingsUpdate() {
+  if (!pendingSettingsUpdate) return;
+  const payload = pendingSettingsUpdate;
+  pendingSettingsUpdate = null;
+  try {
+    const res = await fetch('/api/sdr/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      setConfigStatus('Apply failed');
+      return;
+    }
+    const data = await res.json();
+    currentConfig = data;
+    applyConfigToUI(currentConfig);
+    setConfigStatus('Applied');
+  } catch (err) {
+    setConfigStatus('Offline');
+  }
+}
 
 function colorMap(v) {
   // v in [0..1]
@@ -330,6 +456,75 @@ window.addEventListener('mousemove', (ev) => {
   pan = Math.max(-0.5, Math.min(0.5, pan));
 });
 
+centerInput.addEventListener('change', () => {
+  const mhz = parseFloat(centerInput.value);
+  if (Number.isFinite(mhz)) {
+    queueConfigUpdate({ center_hz: fromMHz(mhz) });
+  }
+});
+
+spanInput.addEventListener('change', () => {
+  const mhz = parseFloat(spanInput.value);
+  if (Number.isFinite(mhz) && mhz > 0) {
+    queueConfigUpdate({ sample_rate: Math.round(fromMHz(mhz)) });
+  }
+});
+
+fftSelect.addEventListener('change', () => {
+  const size = parseInt(fftSelect.value, 10);
+  if (Number.isFinite(size)) {
+    queueConfigUpdate({ fft_size: size });
+  }
+});
+
+gainRange.addEventListener('input', () => {
+  gainInput.value = gainRange.value;
+  queueConfigUpdate({ gain_db: parseFloat(gainRange.value) });
+});
+
+gainInput.addEventListener('change', () => {
+  const v = parseFloat(gainInput.value);
+  if (Number.isFinite(v)) {
+    gainRange.value = v;
+    queueConfigUpdate({ gain_db: v });
+  }
+});
+
+thresholdRange.addEventListener('input', () => {
+  thresholdInput.value = thresholdRange.value;
+  queueConfigUpdate({ detector: { threshold_db: parseFloat(thresholdRange.value) } });
+});
+
+thresholdInput.addEventListener('change', () => {
+  const v = parseFloat(thresholdInput.value);
+  if (Number.isFinite(v)) {
+    thresholdRange.value = v;
+    queueConfigUpdate({ detector: { threshold_db: v } });
+  }
+});
+
+agcToggle.addEventListener('change', () => {
+  queueSettingsUpdate({ agc: agcToggle.checked });
+});
+
+dcToggle.addEventListener('change', () => {
+  queueSettingsUpdate({ dc_block: dcToggle.checked });
+});
+
+iqToggle.addEventListener('change', () => {
+  queueSettingsUpdate({ iq_balance: iqToggle.checked });
+});
+
+for (const btn of presetButtons) {
+  btn.addEventListener('click', () => {
+    const mhz = parseFloat(btn.dataset.center);
+    if (Number.isFinite(mhz)) {
+      centerInput.value = mhz.toFixed(3);
+      queueConfigUpdate({ center_hz: fromMHz(mhz) });
+    }
+  });
+}
+
 function normalizeEvent(ev) {
   const startMs = new Date(ev.start).getTime();
   const endMs = new Date(ev.end).getTime();
@@ -428,6 +623,7 @@ timelineCanvas.addEventListener('click', (ev) => {
   }
 });
 
+loadConfig();
 connect();
 requestAnimationFrame(tick);
 fetchEvents(true);

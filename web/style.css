@@ -47,7 +47,7 @@ main {
   flex: 1;
   display: grid;
   grid-template-columns: 2fr 1fr;
-  grid-template-rows: 1fr 1.2fr;
+  grid-template-rows: auto 1fr;
   gap: 12px;
   padding: 12px;
 }
@@ -67,12 +67,104 @@ canvas {
   background: #06090d;
 }
 
+.controls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.spectrum-panel {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.waterfall-panel {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.timeline-panel {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  font-size: 0.9rem;
+}
+
+.control-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+.control-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.control-row input[type="number"],
+.control-row select {
+  width: 100%;
+  background: #0b111a;
+  border: 1px solid #20344b;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.control-row input[type="range"] {
+  width: 100%;
+}
+
+.preset-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-btn {
+  background: #142233;
+  color: var(--text);
+  border: 1px solid #1f3248;
+  border-radius: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.preset-btn:hover {
+  border-color: #2b4b68;
+}
+
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.toggle input {
+  accent-color: var(--accent);
+}
+
 .timeline-panel {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  grid-row: 1 / span 2;
-  grid-column: 2;
 }
 
 .timeline-panel canvas {
@@ -180,9 +272,12 @@ canvas {
 @media (max-width: 820px) {
   main {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr 1fr;
+    grid-template-rows: auto auto auto auto;
   }
 
+  .controls-panel,
+  .spectrum-panel,
+  .waterfall-panel,
   .timeline-panel {
     grid-row: auto;
     grid-column: auto;

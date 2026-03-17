@@ -27,6 +27,15 @@ func New(sampleRate int) *Source {
 func (s *Source) Start() error { return nil }
 func (s *Source) Stop() error  { return nil }
 
+func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, agc bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sampleRate > 0 {
+		s.sampleRate = float64(sampleRate)
+	}
+	return nil
+}
+
 func (s *Source) ReadIQ(n int) ([]complex64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
