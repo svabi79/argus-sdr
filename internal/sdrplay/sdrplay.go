@@ -343,13 +343,10 @@ func (s *Source) ReadIQ(n int) ([]complex64, error) {
 		if time.Now().After(deadline) {
 			return nil, errors.New("timeout waiting for IQ samples")
 		}
-		if s.cond != nil {
-			s.cond.Wait()
-		} else {
-			s.mu.Unlock()
-			time.Sleep(50 * time.Millisecond)
-			s.mu.Lock()
-		}
+		// Timed wait to avoid indefinite block if callbacks stop.
+		s.mu.Unlock()
+		time.Sleep(20 * time.Millisecond)
+		s.mu.Lock()
 	}
 	out := make([]complex64, n)
 	for i := 0; i < n; i++ {
