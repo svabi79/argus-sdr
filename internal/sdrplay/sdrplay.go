@@ -53,10 +53,14 @@ static void sdrplay_disable_agc(sdrplay_api_DeviceParamsT *p) {
 static void sdrplay_set_agc(sdrplay_api_DeviceParamsT *p, int enable) {
 	if (!p || !p->rxChannelA) return;
 	if (enable) {
-		p->rxChannelA->ctrlParams.agc.enable = sdrplay_api_AGC_100;
+		p->rxChannelA->ctrlParams.agc.enable = sdrplay_api_AGC_100HZ;
 	} else {
 		p->rxChannelA->ctrlParams.agc.enable = sdrplay_api_AGC_DISABLE;
 	}
+}
+
+static sdrplay_api_ErrT sdrplay_update(void *dev, int reason) {
+	return sdrplay_api_Update(dev, sdrplay_api_Tuner_A, (sdrplay_api_ReasonForUpdateT)reason, sdrplay_api_Update_Ext1_None);
 }
 */
 import "C"
@@ -170,7 +174,7 @@ func (s *Source) UpdateConfig(sampleRate int, centerHz float64, gainDb float64, 
 	if updateReasons == 0 {
 		return nil
 	}
-	if err := cErr(C.sdrplay_api_Update(s.dev.dev, C.sdrplay_api_Tuner_A, C.sdrplay_api_UpdateReasonT(updateReasons), C.sdrplay_api_Update_Ext1_None)); err != nil {
+	if err := cErr(C.sdrplay_update(unsafe.Pointer(s.dev.dev), C.int(updateReasons))); err != nil {
 		return err
 	}
 	return nil
