@@ -27,6 +27,11 @@ func (m *Manager) DemodLive(centerHz float64, bw float64, mode string, seconds i
 	if name == "" {
 		name = "NFM"
 	}
+	switch name {
+	case "AM", "NFM", "WFM", "WFM_STEREO", "USB", "LSB", "CW":
+	default:
+		name = "NFM"
+	}
 	d := demod.Get(name)
 	if d == nil {
 		return nil, 0, errors.New("demodulator not found")
