@@ -14,7 +14,7 @@ func TestRuleClassifyWFM(t *testing.T) {
 	for i := start; i <= end; i++ {
 		spectrum[i] = -10
 	}
-	cls := Classify(SignalInput{FirstBin: start, LastBin: end}, spectrum, sampleRate, fftSize)
+	cls := Classify(SignalInput{FirstBin: start, LastBin: end}, spectrum, sampleRate, fftSize, nil)
 	if cls == nil || cls.ModType != ClassWFM {
 		t.Fatalf("expected WFM, got %+v", cls)
 	}

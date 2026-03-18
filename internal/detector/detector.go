@@ -122,7 +122,7 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 	centerFreq := centerHz + (centerBin-float64(d.nbins)/2.0)*d.binWidth
 	bw := float64(last-first+1) * d.binWidth
 	snr := peak - noise
-	cls := classifier.Classify(classifier.SignalInput{FirstBin: first, LastBin: last, SNRDb: snr}, spectrum, d.sampleRate, d.nbins)
+	cls := classifier.Classify(classifier.SignalInput{FirstBin: first, LastBin: last, SNRDb: snr}, spectrum, d.sampleRate, d.nbins, nil)
 	return Signal{
 		FirstBin: first,
 		LastBin:  last,

@@ -17,6 +17,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"sdr-visual-suite/internal/classifier"
 	"sdr-visual-suite/internal/config"
 	"sdr-visual-suite/internal/detector"
 	"sdr-visual-suite/internal/dsp"
@@ -704,6 +705,13 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			now := time.Now()
 			finished, signals := det.Process(now, spectrum, cfg.CenterHz)
+			// enrich classification with temporal IQ features
+			if len(iq) > 0 {
+				for i := range signals {
+					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb}, spectrum, cfg.SampleRate, cfg.FFTSize, iq)
+					signals[i].Class = cls
+				}
+			}
 			eventMu.Lock()
 			for _, ev := range finished {
 				_ = enc.Encode(ev)

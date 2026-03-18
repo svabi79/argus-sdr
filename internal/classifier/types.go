@@ -24,6 +24,11 @@ type Features struct {
 	Symmetry     float64 `json:"symmetry"`
 	RolloffLeft  float64 `json:"rolloff_left_db_khz"`
 	RolloffRight float64 `json:"rolloff_right_db_khz"`
+	// Temporal
+	EnvVariance float64 `json:"env_variance"`
+	ZeroCross   float64 `json:"zero_cross_rate"`
+	InstFreqStd float64 `json:"inst_freq_std"`
+	CrestFactor float64 `json:"crest_factor"`
 }
 
 // Classification is the classifier output attached to signals/events.
