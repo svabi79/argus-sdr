@@ -31,8 +31,15 @@ if (Test-Path $cudaBin) {
   $env:PATH = "$cudaBin;" + $env:PATH
 }
 
+$cudaMingw = Join-Path $PSScriptRoot 'cuda-mingw'
+if (Test-Path $cudaMingw) {
+  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaMingw"
+}
+
 Write-Host "Building with SDRplay + cuFFT support..." -ForegroundColor Cyan
 
 go build -tags "sdrplay,cufft" ./cmd/sdrd
+
+if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 Write-Host "Done." -ForegroundColor Green
