@@ -13,10 +13,14 @@ func RuleClassify(feat Features) Classification {
 	conf := 0.3
 
 	switch {
-	case bw > 100e3:
+	case bw >= 80e3:
 		best = ClassWFM
 		conf = 0.9
-	case bw >= 6e3 && bw <= 16e3:
+	case bw >= 25e3 && bw < 80e3:
+		best = ClassWFM
+		second = ClassNFM
+		conf = 0.65
+	case bw >= 6e3 && bw < 25e3:
 		best = ClassNFM
 		conf = 0.8
 		if flat > 0.7 {
@@ -63,6 +67,12 @@ func RuleClassify(feat Features) Classification {
 		if feat.EnvVariance < 0.4 && feat.InstFreqStd < 0.5 {
 			best = ClassWSPR
 			conf = 0.55
+		} else if feat.InstFreqStd > 0.9 {
+			best = ClassFSK
+			conf = 0.45
+		} else if feat.InstFreqStd < 0.25 {
+			best = ClassPSK
+			conf = 0.45
 		}
 	case bw < 150:
 		best = ClassCW

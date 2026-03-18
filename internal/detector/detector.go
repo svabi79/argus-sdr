@@ -229,21 +229,73 @@ func (d *Detector) cfarThresholds(spectrum []float64) []float64 {
 	}
 	rankIdx := rank - 1
 	thresholds := make([]float64, n)
-	buf := make([]float64, totalTrain)
+	buf := make([]float64, 0, totalTrain)
+	firstValid := guard + train
+	lastValid := n - guard - train - 1
 	for i := 0; i < n; i++ {
-		leftStart := i - guard - train
-		rightEnd := i + guard + train
-		if leftStart < 0 || rightEnd >= n {
+		if i < firstValid || i > lastValid {
 			thresholds[i] = math.NaN()
-			continue
 		}
-		copy(buf[:train], spectrum[leftStart:leftStart+train])
-		copy(buf[train:], spectrum[i+guard+1:i+guard+1+train])
-		sort.Float64s(buf)
-		noise := buf[rankIdx]
-		thresholds[i] = noise + d.CFARScaleDb
+	}
+	if firstValid > lastValid {
+		return thresholds
+	}
+
+	// Build initial sorted window for first valid bin.
+	leftStart := firstValid - guard - train
+	buf = append(buf, spectrum[leftStart:leftStart+train]...)
+	buf = append(buf, spectrum[firstValid+guard+1:firstValid+guard+1+train]...)
+	sort.Float64s(buf)
+	thresholds[firstValid] = buf[rankIdx] + d.CFARScaleDb
+
+	// Slide window: remove outgoing bins and insert incoming bins (O(train) per step).
+	for i := firstValid + 1; i <= lastValid; i++ {
+		outLeft := spectrum[i-guard-train-1]
+		outRight := spectrum[i+guard]
+		inLeft := spectrum[i-guard-1]
+		inRight := spectrum[i+guard+train]
+		buf = removeValue(buf, outLeft)
+		buf = removeValue(buf, outRight)
+		buf = insertValue(buf, inLeft)
+		buf = insertValue(buf, inRight)
+		thresholds[i] = buf[rankIdx] + d.CFARScaleDb
 	}
 	return thresholds
+}
+
+func removeValue(sorted []float64, v float64) []float64 {
+	if len(sorted) == 0 {
+		return sorted
+	}
+	idx := sort.SearchFloat64s(sorted, v)
+	if idx < len(sorted) && sorted[idx] == v {
+		return append(sorted[:idx], sorted[idx+1:]...)
+	}
+	for i := idx - 1; i >= 0; i-- {
+		if sorted[i] == v {
+			return append(sorted[:i], sorted[i+1:]...)
+		}
+		if sorted[i] < v {
+			break
+		}
+	}
+	for i := idx + 1; i < len(sorted); i++ {
+		if sorted[i] == v {
+			return append(sorted[:i], sorted[i+1:]...)
+		}
+		if sorted[i] > v {
+			break
+		}
+	}
+	return sorted
+}
+
+func insertValue(sorted []float64, v float64) []float64 {
+	idx := sort.SearchFloat64s(sorted, v)
+	sorted = append(sorted, 0)
+	copy(sorted[idx+1:], sorted[idx:])
+	sorted[idx] = v
+	return sorted
 }
 
 func (d *Detector) smoothSpectrum(spectrum []float64) []float64 {

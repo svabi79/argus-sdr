@@ -542,6 +542,44 @@ function drawSpectrumGrid(ctx, w, h, startHz, endHz) {
   }
 }
 
+function drawCfarEdgeOverlay(ctx, w, h, startHz, endHz) {
+  if (!latest || !currentConfig?.detector?.cfar_enabled) return;
+  const guard = currentConfig.detector.cfar_guard_cells ?? 0;
+  const train = currentConfig.detector.cfar_train_cells ?? 0;
+  const bins = guard + train;
+  if (bins <= 0) return;
+  const fftSize = latest.fft_size || latest.spectrum_db?.length;
+  if (!fftSize || fftSize <= 0) return;
+  const binHz = latest.sample_rate / fftSize;
+  const edgeHz = bins * binHz;
+  const bandStart = latest.center_hz - latest.sample_rate / 2;
+  const bandEnd = latest.center_hz + latest.sample_rate / 2;
+  const leftEdgeEnd = bandStart + edgeHz;
+  const rightEdgeStart = bandEnd - edgeHz;
+
+  ctx.fillStyle = 'rgba(255, 204, 102, 0.08)';
+  ctx.strokeStyle = 'rgba(255, 204, 102, 0.18)';
+  ctx.lineWidth = 1;
+
+  const leftStart = Math.max(startHz, bandStart);
+  const leftEnd = Math.min(endHz, leftEdgeEnd);
+  if (leftEnd > leftStart) {
+    const x1 = ((leftStart - startHz) / (endHz - startHz)) * w;
+    const x2 = ((leftEnd - startHz) / (endHz - startHz)) * w;
+    ctx.fillRect(x1, 0, Math.max(2, x2 - x1), h);
+    ctx.strokeRect(x1, 0, Math.max(2, x2 - x1), h);
+  }
+
+  const rightStart = Math.max(startHz, rightEdgeStart);
+  const rightEnd = Math.min(endHz, bandEnd);
+  if (rightEnd > rightStart) {
+    const x1 = ((rightStart - startHz) / (endHz - startHz)) * w;
+    const x2 = ((rightEnd - startHz) / (endHz - startHz)) * w;
+    ctx.fillRect(x1, 0, Math.max(2, x2 - x1), h);
+    ctx.strokeRect(x1, 0, Math.max(2, x2 - x1), h);
+  }
+}
+
 function renderSpectrum() {
   if (!latest) return;
   const ctx = spectrumCanvas.getContext('2d');
@@ -558,6 +596,7 @@ function renderSpectrum() {
   spanInput.value = (span / 1e6).toFixed(3);
 
   drawSpectrumGrid(ctx, w, h, startHz, endHz);
+  drawCfarEdgeOverlay(ctx, w, h, startHz, endHz);
 
   const minDb = -120;
   const maxDb = 0;
