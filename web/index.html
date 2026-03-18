@@ -3,170 +3,293 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SDR Spectrum + Waterfall</title>
+  <title>Spectre UI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
-    <div class="title">SDRplay RSP1b Visualizer</div>
-    <div class="meta" id="meta"></div>
-  </header>
-  <main>
-    <section class="panel controls-panel">
-      <div class="panel-header">
-        <div>Radio Controls</div>
-        <div class="panel-subtitle" id="configStatus">Loading...</div>
+  <div class="shell">
+
+    <!-- ═══════════ TOPBAR ═══════════ -->
+    <header class="topbar">
+      <div class="brand">
+        <svg class="brand-mark" width="28" height="28" viewBox="0 0 28 28">
+          <circle cx="14" cy="14" r="11" fill="none" stroke="url(#bgrad)" stroke-width="2.2"/>
+          <path d="M8 14 Q10.5 6, 14 14 Q17.5 22, 20 14" stroke="url(#bgrad)" stroke-width="1.8" fill="none"/>
+          <defs><linearGradient id="bgrad" x1="0" y1="0" x2="28" y2="28"><stop offset="0%" stop-color="#00ffc8"/><stop offset="100%" stop-color="#0090ff"/></linearGradient></defs>
+        </svg>
+        <div class="brand-text">
+          <div class="brand-kicker">SDR Ops Console</div>
+          <div class="brand-title">Spectre<span class="brand-thin">UI</span></div>
+        </div>
       </div>
-      <div class="controls-grid">
-        <label class="control-label" for="centerInput">Center (MHz)</label>
-        <div class="control-row">
-          <input id="centerInput" type="number" step="0.001" min="0" />
-          <div class="preset-row">
-            <button class="preset-btn" data-center="7.1">40m</button>
-            <button class="preset-btn" data-center="14.1">20m</button>
-            <button class="preset-btn" data-center="18.1">17m</button>
+
+      <nav class="topbar-center">
+        <div class="mode-strip" role="tablist" aria-label="Modes">
+          <button class="mode-btn active" data-mode="live" type="button"><span class="mode-dot"></span>Live</button>
+          <button class="mode-btn" data-mode="hunt" type="button">Hunt</button>
+          <button class="mode-btn" data-mode="review" type="button">Review</button>
+          <button class="mode-btn" data-mode="lab" type="button">Lab</button>
+        </div>
+      </nav>
+
+      <div class="topbar-right">
+        <div class="ws-badge" id="wsBadge">Connecting</div>
+        <div class="top-meta" id="metaLine">Waiting for signal frames…</div>
+        <button class="shortcut-btn" id="shortcutToggle" type="button" title="Keyboard shortcuts">
+          <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="4" width="12" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4 7h1M6.5 7h1M9 7h1M3.5 9.5h7" stroke="currentColor" stroke-width="0.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ═══════════ MAIN LAYOUT ═══════════ -->
+    <main class="layout">
+
+      <!-- ──── STAGE (left) ──── -->
+      <section class="stage panel">
+        <div class="stage-head">
+          <div>
+            <div class="panel-title">RF Panorama</div>
+            <div class="panel-sub" id="heroSubtitle">Live spectrum, waterfall and signal overlays</div>
+          </div>
+          <div class="stage-actions">
+            <button class="act-btn" id="followBtn" type="button">Follow</button>
+            <button class="act-btn" id="fitBtn" type="button">Fit</button>
+            <button class="act-btn" id="resetMaxBtn" type="button">Reset Max</button>
           </div>
         </div>
 
-        <label class="control-label" for="spanInput">Span (MHz)</label>
-        <div class="control-row">
-          <input id="spanInput" type="number" step="0.05" min="0.05" />
+        <!-- Hero Metrics -->
+        <div class="hero-metrics" id="heroMetrics">
+          <div class="metric"><span class="metric-lbl">Center</span><span class="metric-val" id="metricCenter">-</span></div>
+          <div class="metric"><span class="metric-lbl">Span</span><span class="metric-val" id="metricSpan">-</span></div>
+          <div class="metric"><span class="metric-lbl">Res</span><span class="metric-val" id="metricRes">-</span></div>
+          <div class="metric"><span class="metric-lbl">Signals</span><span class="metric-val metric-val--accent" id="metricSignals">0</span></div>
+          <div class="metric"><span class="metric-lbl">GPU</span><span class="metric-val" id="metricGpu">-</span></div>
+          <div class="metric"><span class="metric-lbl">Source</span><span class="metric-val" id="metricSource">-</span></div>
         </div>
 
-        <label class="control-label" for="sampleRateSelect">Sample Rate (MHz)</label>
-        <div class="control-row">
-          <select id="sampleRateSelect">
-            <option value="0.5">0.5</option>
-            <option value="1.0">1.0</option>
-            <option value="1.536">1.536</option>
-            <option value="2.048">2.048</option>
-            <option value="2.5">2.5</option>
-            <option value="3.072">3.072</option>
-            <option value="4.096">4.096</option>
-          </select>
+        <!-- Band Navigator -->
+        <div class="nav-strip">
+          <span class="nav-label">Band navigator</span>
+          <canvas id="navCanvas"></canvas>
         </div>
 
-        <label class="control-label" for="bwSelect">Tuner BW (kHz)</label>
-        <div class="control-row">
-          <select id="bwSelect">
-            <option value="200">200</option>
-            <option value="300">300</option>
-            <option value="600">600</option>
-            <option value="1536">1536</option>
-            <option value="5000">5000</option>
-            <option value="6000">6000</option>
-            <option value="7000">7000</option>
-            <option value="8000">8000</option>
-          </select>
+        <!-- Spectrum + Waterfall Stack -->
+        <div class="viz-stack">
+          <div class="viz-card">
+            <div class="viz-head"><span class="viz-label">Spectrum</span><span class="viz-hint" id="spectrumMeta">Wheel = zoom · Drag = pan · Dbl-click = reset</span></div>
+            <canvas id="spectrum"></canvas>
+          </div>
+          <div class="viz-card">
+            <div class="viz-head"><span class="viz-label">Waterfall</span><span class="viz-hint" id="waterfallMeta">Newest row at top</span></div>
+            <canvas id="waterfall"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- ──── OPERATOR RAIL (right) ──── -->
+      <aside class="rail panel">
+        <div class="rail-head">
+          <div>
+            <div class="panel-title">Operator Rail</div>
+            <div class="panel-sub" id="configStatus">Loading config…</div>
+          </div>
         </div>
 
-        <label class="control-label" for="fftSelect">FFT Size</label>
-        <div class="control-row">
-          <select id="fftSelect">
-            <option value="512">512</option>
-            <option value="1024">1024</option>
-            <option value="2048">2048</option>
-            <option value="4096">4096</option>
-            <option value="8192">8192</option>
-            <option value="16384">16384</option>
-            <option value="32768">32768</option>
-            <option value="65536">65536</option>
-          </select>
+        <div class="rail-tabs" role="tablist" aria-label="Control tabs">
+          <button class="rail-tab active" data-tab="radio" type="button">Radio</button>
+          <button class="rail-tab" data-tab="signals" type="button">Signals</button>
+          <button class="rail-tab" data-tab="events" type="button">Events</button>
+          <button class="rail-tab" data-tab="health" type="button">Health</button>
         </div>
 
-        <label class="control-label" for="gainRange">Gain (dB) (higher = more gain)</label>
-        <div class="control-row">
-          <input id="gainRange" type="range" min="0" max="60" step="1" />
-          <input id="gainInput" type="number" min="0" max="60" step="1" />
-        </div>
+        <div class="rail-body">
 
-        <label class="control-label" for="thresholdRange">Detector (dB)</label>
-        <div class="control-row">
-          <input id="thresholdRange" type="range" min="-120" max="0" step="1" />
-          <input id="thresholdInput" type="number" min="-120" max="0" step="1" />
-        </div>
+          <!-- ── Radio Tab ── -->
+          <section class="tab-panel active" data-panel="radio">
+            <div class="form-group">
+              <div class="grp-title">Tuning</div>
+              <label class="field"><span>Center (MHz)</span><input id="centerInput" type="number" step="0.001" min="0" /></label>
+              <div class="preset-row">
+                <button class="preset-btn" data-center="7.1" type="button"><b>40m</b><small>7.1</small></button>
+                <button class="preset-btn" data-center="14.1" type="button"><b>20m</b><small>14.1</small></button>
+                <button class="preset-btn" data-center="18.1" type="button"><b>17m</b><small>18.1</small></button>
+                <button class="preset-btn" data-center="145.5" type="button"><b>2m</b><small>145.5</small></button>
+              </div>
+              <label class="field"><span>Span (MHz)</span><input id="spanInput" type="number" step="0.05" min="0.01" /></label>
+              <div class="field-pair">
+                <label class="field"><span>Sample Rate</span>
+                  <select id="sampleRateSelect">
+                    <option value="0.5">0.5 MHz</option><option value="1.0">1.0 MHz</option>
+                    <option value="1.536">1.536 MHz</option><option value="2.048">2.048 MHz</option>
+                    <option value="2.5">2.5 MHz</option><option value="3.072">3.072 MHz</option>
+                    <option value="4.096">4.096 MHz</option>
+                  </select>
+                </label>
+                <label class="field"><span>Tuner BW</span>
+                  <select id="bwSelect">
+                    <option value="200">200 kHz</option><option value="300">300 kHz</option>
+                    <option value="600">600 kHz</option><option value="1536">1536 kHz</option>
+                    <option value="5000">5 MHz</option><option value="6000">6 MHz</option>
+                    <option value="7000">7 MHz</option><option value="8000">8 MHz</option>
+                  </select>
+                </label>
+              </div>
+            </div>
 
-        <label class="control-label">DSP</label>
-        <div class="toggle-row">
-          <label class="toggle">
-            <input id="agcToggle" type="checkbox" />
-            <span>AGC</span>
-          </label>
-          <label class="toggle">
-            <input id="dcToggle" type="checkbox" />
-            <span>DC Block</span>
-          </label>
-          <label class="toggle">
-            <input id="iqToggle" type="checkbox" />
-            <span>IQ Balance</span>
-          </label>
-        </div>
+            <div class="form-group">
+              <div class="grp-title">DSP</div>
+              <label class="field"><span>FFT Size</span>
+                <select id="fftSelect">
+                  <option value="512">512</option><option value="1024">1024</option>
+                  <option value="2048">2048</option><option value="4096">4096</option>
+                  <option value="8192">8192</option><option value="16384">16384</option>
+                  <option value="32768">32768</option><option value="65536">65536</option>
+                </select>
+              </label>
+              <div class="slider-field">
+                <span>Gain</span>
+                <div class="slider-row"><input id="gainRange" type="range" min="0" max="60" step="1" /><input id="gainInput" type="number" min="0" max="60" step="1" class="slider-num" /><em>dB</em></div>
+              </div>
+              <div class="slider-field">
+                <span>Threshold</span>
+                <div class="slider-row"><input id="thresholdRange" type="range" min="-120" max="0" step="1" class="range--warn" /><input id="thresholdInput" type="number" min="-120" max="0" step="1" class="slider-num" /><em>dB</em></div>
+              </div>
+              <label class="field"><span>Averaging</span>
+                <select id="avgSelect">
+                  <option value="0">Off</option><option value="0.4">Fast</option>
+                  <option value="0.2">Medium</option><option value="0.1">Slow</option>
+                </select>
+              </label>
+              <div class="toggle-grid">
+                <label class="pill-toggle"><input id="agcToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">AGC</span></label>
+                <label class="pill-toggle"><input id="dcToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">DC Block</span></label>
+                <label class="pill-toggle"><input id="iqToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">IQ Bal</span></label>
+                <label class="pill-toggle"><input id="maxHoldToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">Max Hold</span></label>
+                <label class="pill-toggle"><input id="gpuToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">GPU FFT</span></label>
+              </div>
+            </div>
+          </section>
 
-        <label class="control-label">Display</label>
-        <div class="control-row">
-          <select id="avgSelect">
-            <option value="0">Averaging Off</option>
-            <option value="0.4">Averaging Fast</option>
-            <option value="0.2">Averaging Medium</option>
-            <option value="0.1">Averaging Slow</option>
-          </select>
+          <!-- ── Signals Tab ── -->
+          <section class="tab-panel" data-panel="signals">
+            <div class="list-head"><span class="grp-title">Detected carriers</span><span class="count-pill" id="signalCountBadge">0 live</span></div>
+            <div class="signal-list" id="signalList"><div class="empty-state">No live signals yet.</div></div>
+            <button class="act-btn" id="liveListenBtn" type="button">Live Listen</button>
+          </section>
+
+          <!-- ── Events Tab ── -->
+          <section class="tab-panel" data-panel="events">
+            <div class="list-head"><span class="grp-title">Recent events</span><span class="count-pill" id="eventCountBadge">0 stored</span></div>
+            <div class="event-list" id="eventList"><div class="empty-state">No events yet.</div></div>
+          </section>
+
+          <!-- ── Health Tab ── -->
+          <section class="tab-panel" data-panel="health">
+            <div class="health-grid">
+              <div class="health-card"><span class="health-lbl">Buffer</span><span class="health-val" id="healthBuffer">-</span></div>
+              <div class="health-card"><span class="health-lbl">Dropped</span><span class="health-val" id="healthDropped">-</span></div>
+              <div class="health-card"><span class="health-lbl">Resets</span><span class="health-val" id="healthResets">-</span></div>
+              <div class="health-card"><span class="health-lbl">Age</span><span class="health-val" id="healthAge">-</span></div>
+              <div class="health-card health-card--wide"><span class="health-lbl">GPU status</span><span class="health-val" id="healthGpu">-</span></div>
+              <div class="health-card health-card--wide"><span class="health-lbl">Render rate</span><span class="health-val" id="healthFps">-</span></div>
+            </div>
+          </section>
         </div>
-        <div class="toggle-row">
-          <label class="toggle">
-            <input id="maxHoldToggle" type="checkbox" />
-            <span>Max Hold</span>
-          </label>
-          <button id="maxHoldReset" type="button" class="preset-btn">Reset Max</button>
-          <label class="toggle">
-            <input id="gpuToggle" type="checkbox" />
-            <span>GPU FFT</span>
-          </label>
+      </aside>
+
+      <!-- ──── TIMELINE (bottom) ──── -->
+      <section class="tl-panel panel">
+        <div class="tl-head">
+          <div>
+            <div class="panel-title">Activity Timeline</div>
+            <div class="panel-sub" id="timelineRange">Waiting for events…</div>
+          </div>
+          <div class="tl-actions">
+            <button class="act-btn" id="timelineFollowBtn" type="button">Follow</button>
+            <button class="act-btn" id="timelineFreezeBtn" type="button">Freeze</button>
+          </div>
+        </div>
+        <div class="tl-stack">
+          <div class="viz-card viz-card--compact">
+            <div class="viz-head"><span class="viz-label">Occupancy strip</span><span class="viz-hint">Band activity density</span></div>
+            <canvas id="occupancy"></canvas>
+          </div>
+          <div class="viz-card">
+            <div class="viz-head"><span class="viz-label">Event blocks</span><span class="viz-hint">Click block → inspector</span></div>
+            <canvas id="timeline"></canvas>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ═══════════ INSPECTOR DRAWER ═══════════ -->
+    <aside class="inspector" id="eventDrawer" aria-hidden="true">
+      <div class="insp-head">
+        <div>
+          <div class="panel-title">Signal Inspector</div>
+          <div class="panel-sub" id="detailSubtitle">No event selected</div>
+        </div>
+        <div class="insp-actions">
+          <button class="act-btn" id="jumpToEventBtn" type="button">Go to freq</button>
+          <button class="act-btn" id="exportEventBtn" type="button">Export</button>
+          <button class="act-btn" id="liveListenEventBtn" type="button">Listen</button>
+          <button class="act-btn act-btn--danger" id="drawerClose" type="button">Close</button>
         </div>
       </div>
-    </section>
-    <section class="panel spectrum-panel">
-      <canvas id="spectrum"></canvas>
-    </section>
-    <section class="panel waterfall-panel">
-      <canvas id="waterfall"></canvas>
-    </section>
-    <section class="panel timeline-panel">
-      <div class="panel-header">
-        <div>Event Timeline</div>
-        <div class="panel-subtitle" id="timelineRange">Waiting for events...</div>
+      <div class="insp-body">
+        <div class="detail-grid">
+          <div class="detail-item"><span class="detail-label">Center</span><span id="detailCenter">-</span></div>
+          <div class="detail-item"><span class="detail-label">Bandwidth</span><span id="detailBw">-</span></div>
+          <div class="detail-item"><span class="detail-label">Start</span><span id="detailStart">-</span></div>
+          <div class="detail-item"><span class="detail-label">End</span><span id="detailEnd">-</span></div>
+          <div class="detail-item"><span class="detail-label">SNR</span><span id="detailSnr">-</span></div>
+          <div class="detail-item"><span class="detail-label">Duration</span><span id="detailDur">-</span></div>
+          <div class="detail-item"><span class="detail-label">Class</span><span id="detailClass">-</span></div>
+        </div>
+        <div class="viz-card insp-viz">
+          <div class="viz-head"><span class="viz-label">Local spectrum slice</span><span class="viz-hint">Around selected event</span></div>
+          <canvas id="detailSpectrogram"></canvas>
+        </div>
+        <div class="insp-note">Ready for: IQ snippets, clip playback, bookmarks, annotations.</div>
       </div>
-      <canvas id="timeline"></canvas>
-    </section>
-  </main>
-  <aside class="drawer" id="eventDrawer" aria-hidden="true">
-    <div class="drawer-header">
-      <div>Event Detail</div>
-      <button class="drawer-close" id="drawerClose" type="button">Close</button>
+    </aside>
+
+    <!-- ═══════════ KEYBOARD OVERLAY ═══════════ -->
+    <div class="kb-overlay" id="kbOverlay">
+      <div class="kb-card">
+        <div class="kb-title">Keyboard Shortcuts</div>
+        <div class="kb-grid">
+          <kbd>Space</kbd><span>Follow live</span>
+          <kbd>F</kbd><span>Fit view</span>
+          <kbd>M</kbd><span>Toggle max hold</span>
+          <kbd>G</kbd><span>Toggle GPU FFT</span>
+          <kbd>[ ]</kbd><span>Zoom in/out</span>
+          <kbd>← →</kbd><span>Pan left/right</span>
+          <kbd>?</kbd><span>This overlay</span>
+        </div>
+        <button class="act-btn kb-close" id="kbClose" type="button">Close</button>
+      </div>
     </div>
-    <div class="drawer-body">
-      <div class="detail-grid">
-        <div class="detail-label">Center</div>
-        <div id="detailCenter">-</div>
-        <div class="detail-label">Bandwidth</div>
-        <div id="detailBw">-</div>
-        <div class="detail-label">Start</div>
-        <div id="detailStart">-</div>
-        <div class="detail-label">End</div>
-        <div id="detailEnd">-</div>
-        <div class="detail-label">SNR</div>
-        <div id="detailSnr">-</div>
-        <div class="detail-label">Duration</div>
-        <div id="detailDur">-</div>
-      </div>
-      <div class="detail-section-title">Latest Spectrogram Slice</div>
-      <canvas id="detailSpectrogram"></canvas>
-      <div class="detail-section-title">Recorded Clips (placeholder)</div>
-      <div class="clips-empty">No clips recorded yet.</div>
-    </div>
-  </aside>
-  <footer>
-    <div id="status">Connecting...</div>
-  </footer>
+
+  </div>
   <script src="app.js"></script>
+  <script>
+    // Keyboard overlay toggle (new feature)
+    const kbOverlay = document.getElementById('kbOverlay');
+    const kbClose = document.getElementById('kbClose');
+    const kbToggle = document.getElementById('shortcutToggle');
+    function toggleKb() { kbOverlay.classList.toggle('open'); }
+    kbToggle.addEventListener('click', toggleKb);
+    kbClose.addEventListener('click', toggleKb);
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      if (e.key === '?') { e.preventDefault(); toggleKb(); }
+      if (e.key === 'Escape' && kbOverlay.classList.contains('open')) toggleKb();
+    });
+  </script>
 </body>
 </html>
