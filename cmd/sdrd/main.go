@@ -49,8 +49,10 @@ type client struct {
 }
 
 type hub struct {
-	mu      sync.Mutex
-	clients map[*client]struct{}
+	mu        sync.Mutex
+	clients   map[*client]struct{}
+	frameCnt  int64
+	lastLogTs time.Time
 }
 
 type gpuStatus struct {
@@ -95,13 +97,14 @@ func (g *gpuStatus) snapshot() gpuStatus {
 }
 
 func newHub() *hub {
-	return &hub{clients: map[*client]struct{}{}}
+	return &hub{clients: map[*client]struct{}{}, lastLogTs: time.Now()}
 }
 
 func (h *hub) add(c *client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.clients[c] = struct{}{}
+	log.Printf("ws connected (%d clients)", len(h.clients))
 }
 
 func (h *hub) remove(c *client) {
@@ -109,6 +112,7 @@ func (h *hub) remove(c *client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.clients, c)
+	log.Printf("ws disconnected (%d clients)", len(h.clients))
 }
 
 func (h *hub) broadcast(frame SpectrumFrame) {
@@ -131,6 +135,11 @@ func (h *hub) broadcast(frame SpectrumFrame) {
 		default:
 			h.remove(c)
 		}
+	}
+	h.frameCnt++
+	if time.Since(h.lastLogTs) > 2*time.Second {
+		h.lastLogTs = time.Now()
+		log.Printf("broadcast frames=%d clients=%d", h.frameCnt, len(clients))
 	}
 }
 
@@ -323,6 +332,7 @@ func main() {
 		RecordAudio: cfg.Recorder.RecordAudio,
 		AutoDemod:   cfg.Recorder.AutoDemod,
 		AutoDecode:  cfg.Recorder.AutoDecode,
+		MaxDiskMB:   cfg.Recorder.MaxDiskMB,
 		OutputDir:   cfg.Recorder.OutputDir,
 		ClassFilter: cfg.Recorder.ClassFilter,
 		RingSeconds: cfg.Recorder.RingSeconds,
@@ -372,6 +382,7 @@ func main() {
 				case <-ping.C:
 					_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 					if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+						log.Printf("ws ping error: %v", err)
 						return
 					}
 				}
