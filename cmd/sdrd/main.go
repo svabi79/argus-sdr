@@ -485,6 +485,46 @@ func main() {
 		_ = json.NewEncoder(w).Encode(evs)
 	})
 
+	http.HandleFunc("/api/recordings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		snap := cfgManager.Snapshot()
+		list, err := recorder.ListRecordings(snap.Recorder.OutputDir)
+		if err != nil {
+			http.Error(w, "failed to list recordings", http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(list)
+	})
+
+	http.HandleFunc("/api/recordings/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		id := strings.TrimPrefix(r.URL.Path, "/api/recordings/")
+		if id == "" {
+			http.Error(w, "missing id", http.StatusBadRequest)
+			return
+		}
+		snap := cfgManager.Snapshot()
+		base := filepath.Clean(filepath.Join(snap.Recorder.OutputDir, id))
+		if !strings.HasPrefix(base, filepath.Clean(snap.Recorder.OutputDir)) {
+			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		if r.URL.Path == "/api/recordings/"+id+"/audio" {
+			http.ServeFile(w, r, filepath.Join(base, "audio.wav"))
+			return
+		}
+		if r.URL.Path == "/api/recordings/"+id+"/iq" {
+			http.ServeFile(w, r, filepath.Join(base, "signal.cf32"))
+			return
+		}
+		// default: meta.json
+		http.ServeFile(w, r, filepath.Join(base, "meta.json"))
+	})
+
 	http.Handle("/", http.FileServer(http.Dir(cfg.WebRoot)))
 
 	server := &http.Server{Addr: cfg.WebAddr}
