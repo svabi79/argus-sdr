@@ -16,5 +16,13 @@ prompt*.txt
 # local cuda import libs
 cuda-mingw/
 
+# ui drafts & zips
+web/claude/
+web/hybrid/
+web/old/
+web/openai/
+web/*-web.zip
+sdr-visual-suite.zip
+
 # temp binaries
 sdrd.exe~
