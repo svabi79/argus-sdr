@@ -1,18 +1,16 @@
 # SDR Visual Suite
 
-Go-based SDRplay RSP1b live spectrum + waterfall visualizer with a minimal event recorder.
+Go-based SDRplay RSP1b live spectrum + waterfall visualizer with an event recorder, classifier, and demod/recording pipeline.
 
 ## Features
 - Live spectrum + waterfall web UI (WebSocket streaming)
 - Event timeline view (time vs frequency) with detail drawer
-- In-browser spectrogram slice for selected events
-- Basic detector with event JSONL output (`data/events.jsonl`)
-- Events API (`/api/events?limit=...&since=...`)
+- Event JSONL output (`data/events.jsonl`)
 - Runtime UI controls for center frequency, span, sample rate, tuner bandwidth, FFT size, gain, AGC, DC block, IQ balance, detector threshold
-- Display controls: averaging + max-hold
 - Optional GPU FFT (cuFFT) with toggle + `/api/gpu`
-- Recorded clips list placeholder (metadata only for now)
-- Windows + Linux support
+- IQ/audio recording + recordings list
+- Live demod endpoint
+- WFM stereo + RDS baseband
 - Mock mode for testing without hardware
 
 ## Quick Start (Mock)
@@ -71,31 +69,31 @@ Edit `config.yaml`:
 - `recorder.*`: enable IQ/audio recording, preroll, output_dir
 - `decoder.*`: external decode commands (use `{iq}` and `{sr}` placeholders)
 
-## Web UI
-The UI is served from `web/` and connects to `/ws` for spectrum frames.
-
-### Controls Panel
-Use the right-side controls to adjust center frequency, span (zoom), sample rate, tuner bandwidth, FFT size, gain, AGC, DC block, IQ balance, and detector threshold. Preset buttons provide quick jumps to 40m/20m/17m.
-
-### Event Timeline
-- The timeline panel displays recent events (time vs frequency).
-- Click any event block to open the detail drawer with event stats and a mini spectrogram slice from the latest frame.
-
+## APIs
 ### Config API
-- `GET /api/config`: returns the current runtime configuration.
-- `POST /api/config`: updates `center_hz`, `sample_rate`, `fft_size`, `gain_db`, `tuner_bw_khz`, `use_gpu_fft`, and `detector.threshold_db` at runtime.
-- `POST /api/sdr/settings`: updates `agc`, `dc_block`, and `iq_balance` at runtime.
-- `GET /api/gpu`: reports GPU FFT availability/active status.
+- `GET /api/config`
+- `POST /api/config`
+- `POST /api/sdr/settings`
+- `GET /api/gpu`
 
 ### Events API
-`/api/events` reads from the JSONL event log and returns the most recent events:
+`/api/events` reads from the JSONL event log:
 - `limit` (optional): max number of events (default 200, max 2000)
 - `since` (optional): Unix milliseconds or RFC3339 timestamp
 
-Example:
-```bash
-curl "http://localhost:8080/api/events?limit=100&since=1700000000000"
-```
+### Recordings API
+- `GET /api/recordings`
+- `GET /api/recordings/:id` (meta.json)
+- `GET /api/recordings/:id/iq`
+- `GET /api/recordings/:id/audio`
+- `GET /api/recordings/:id/decode?mode=FT8|WSPR|DMR|D-STAR|FSK|PSK`
+
+### Live Demod API
+- `GET /api/demod?freq=...&bw=...&mode=...&sec=...` → audio/wav
+
+## Decoder Tools
+Put external decoder binaries/scripts under `tools/` and configure `decoder.*` in `config.yaml`.
+See `tools/README.md` for examples.
 
 ## Tests
 ```bash
@@ -105,8 +103,5 @@ go test ./...
 
 ## Troubleshooting
 - If you see `sdrplay support not built`, rebuild with `-tags sdrplay`.
-- If the SDRplay library is not found, ensure `CGO_CFLAGS` and `CGO_LDFLAGS` point to the API headers and library.
-- Use `--mock` to run without hardware.
-lay`.
 - If the SDRplay library is not found, ensure `CGO_CFLAGS` and `CGO_LDFLAGS` point to the API headers and library.
 - Use `--mock` to run without hardware.
