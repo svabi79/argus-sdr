@@ -63,6 +63,8 @@ const detailClassEl = qs('detailClass');
 const jumpToEventBtn = qs('jumpToEventBtn');
 const exportEventBtn = qs('exportEventBtn');
 const liveListenEventBtn = qs('liveListenEventBtn');
+const decodeEventBtn = qs('decodeEventBtn');
+const decodeModeSelect = qs('decodeMode');
 const recordingMetaEl = qs('recordingMeta');
 const recordingMetaLink = qs('recordingMetaLink');
 const recordingIQLink = qs('recordingIQLink');
@@ -1143,7 +1145,7 @@ if (decodeEventBtn) {
       decodeResultEl.textContent = 'Decode: no recording';
       return;
     }
-    const mode = ev.class?.mod_type || 'FT8';
+    const mode = decodeModeSelect?.value || ev.class?.mod_type || 'FT8';
     const res = await fetch(`/api/recordings/${rec.id}/decode?mode=${mode}`);
     if (!res.ok) {
       decodeResultEl.textContent = 'Decode: failed';
