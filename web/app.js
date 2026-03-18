@@ -42,6 +42,7 @@ const recDemodToggle = qs('recDemodToggle');
 const recDecodeToggle = qs('recDecodeToggle');
 const recMinSNR = qs('recMinSNR');
 const recMaxDisk = qs('recMaxDisk');
+const recClassFilter = qs('recClassFilter');
 
 const signalList = qs('signalList');
 const eventList = qs('eventList');
