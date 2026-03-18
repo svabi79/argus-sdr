@@ -28,9 +28,19 @@ type RecorderConfig struct {
 	RecordIQ    bool     `yaml:"record_iq" json:"record_iq"`
 	RecordAudio bool     `yaml:"record_audio" json:"record_audio"`
 	AutoDemod   bool     `yaml:"auto_demod" json:"auto_demod"`
+	AutoDecode  bool     `yaml:"auto_decode" json:"auto_decode"`
 	OutputDir   string   `yaml:"output_dir" json:"output_dir"`
 	ClassFilter []string `yaml:"class_filter" json:"class_filter"`
 	RingSeconds int      `yaml:"ring_seconds" json:"ring_seconds"`
+}
+
+type DecoderConfig struct {
+	FT8Cmd   string `yaml:"ft8_cmd" json:"ft8_cmd"`
+	WSPRCmd  string `yaml:"wspr_cmd" json:"wspr_cmd"`
+	DMRCmd   string `yaml:"dmr_cmd" json:"dmr_cmd"`
+	DStarCmd string `yaml:"dstar_cmd" json:"dstar_cmd"`
+	FSKCmd   string `yaml:"fsk_cmd" json:"fsk_cmd"`
+	PSKCmd   string `yaml:"psk_cmd" json:"psk_cmd"`
 }
 
 type Config struct {
@@ -46,6 +56,7 @@ type Config struct {
 	IQBalance      bool           `yaml:"iq_balance" json:"iq_balance"`
 	Detector       DetectorConfig `yaml:"detector" json:"detector"`
 	Recorder       RecorderConfig `yaml:"recorder" json:"recorder"`
+	Decoder        DecoderConfig  `yaml:"decoder" json:"decoder"`
 	WebAddr        string         `yaml:"web_addr" json:"web_addr"`
 	EventPath      string         `yaml:"event_path" json:"event_path"`
 	FrameRate      int            `yaml:"frame_rate" json:"frame_rate"`
@@ -77,9 +88,11 @@ func Default() Config {
 			RecordIQ:    true,
 			RecordAudio: false,
 			AutoDemod:   true,
+			AutoDecode:  false,
 			OutputDir:   "data/recordings",
 			RingSeconds: 8,
 		},
+		Decoder:        DecoderConfig{},
 		WebAddr:        ":8080",
 		EventPath:      "data/events.jsonl",
 		FrameRate:      15,

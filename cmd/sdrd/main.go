@@ -294,6 +294,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	decodeMap := buildDecoderMap(cfg)
 	recMgr := recorder.New(cfg.SampleRate, cfg.FFTSize, recorder.Policy{
 		Enabled:     cfg.Recorder.Enabled,
 		MinSNRDb:    cfg.Recorder.MinSNRDb,
@@ -303,10 +304,11 @@ func main() {
 		RecordIQ:    cfg.Recorder.RecordIQ,
 		RecordAudio: cfg.Recorder.RecordAudio,
 		AutoDemod:   cfg.Recorder.AutoDemod,
+		AutoDecode:  cfg.Recorder.AutoDecode,
 		OutputDir:   cfg.Recorder.OutputDir,
 		ClassFilter: cfg.Recorder.ClassFilter,
 		RingSeconds: cfg.Recorder.RingSeconds,
-	}, cfg.CenterHz)
+	}, cfg.CenterHz, decodeMap)
 
 	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr)
 
@@ -615,10 +617,11 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					RecordIQ:    cfg.Recorder.RecordIQ,
 					RecordAudio: cfg.Recorder.RecordAudio,
 					AutoDemod:   cfg.Recorder.AutoDemod,
+					AutoDecode:  cfg.Recorder.AutoDecode,
 					OutputDir:   cfg.Recorder.OutputDir,
 					ClassFilter: cfg.Recorder.ClassFilter,
 					RingSeconds: cfg.Recorder.RingSeconds,
-				}, cfg.CenterHz)
+				}, cfg.CenterHz, buildDecoderMap(cfg))
 			}
 			if upd.det != nil {
 				det = upd.det
@@ -740,6 +743,29 @@ func mustParseDuration(raw string, fallback time.Duration) time.Duration {
 		return d
 	}
 	return fallback
+}
+
+func buildDecoderMap(cfg config.Config) map[string]string {
+	out := map[string]string{}
+	if cfg.Decoder.FT8Cmd != "" {
+		out["FT8"] = cfg.Decoder.FT8Cmd
+	}
+	if cfg.Decoder.WSPRCmd != "" {
+		out["WSPR"] = cfg.Decoder.WSPRCmd
+	}
+	if cfg.Decoder.DMRCmd != "" {
+		out["DMR"] = cfg.Decoder.DMRCmd
+	}
+	if cfg.Decoder.DStarCmd != "" {
+		out["D-STAR"] = cfg.Decoder.DStarCmd
+	}
+	if cfg.Decoder.FSKCmd != "" {
+		out["FSK"] = cfg.Decoder.FSKCmd
+	}
+	if cfg.Decoder.PSKCmd != "" {
+		out["PSK"] = cfg.Decoder.PSKCmd
+	}
+	return out
 }
 
 func parseSince(raw string) (time.Time, error) {
