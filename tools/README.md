@@ -22,6 +22,6 @@ Or:
 The app replaces `{iq}`, `{sr}`, and `{audio}` placeholders in config commands.
 
 Downloaded:
-- WSJT-X installer: tools/wsjtx/wsjtx-2.7.0-win64.exe
+- WSJT-X installed at: C:/WSJT/wsjtx-2.7.0-rc6 (jt9.exe, wsprd.exe)
 - fldigi installer: tools/fldigi/fldigi-latest.exe
 - dsd-neo binary: tools/dsd-neo/bin/dsd-neo.exe

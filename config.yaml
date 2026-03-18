@@ -30,8 +30,8 @@ recorder:
   class_filter: []
   ring_seconds: 8
 decoder:
-  ft8_cmd: "tools/ft8/ft8_decoder --iq {iq} --sample-rate {sr}"
-  wspr_cmd: "tools/wspr/wspr_decoder --iq {iq} --sample-rate {sr}"
+  ft8_cmd: "C:/WSJT/wsjtx-2.7.0-rc6/bin/jt9.exe -8 {audio}"
+  wspr_cmd: "C:/WSJT/wsjtx-2.7.0-rc6/bin/wsprd.exe {audio}"
   dmr_cmd: "tools/dsd-neo/bin/dsd-neo.exe -fs -i {audio} -s {sr} -o null"
   dstar_cmd: "tools/dsd-neo/bin/dsd-neo.exe -fd -i {audio} -s {sr} -o null"
   fsk_cmd: "tools/fsk/fsk_decoder --iq {iq} --sample-rate {sr}"

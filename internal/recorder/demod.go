@@ -86,6 +86,8 @@ func mapClassToDemod(c classifier.SignalClass) string {
 		return "LSB"
 	case classifier.ClassCW:
 		return "CW"
+	case classifier.ClassFT8, classifier.ClassWSPR, classifier.ClassFSK, classifier.ClassPSK:
+		return "USB"
 	default:
 		return ""
 	}
