@@ -92,6 +92,7 @@ const liveListenBtn = qs('liveListenBtn');
 
 let latest = null;
 let currentConfig = null;
+let liveAudio = null;
 let stats = { buffer_samples: 0, dropped: 0, resets: 0, last_sample_ago_ms: -1 };
 let gpuInfo = { available: false, active: false, error: '' };
 
@@ -1326,4 +1327,6 @@ setInterval(loadStats, 1000);
 setInterval(loadGPU, 1000);
 setInterval(() => fetchEvents(false), 2000);
 setInterval(fetchRecordings, 5000);
+setInterval(loadSignals, 1500);
+ordings, 5000);
 setInterval(loadSignals, 1500);
