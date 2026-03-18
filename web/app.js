@@ -63,6 +63,10 @@ const detailClassEl = qs('detailClass');
 const jumpToEventBtn = qs('jumpToEventBtn');
 const exportEventBtn = qs('exportEventBtn');
 const liveListenEventBtn = qs('liveListenEventBtn');
+const recordingMetaEl = qs('recordingMeta');
+const recordingMetaLink = qs('recordingMetaLink');
+const recordingIQLink = qs('recordingIQLink');
+const recordingAudioLink = qs('recordingAudioLink');
 
 const followBtn = qs('followBtn');
 const fitBtn = qs('fitBtn');
@@ -862,6 +866,14 @@ function openDrawer(ev) {
   detailSnrEl.textContent = `${(ev.snr_db || 0).toFixed(1)} dB`;
   detailDurEl.textContent = fmtMs(ev.duration_ms || 0);
   detailClassEl.textContent = ev.class?.mod_type || '-';
+  if (recordingMetaEl) {
+    recordingMetaEl.textContent = 'Recording: -';
+  }
+  if (recordingMetaLink) {
+    recordingMetaLink.href = '#';
+    recordingIQLink.href = '#';
+    recordingAudioLink.href = '#';
+  }
   drawerEl.classList.add('open');
   drawerEl.setAttribute('aria-hidden', 'false');
   renderDetailSpectrogram();
@@ -1174,6 +1186,12 @@ if (recordingList) {
     const id = target.dataset.id;
     const audio = new Audio(`/api/recordings/${id}/audio`);
     audio.play();
+    if (recordingMetaEl) recordingMetaEl.textContent = `Recording: ${id}`;
+    if (recordingMetaLink) {
+      recordingMetaLink.href = `/api/recordings/${id}`;
+      recordingIQLink.href = `/api/recordings/${id}/iq`;
+      recordingAudioLink.href = `/api/recordings/${id}/audio`;
+    }
   });
 }
 
