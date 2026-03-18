@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sort"
+
+	"sdr-visual-suite/internal/config"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,7 +23,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"sdr-visual-suite/internal/classifier"
-	"sdr-visual-suite/internal/config"
 	"sdr-visual-suite/internal/detector"
 	"sdr-visual-suite/internal/dsp"
 	"sdr-visual-suite/internal/events"
@@ -428,6 +429,9 @@ func main() {
 					return
 				}
 			}
+			if err := config.Save(cfgPath, next); err != nil {
+				log.Printf("config save failed: %v", err)
+			}
 			detChanged := prev.Detector.ThresholdDb != next.Detector.ThresholdDb ||
 				prev.Detector.MinDurationMs != next.Detector.MinDurationMs ||
 				prev.Detector.HoldMs != next.Detector.HoldMs ||
@@ -496,6 +500,9 @@ func main() {
 				dcBlock:   next.DCBlock,
 				iqBalance: next.IQBalance,
 			})
+		}
+		if err := config.Save(cfgPath, next); err != nil {
+			log.Printf("config save failed: %v", err)
 		}
 		_ = json.NewEncoder(w).Encode(next)
 	})
