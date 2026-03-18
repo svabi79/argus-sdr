@@ -24,6 +24,7 @@ import (
 	fftutil "sdr-visual-suite/internal/fft"
 	"sdr-visual-suite/internal/fft/gpufft"
 	"sdr-visual-suite/internal/mock"
+	"sdr-visual-suite/internal/recorder"
 	"sdr-visual-suite/internal/runtime"
 	"sdr-visual-suite/internal/sdr"
 	"sdr-visual-suite/internal/sdrplay"
@@ -39,8 +40,10 @@ type SpectrumFrame struct {
 }
 
 type client struct {
-	conn *websocket.Conn
-	send chan []byte
+	conn      *websocket.Conn
+	send      chan []byte
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 type hub struct {
@@ -83,10 +86,10 @@ func (h *hub) add(c *client) {
 }
 
 func (h *hub) remove(c *client) {
+	c.closeOnce.Do(func() { close(c.done) })
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.clients, c)
-	close(c.send)
 }
 
 func (h *hub) broadcast(frame SpectrumFrame) {
@@ -277,7 +280,7 @@ func main() {
 		log.Fatalf("open events: %v", err)
 	}
 	defer eventFile.Close()
-	eventMu := &sync.Mutex{}
+	eventMu := &sync.RWMutex{}
 
 	det := detector.New(cfg.Detector.ThresholdDb, cfg.SampleRate, cfg.FFTSize,
 		time.Duration(cfg.Detector.MinDurationMs)*time.Millisecond,
@@ -290,18 +293,30 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState)
+	recMgr := recorder.New(cfg.SampleRate, cfg.FFTSize, recorder.Policy{
+		Enabled:     cfg.Recorder.Enabled,
+		MinSNRDb:    cfg.Recorder.MinSNRDb,
+		MinDuration: mustParseDuration(cfg.Recorder.MinDuration, 1*time.Second),
+		MaxDuration: mustParseDuration(cfg.Recorder.MaxDuration, 300*time.Second),
+		PrerollMs:   cfg.Recorder.PrerollMs,
+		RecordIQ:    cfg.Recorder.RecordIQ,
+		OutputDir:   cfg.Recorder.OutputDir,
+		ClassFilter: cfg.Recorder.ClassFilter,
+		RingSeconds: cfg.Recorder.RingSeconds,
+	})
+
+	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr)
 
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	return origin == "" || strings.HasPrefix(origin, "http://localhost") || strings.HasPrefix(origin, "http://127.0.0.1")
-}}
+		origin := r.Header.Get("Origin")
+		return origin == "" || strings.HasPrefix(origin, "http://localhost") || strings.HasPrefix(origin, "http://127.0.0.1")
+	}}
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		c := &client{conn: conn, send: make(chan []byte, 32)}
+		c := &client{conn: conn, send: make(chan []byte, 32), done: make(chan struct{})}
 		h.add(c)
 		defer func() {
 			h.remove(c)
@@ -458,9 +473,9 @@ func main() {
 			}
 		}
 		snap := cfgManager.Snapshot()
-		eventMu.Lock()
+		eventMu.RLock()
 		evs, err := events.ReadRecent(snap.EventPath, limit, since)
-		eventMu.Unlock()
+		eventMu.RUnlock()
 		if err != nil {
 			http.Error(w, "failed to read events", http.StatusInternalServerError)
 			return
@@ -486,7 +501,7 @@ func main() {
 	_ = server.Shutdown(ctxTimeout)
 }
 
-func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.Mutex, updates <-chan dspUpdate, gpuState *gpuStatus) {
+func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager) {
 	ticker := time.NewTicker(cfg.FrameInterval())
 	defer ticker.Stop()
 	logTicker := time.NewTicker(5 * time.Second)
@@ -498,12 +513,18 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 	plan := fftutil.NewCmplxPlan(cfg.FFTSize)
 	useGPU := cfg.UseGPUFFT
 	var gpuEngine *gpufft.Engine
-	if useGPU && gpuState != nil && gpuState.Available {
-		if eng, err := gpufft.New(cfg.FFTSize); err == nil {
-			gpuEngine = eng
-			gpuState.set(true, nil)
+	if useGPU && gpuState != nil {
+		snap := gpuState.snapshot()
+		if snap.Available {
+			if eng, err := gpufft.New(cfg.FFTSize); err == nil {
+				gpuEngine = eng
+				gpuState.set(true, nil)
+			} else {
+				gpuState.set(false, err)
+				useGPU = false
+			}
 		} else {
-			gpuState.set(false, err)
+			gpuState.set(false, nil)
 			useGPU = false
 		}
 	} else if gpuState != nil {
@@ -522,6 +543,19 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			prevFFT := cfg.FFTSize
 			prevUseGPU := useGPU
 			cfg = upd.cfg
+			if rec != nil {
+				rec.Update(cfg.SampleRate, cfg.FFTSize, recorder.Policy{
+					Enabled:     cfg.Recorder.Enabled,
+					MinSNRDb:    cfg.Recorder.MinSNRDb,
+					MinDuration: mustParseDuration(cfg.Recorder.MinDuration, 1*time.Second),
+					MaxDuration: mustParseDuration(cfg.Recorder.MaxDuration, 300*time.Second),
+					PrerollMs:   cfg.Recorder.PrerollMs,
+					RecordIQ:    cfg.Recorder.RecordIQ,
+					OutputDir:   cfg.Recorder.OutputDir,
+					ClassFilter: cfg.Recorder.ClassFilter,
+					RingSeconds: cfg.Recorder.RingSeconds,
+				})
+			}
 			if upd.det != nil {
 				det = upd.det
 			}
@@ -539,12 +573,18 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					gpuEngine = nil
 				}
 				useGPU = cfg.UseGPUFFT
-				if useGPU && gpuState != nil && gpuState.Available {
-					if eng, err := gpufft.New(cfg.FFTSize); err == nil {
-						gpuEngine = eng
-						gpuState.set(true, nil)
+				if useGPU && gpuState != nil {
+					snap := gpuState.snapshot()
+					if snap.Available {
+						if eng, err := gpufft.New(cfg.FFTSize); err == nil {
+							gpuEngine = eng
+							gpuState.set(true, nil)
+						} else {
+							gpuState.set(false, err)
+							useGPU = false
+						}
 					} else {
-						gpuState.set(false, err)
+						gpuState.set(false, nil)
 						useGPU = false
 					}
 				} else if gpuState != nil {
@@ -563,6 +603,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					}
 				}
 				continue
+			}
+			if rec != nil {
+				rec.Ingest(time.Now(), iq)
 			}
 			if !gotSamples {
 				log.Printf("received IQ samples")
@@ -603,6 +646,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				_ = enc.Encode(ev)
 			}
 			eventMu.Unlock()
+			if rec != nil {
+				rec.OnEvents(finished)
+			}
 			h.broadcast(SpectrumFrame{
 				Timestamp: now.UnixMilli(),
 				CenterHz:  cfg.CenterHz,
@@ -613,6 +659,16 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			})
 		}
 	}
+}
+
+func mustParseDuration(raw string, fallback time.Duration) time.Duration {
+	if raw == "" {
+		return fallback
+	}
+	if d, err := time.ParseDuration(raw); err == nil {
+		return d
+	}
+	return fallback
 }
 
 func parseSince(raw string) (time.Time, error) {
