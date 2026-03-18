@@ -702,6 +702,7 @@ function renderWaterfall() {
     row.data[x * 4 + 3] = 255;
   }
   ctx.putImageData(row, 0, 0);
+  drawCfarEdgeOverlay(ctx, w, h, startHz, endHz);
 }
 
 function renderOccupancy() {

@@ -8,93 +8,80 @@ func RuleClassify(feat Features) Classification {
 	sym := feat.Symmetry
 	p2a := feat.PeakToAvg
 
-	best := ClassUnknown
-	second := ClassUnknown
-	conf := 0.3
+	scores := map[SignalClass]float64{}
+	add := func(c SignalClass, w float64) {
+		if w <= 0 {
+			return
+		}
+		scores[c] += w
+	}
 
 	switch {
 	case bw >= 80e3:
-		best = ClassWFM
-		conf = 0.9
+		add(ClassWFM, 2.2)
 	case bw >= 25e3 && bw < 80e3:
-		best = ClassWFM
-		second = ClassNFM
-		conf = 0.65
+		add(ClassWFM, 1.4)
+		add(ClassNFM, 0.8)
 	case bw >= 6e3 && bw < 25e3:
-		best = ClassNFM
-		conf = 0.8
-		if flat > 0.7 {
-			second = ClassNoise
-		}
-		// digital voice rough guesses
-		if feat.InstFreqStd < 0.5 && feat.EnvVariance < 0.3 {
-			second = ClassDMR
-		}
+		add(ClassNFM, 2.0)
 	case bw >= 3e3 && bw < 6e3:
-		// wider SSB/AM
-		if sym > 0.2 {
-			best = ClassSSBUSB
-			conf = 0.65
-		} else if sym < -0.2 {
-			best = ClassSSBLSB
-			conf = 0.65
-		} else if p2a > 2.5 && flat < 0.5 {
-			best = ClassAM
-			conf = 0.6
+		add(ClassSSBUSB, 0.6)
+		add(ClassSSBLSB, 0.6)
+		if p2a > 2.5 && flat < 0.5 {
+			add(ClassAM, 1.1)
 		}
 	case bw >= 500 && bw < 3e3:
-		// narrow SSB/AM + digital
-		if feat.EnvVariance < 0.6 && feat.InstFreqStd < 0.7 && bw >= 2000 && bw < 3000 {
-			best = ClassFT8
-			conf = 0.55
-		} else if sym > 0.2 {
-			best = ClassSSBUSB
-			conf = 0.7
-		} else if sym < -0.2 {
-			best = ClassSSBLSB
-			conf = 0.7
-		} else if p2a > 3 && flat < 0.4 {
-			best = ClassAM
-			conf = 0.6
-		} else if feat.InstFreqStd > 0.8 {
-			best = ClassFSK
-			conf = 0.5
-		} else if feat.InstFreqStd < 0.3 {
-			best = ClassPSK
-			conf = 0.5
+		add(ClassSSBUSB, 0.8)
+		add(ClassSSBLSB, 0.8)
+		if p2a > 3 && flat < 0.4 {
+			add(ClassAM, 1.0)
 		}
 	case bw >= 150 && bw < 500:
-		if feat.EnvVariance < 0.4 && feat.InstFreqStd < 0.5 {
-			best = ClassWSPR
-			conf = 0.55
-		} else if feat.InstFreqStd > 0.9 {
-			best = ClassFSK
-			conf = 0.45
-		} else if feat.InstFreqStd < 0.25 {
-			best = ClassPSK
-			conf = 0.45
-		}
+		add(ClassFSK, 0.5)
+		add(ClassPSK, 0.5)
 	case bw < 150:
-		best = ClassCW
-		conf = 0.7
+		add(ClassCW, 1.6)
 	}
 
-	// noise hint
-	if best == ClassUnknown && flat > 0.85 && bw > 2e3 {
-		best = ClassNoise
-		conf = 0.6
+	if sym > 0.2 {
+		add(ClassSSBUSB, 1.2)
+	} else if sym < -0.2 {
+		add(ClassSSBLSB, 1.2)
+	}
+	if feat.EnvVariance < 0.6 && feat.InstFreqStd < 0.7 && bw >= 2000 && bw < 3000 {
+		add(ClassFT8, 1.4)
+	}
+	if feat.EnvVariance < 0.4 && feat.InstFreqStd < 0.5 && bw >= 150 && bw < 500 {
+		add(ClassWSPR, 1.3)
+	}
+	if feat.InstFreqStd > 0.9 {
+		add(ClassFSK, 1.2)
+	} else if feat.InstFreqStd < 0.25 {
+		add(ClassPSK, 1.0)
+	}
+	if p2a > 2.5 && flat < 0.5 {
+		add(ClassAM, 0.8)
+	}
+	if flat > 0.85 && bw > 2e3 {
+		add(ClassNoise, 1.0)
+	}
+	if feat.InstFreqStd < 0.5 && feat.EnvVariance < 0.3 && bw >= 6e3 && bw < 25e3 {
+		add(ClassDMR, 0.7)
 	}
 
-	// edge-case: if symmetry is strong, second best opposite side
-	if (best == ClassSSBUSB || best == ClassSSBLSB) && second == ClassUnknown {
-		if best == ClassSSBUSB {
-			second = ClassSSBLSB
-		} else {
-			second = ClassSSBUSB
-		}
+	best, bestScore, second, secondScore := top2(scores)
+	if best == "" {
+		best = ClassUnknown
+	}
+	if second == "" {
+		second = ClassUnknown
 	}
 
-	// slightly scale confidence by feature strength
+	conf := 0.3
+	if best != ClassUnknown {
+		sum := bestScore + secondScore + 1e-6
+		conf = 0.3 + 0.7*(bestScore/sum)
+	}
 	if best == ClassNFM || best == ClassWFM {
 		conf = conf * (0.8 + 0.2*clamp01(1-flat))
 	}
@@ -105,6 +92,14 @@ func RuleClassify(feat Features) Classification {
 		conf = 0.3
 	}
 
+	if (best == ClassSSBUSB || best == ClassSSBLSB) && second == ClassUnknown {
+		if best == ClassSSBUSB {
+			second = ClassSSBLSB
+		} else {
+			second = ClassSSBUSB
+		}
+	}
+
 	return Classification{
 		ModType:    best,
 		Confidence: conf,
@@ -112,4 +107,24 @@ func RuleClassify(feat Features) Classification {
 		Features:   feat,
 		SecondBest: second,
 	}
+}
+
+func top2(scores map[SignalClass]float64) (SignalClass, float64, SignalClass, float64) {
+	var best, second SignalClass
+	bestScore := 0.0
+	secondScore := 0.0
+	for k, v := range scores {
+		if v > bestScore {
+			second = best
+			secondScore = bestScore
+			best = k
+			bestScore = v
+			continue
+		}
+		if v > secondScore {
+			second = k
+			secondScore = v
+		}
+	}
+	return best, bestScore, second, secondScore
 }
