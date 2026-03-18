@@ -1129,8 +1129,9 @@ if (liveListenEventBtn) {
     if (!ev) return;
     const freq = ev.center_hz;
     const bw = ev.bandwidth_hz || 12000;
-    const mode = ev.class?.mod_type || 'NFM';
-    const url = `/api/demod?freq=${freq}&bw=${bw}&mode=${mode}&sec=2`;
+    const mode = (listenModeSelect?.value || ev.class?.mod_type || 'NFM');
+    const sec = parseInt(listenSecondsInput?.value || '2', 10);
+    const url = `/api/demod?freq=${freq}&bw=${bw}&mode=${mode}&sec=${sec}`;
     const audio = new Audio(url);
     audio.play();
   });

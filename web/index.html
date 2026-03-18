@@ -179,6 +179,21 @@
           <section class="tab-panel" data-panel="signals">
             <div class="list-head"><span class="grp-title">Detected carriers</span><span class="count-pill" id="signalCountBadge">0 live</span></div>
             <div class="signal-list" id="signalList"><div class="empty-state">No live signals yet.</div></div>
+            <div class="field-pair">
+              <label class="field"><span>Listen sec</span><input id="listenSeconds" type="number" min="1" max="10" step="1" value="2" /></label>
+              <label class="field"><span>Listen mode</span>
+                <select id="listenMode" class="ctrl-select">
+                  <option value="">Auto</option>
+                  <option value="AM">AM</option>
+                  <option value="NFM">NFM</option>
+                  <option value="WFM">WFM</option>
+                  <option value="WFM_STEREO">WFM_STEREO</option>
+                  <option value="USB">USB</option>
+                  <option value="LSB">LSB</option>
+                  <option value="CW">CW</option>
+                </select>
+              </label>
+            </div>
             <button class="act-btn" id="liveListenBtn" type="button">Live Listen</button>
           </section>
 
