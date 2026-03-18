@@ -18,6 +18,8 @@ type Policy struct {
 	MaxDuration time.Duration `yaml:"max_duration" json:"max_duration"`
 	PrerollMs   int           `yaml:"preroll_ms" json:"preroll_ms"`
 	RecordIQ    bool          `yaml:"record_iq" json:"record_iq"`
+	RecordAudio bool          `yaml:"record_audio" json:"record_audio"`
+	AutoDemod   bool          `yaml:"auto_demod" json:"auto_demod"`
 	OutputDir   string        `yaml:"output_dir" json:"output_dir"`
 	ClassFilter []string      `yaml:"class_filter" json:"class_filter"`
 	RingSeconds int           `yaml:"ring_seconds" json:"ring_seconds"`
@@ -28,22 +30,24 @@ type Manager struct {
 	ring       *Ring
 	sampleRate int
 	blockSize  int
+	centerHz   float64
 }
 
-func New(sampleRate int, blockSize int, policy Policy) *Manager {
+func New(sampleRate int, blockSize int, policy Policy, centerHz float64) *Manager {
 	if policy.OutputDir == "" {
 		policy.OutputDir = "data/recordings"
 	}
 	if policy.RingSeconds <= 0 {
 		policy.RingSeconds = 8
 	}
-	return &Manager{policy: policy, ring: NewRing(sampleRate, blockSize, policy.RingSeconds), sampleRate: sampleRate, blockSize: blockSize}
+	return &Manager{policy: policy, ring: NewRing(sampleRate, blockSize, policy.RingSeconds), sampleRate: sampleRate, blockSize: blockSize, centerHz: centerHz}
 }
 
-func (m *Manager) Update(sampleRate int, blockSize int, policy Policy) {
+func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz float64) {
 	m.policy = policy
 	m.sampleRate = sampleRate
 	m.blockSize = blockSize
+	m.centerHz = centerHz
 	if m.ring == nil {
 		m.ring = NewRing(sampleRate, blockSize, policy.RingSeconds)
 		return
@@ -93,7 +97,7 @@ func (m *Manager) recordEvent(ev detector.Event) error {
 			return nil
 		}
 	}
-	if !m.policy.RecordIQ {
+	if !m.policy.RecordIQ && !m.policy.RecordAudio {
 		return nil
 	}
 
@@ -113,13 +117,22 @@ func (m *Manager) recordEvent(ev detector.Event) error {
 		return err
 	}
 	files := map[string]any{}
-	path := filepath.Join(dir, "signal.cf32")
-	if err := writeCF32(path, segment); err != nil {
-		return err
+	if m.policy.RecordIQ {
+		path := filepath.Join(dir, "signal.cf32")
+		if err := writeCF32(path, segment); err != nil {
+			return err
+		}
+		files["iq"] = "signal.cf32"
+		files["iq_format"] = "cf32"
+		files["iq_sample_rate"] = m.sampleRate
 	}
-	files["iq"] = "signal.cf32"
-	files["iq_format"] = "cf32"
-	files["iq_sample_rate"] = m.sampleRate
+
+	// Optional demod + audio
+	if m.policy.RecordAudio && m.policy.AutoDemod && ev.Class != nil {
+		if err := m.demodAndWrite(dir, ev, segment, files); err != nil {
+			return err
+		}
+	}
 
 	return writeMeta(dir, ev, m.sampleRate, files)
 }

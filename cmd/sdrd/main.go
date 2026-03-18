@@ -300,10 +300,12 @@ func main() {
 		MaxDuration: mustParseDuration(cfg.Recorder.MaxDuration, 300*time.Second),
 		PrerollMs:   cfg.Recorder.PrerollMs,
 		RecordIQ:    cfg.Recorder.RecordIQ,
+		RecordAudio: cfg.Recorder.RecordAudio,
+		AutoDemod:   cfg.Recorder.AutoDemod,
 		OutputDir:   cfg.Recorder.OutputDir,
 		ClassFilter: cfg.Recorder.ClassFilter,
 		RingSeconds: cfg.Recorder.RingSeconds,
-	})
+	}, cfg.CenterHz)
 
 	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr)
 
@@ -551,10 +553,12 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					MaxDuration: mustParseDuration(cfg.Recorder.MaxDuration, 300*time.Second),
 					PrerollMs:   cfg.Recorder.PrerollMs,
 					RecordIQ:    cfg.Recorder.RecordIQ,
+					RecordAudio: cfg.Recorder.RecordAudio,
+					AutoDemod:   cfg.Recorder.AutoDemod,
 					OutputDir:   cfg.Recorder.OutputDir,
 					ClassFilter: cfg.Recorder.ClassFilter,
 					RingSeconds: cfg.Recorder.RingSeconds,
-				})
+				}, cfg.CenterHz)
 			}
 			if upd.det != nil {
 				det = upd.det

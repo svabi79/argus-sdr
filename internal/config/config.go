@@ -26,6 +26,8 @@ type RecorderConfig struct {
 	MaxDuration string   `yaml:"max_duration" json:"max_duration"`
 	PrerollMs   int      `yaml:"preroll_ms" json:"preroll_ms"`
 	RecordIQ    bool     `yaml:"record_iq" json:"record_iq"`
+	RecordAudio bool     `yaml:"record_audio" json:"record_audio"`
+	AutoDemod   bool     `yaml:"auto_demod" json:"auto_demod"`
 	OutputDir   string   `yaml:"output_dir" json:"output_dir"`
 	ClassFilter []string `yaml:"class_filter" json:"class_filter"`
 	RingSeconds int      `yaml:"ring_seconds" json:"ring_seconds"`
@@ -73,6 +75,8 @@ func Default() Config {
 			MaxDuration: "300s",
 			PrerollMs:   500,
 			RecordIQ:    true,
+			RecordAudio: false,
+			AutoDemod:   true,
 			OutputDir:   "data/recordings",
 			RingSeconds: 8,
 		},
