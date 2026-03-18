@@ -298,6 +298,19 @@ async function loadConfig() {
   }
 }
 
+async function loadSignals() {
+  try {
+    const res = await fetch('/api/signals');
+    if (!res.ok) return;
+    const sigs = await res.json();
+    if (Array.isArray(sigs)) {
+      latest = latest || {};
+      latest.signals = sigs;
+      renderLists();
+    }
+  } catch {}
+}
+
 async function loadStats() {
   try {
     const res = await fetch('/api/stats');
@@ -1274,3 +1287,4 @@ setInterval(loadStats, 1000);
 setInterval(loadGPU, 1000);
 setInterval(() => fetchEvents(false), 2000);
 setInterval(fetchRecordings, 5000);
+setInterval(loadSignals, 1500);
