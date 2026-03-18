@@ -22,10 +22,10 @@ if (-not (Test-Path $cudaInc)) {
   $cudaBin = 'C:\PROGRA~1\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin'
 }
 if (Test-Path $cudaInc) {
-  $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I`"$cudaInc`""
+  $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I$cudaInc"
 }
 if (Test-Path $cudaLib) {
-  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L`"$cudaLib`" -lcufft -lcudart"
+  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaLib -lcufft -lcudart"
 }
 if (Test-Path $cudaBin) {
   $env:PATH = "$cudaBin;" + $env:PATH
