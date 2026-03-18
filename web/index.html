@@ -142,6 +142,18 @@
             </div>
 
             <div class="form-group">
+              <div class="grp-title">Recorder</div>
+              <div class="toggle-grid">
+                <label class="pill-toggle"><input id="recEnableToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">Enabled</span></label>
+                <label class="pill-toggle"><input id="recIQToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">Record IQ</span></label>
+                <label class="pill-toggle"><input id="recAudioToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">Record Audio</span></label>
+                <label class="pill-toggle"><input id="recDemodToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">Auto Demod</span></label>
+                <label class="pill-toggle"><input id="recDecodeToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">Auto Decode</span></label>
+              </div>
+              <label class="field"><span>Min SNR (dB)</span><input id="recMinSNR" type="number" step="1" min="0" /></label>
+            </div>
+
+            <div class="form-group">
               <div class="grp-title">DSP</div>
               <label class="field"><span>FFT Size</span>
                 <select id="fftSelect">

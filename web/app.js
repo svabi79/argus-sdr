@@ -274,6 +274,14 @@ function applyConfigToUI(cfg) {
   iqToggle.checked = !!cfg.iq_balance;
   gpuToggle.checked = !!cfg.use_gpu_fft;
   maxHoldToggle.checked = maxHold;
+  if (cfg.recorder) {
+    if (recEnableToggle) recEnableToggle.checked = !!cfg.recorder.enabled;
+    if (recIQToggle) recIQToggle.checked = !!cfg.recorder.record_iq;
+    if (recAudioToggle) recAudioToggle.checked = !!cfg.recorder.record_audio;
+    if (recDemodToggle) recDemodToggle.checked = !!cfg.recorder.auto_demod;
+    if (recDecodeToggle) recDecodeToggle.checked = !!cfg.recorder.auto_decode;
+    if (recMinSNR) recMinSNR.value = cfg.recorder.min_snr_db ?? 10;
+  }
   spanInput.value = (cfg.sample_rate / zoom / 1e6).toFixed(3);
   isSyncingConfig = false;
 }
