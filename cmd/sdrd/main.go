@@ -525,6 +525,25 @@ func main() {
 		http.ServeFile(w, r, filepath.Join(base, "meta.json"))
 	})
 
+	http.HandleFunc("/api/demod", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		q := r.URL.Query()
+		freq, _ := strconv.ParseFloat(q.Get("freq"), 64)
+		bw, _ := strconv.ParseFloat(q.Get("bw"), 64)
+		sec, _ := strconv.Atoi(q.Get("sec"))
+		mode := q.Get("mode")
+		data, _, err := recMgr.DemodLive(freq, bw, mode, sec)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write(data)
+	})
+
 	http.Handle("/", http.FileServer(http.Dir(cfg.WebRoot)))
 
 	server := &http.Server{Addr: cfg.WebAddr}
