@@ -524,6 +524,26 @@ func main() {
 			http.ServeFile(w, r, filepath.Join(base, "signal.cf32"))
 			return
 		}
+		if r.URL.Path == "/api/recordings/"+id+"/decode" {
+			mode := r.URL.Query().Get("mode")
+			cmd := buildDecoderMap(cfgManager.Snapshot())[mode]
+			if cmd == "" {
+				http.Error(w, "decoder not configured", http.StatusBadRequest)
+				return
+			}
+			meta, err := recorder.ReadMeta(filepath.Join(base, "meta.json"))
+			if err != nil {
+				http.Error(w, "meta read failed", http.StatusInternalServerError)
+				return
+			}
+			res, err := recorder.DecodeOnDemand(cmd, filepath.Join(base, "signal.cf32"), meta.SampleRate)
+			if err != nil {
+				http.Error(w, res.Stderr, http.StatusInternalServerError)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(res)
+			return
+		}
 		// default: meta.json
 		http.ServeFile(w, r, filepath.Join(base, "meta.json"))
 	})
