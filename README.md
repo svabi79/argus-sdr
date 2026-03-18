@@ -81,6 +81,9 @@ Edit `config.yaml`:
 - `limit` (optional): max number of events (default 200, max 2000)
 - `since` (optional): Unix milliseconds or RFC3339 timestamp
 
+### Signals API
+- `GET /api/signals` → current live signals (latest snapshot)
+
 ### Recordings API
 - `GET /api/recordings`
 - `GET /api/recordings/:id` (meta.json)
