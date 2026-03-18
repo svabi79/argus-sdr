@@ -106,6 +106,7 @@ func RuleClassify(feat Features) Classification {
 		BW3dB:      bw,
 		Features:   feat,
 		SecondBest: second,
+		Scores:     scores,
 	}
 }
 

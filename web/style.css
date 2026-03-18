@@ -207,6 +207,8 @@ button, input, select { font: inherit; }
 }
 .viz-card--compact { }
 .viz-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.viz-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 0.68rem; color: var(--text-dim); }
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; background: rgba(255, 204, 102, 0.35); border: 1px solid rgba(255, 204, 102, 0.35); }
 .viz-label { font-family: var(--mono); font-size: 0.6rem; font-weight: 600; letter-spacing: 0.1em; color: var(--text-dim); text-transform: uppercase; }
 .viz-hint { font-family: var(--mono); font-size: 0.58rem; color: var(--text-mute); }
 

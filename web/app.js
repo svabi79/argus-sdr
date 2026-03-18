@@ -86,6 +86,7 @@ const decodeEventBtn = qs('decodeEventBtn');
 const decodeModeSelect = qs('decodeMode');
 const recordingMetaEl = qs('recordingMeta');
 const decodeResultEl = qs('decodeResult');
+const classifierScoresEl = qs('classifierScores');
 const recordingMetaLink = qs('recordingMetaLink');
 const recordingIQLink = qs('recordingIQLink');
 const recordingAudioLink = qs('recordingAudioLink');
@@ -1007,6 +1008,19 @@ function openDrawer(ev) {
   detailSnrEl.textContent = `${(ev.snr_db || 0).toFixed(1)} dB`;
   detailDurEl.textContent = fmtMs(ev.duration_ms || 0);
   detailClassEl.textContent = ev.class?.mod_type || '-';
+  if (classifierScoresEl) {
+    const scores = ev.class?.scores;
+    if (scores && typeof scores === 'object') {
+      const rows = Object.entries(scores)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([k, v]) => `${k}:${v.toFixed(2)}`)
+        .join(' · ');
+      classifierScoresEl.textContent = rows ? `Classifier scores: ${rows}` : 'Classifier scores: -';
+    } else {
+      classifierScoresEl.textContent = 'Classifier scores: -';
+    }
+  }
   if (recordingMetaEl) {
     recordingMetaEl.textContent = 'Recording: -';
   }
@@ -1426,6 +1440,19 @@ if (recordingList) {
       if (decodeResultEl) {
         const rds = meta.rds_ps ? `RDS: ${meta.rds_ps}` : '';
         decodeResultEl.textContent = `Decode: ${rds}`;
+      }
+      if (classifierScoresEl) {
+        const scores = meta.classification?.scores;
+        if (scores && typeof scores === 'object') {
+          const rows = Object.entries(scores)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([k, v]) => `${k}:${v.toFixed(2)}`)
+            .join(' · ');
+          classifierScoresEl.textContent = rows ? `Classifier scores: ${rows}` : 'Classifier scores: -';
+        } else {
+          classifierScoresEl.textContent = 'Classifier scores: -';
+        }
       }
     } catch {}
   });
