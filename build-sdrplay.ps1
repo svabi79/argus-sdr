@@ -24,16 +24,17 @@ if (-not (Test-Path $cudaInc)) {
 if (Test-Path $cudaInc) {
   $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I$cudaInc"
 }
-if (Test-Path $cudaLib) {
-  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaLib -lcufft -lcudart"
-}
 if (Test-Path $cudaBin) {
   $env:PATH = "$cudaBin;" + $env:PATH
 }
 
 $cudaMingw = Join-Path $PSScriptRoot 'cuda-mingw'
 if (Test-Path $cudaMingw) {
+  # Use MinGW import libs to avoid MSVC .lib linking issues
   $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaMingw"
+} elseif (Test-Path $cudaLib) {
+  # Fallback to CUDA lib path (requires compatible toolchain)
+  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaLib -lcufft -lcudart"
 }
 
 Write-Host "Building with SDRplay + cuFFT support..." -ForegroundColor Cyan
