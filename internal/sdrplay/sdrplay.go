@@ -73,6 +73,7 @@ import (
 	"fmt"
 	"runtime/cgo"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -80,26 +81,27 @@ import (
 )
 
 type Source struct {
-	mu         sync.Mutex
-	dev        C.sdrplay_api_DeviceT
-	params     *C.sdrplay_api_DeviceParamsT
+	mu          sync.Mutex
+	dev         C.sdrplay_api_DeviceT
+	params      *C.sdrplay_api_DeviceParamsT
 	devSelected bool
-	ch         chan []complex64
-	handle     cgo.Handle
-	open       bool
-	sampleRate int
-	centerHz   float64
-	gainDb     float64
-	agc        bool
-	buf        []complex64
-	capSamples int
-	head       int
-	size       int
-	bwKHz      int
-	dropped    uint64
-	resets     uint64
-	lastSample time.Time
-	cond       *sync.Cond
+	ch          chan []complex64
+	handle      cgo.Handle
+	open        bool
+	sampleRate  int
+	centerHz    float64
+	gainDb      float64
+	agc         bool
+	buf         []complex64
+	capSamples  int
+	head        int
+	size        int
+	bwKHz       int
+	dropped     uint64
+	resets      uint64
+	lastSample  time.Time
+	stopping    uint32
+	cond        *sync.Cond
 }
 
 func New(sampleRate int, centerHz float64, gainDb float64, bwKHz int) (sdr.Source, error) {
@@ -332,6 +334,7 @@ func max(a, b int) int {
 }
 
 func (s *Source) Stop() error {
+	atomic.StoreUint32(&s.stopping, 1)
 	s.mu.Lock()
 	params := s.params
 	s.params = nil
@@ -392,6 +395,9 @@ func goStreamCallback(xi *C.short, xq *C.short, numSamples C.uint, reset C.uint,
 	h := cgo.Handle(uintptr(ctx))
 	src, ok := h.Value().(*Source)
 	if !ok || src == nil {
+		return
+	}
+	if atomic.LoadUint32(&src.stopping) != 0 {
 		return
 	}
 	if reset != 0 {
