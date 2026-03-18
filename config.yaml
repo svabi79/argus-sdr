@@ -25,6 +25,7 @@ recorder:
   record_audio: true
   auto_demod: true
   auto_decode: false
+  max_disk_mb: 0
   output_dir: "data/recordings"
   class_filter: []
   ring_seconds: 8

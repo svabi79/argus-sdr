@@ -678,6 +678,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					RecordAudio: cfg.Recorder.RecordAudio,
 					AutoDemod:   cfg.Recorder.AutoDemod,
 					AutoDecode:  cfg.Recorder.AutoDecode,
+					MaxDiskMB:   cfg.Recorder.MaxDiskMB,
 					OutputDir:   cfg.Recorder.OutputDir,
 					ClassFilter: cfg.Recorder.ClassFilter,
 					RingSeconds: cfg.Recorder.RingSeconds,

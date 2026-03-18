@@ -35,6 +35,13 @@ const iqToggle = qs('iqToggle');
 const avgSelect = qs('avgSelect');
 const maxHoldToggle = qs('maxHoldToggle');
 const gpuToggle = qs('gpuToggle');
+const recEnableToggle = qs('recEnableToggle');
+const recIQToggle = qs('recIQToggle');
+const recAudioToggle = qs('recAudioToggle');
+const recDemodToggle = qs('recDemodToggle');
+const recDecodeToggle = qs('recDecodeToggle');
+const recMinSNR = qs('recMinSNR');
+const recMaxDisk = qs('recMaxDisk');
 
 const signalList = qs('signalList');
 const eventList = qs('eventList');
@@ -281,6 +288,7 @@ function applyConfigToUI(cfg) {
     if (recDemodToggle) recDemodToggle.checked = !!cfg.recorder.auto_demod;
     if (recDecodeToggle) recDecodeToggle.checked = !!cfg.recorder.auto_decode;
     if (recMinSNR) recMinSNR.value = cfg.recorder.min_snr_db ?? 10;
+    if (recMaxDisk) recMaxDisk.value = cfg.recorder.max_disk_mb ?? 0;
   }
   spanInput.value = (cfg.sample_rate / zoom / 1e6).toFixed(3);
   isSyncingConfig = false;
@@ -1101,6 +1109,13 @@ agcToggle.addEventListener('change', () => queueSettingsUpdate({ agc: agcToggle.
 dcToggle.addEventListener('change', () => queueSettingsUpdate({ dc_block: dcToggle.checked }));
 iqToggle.addEventListener('change', () => queueSettingsUpdate({ iq_balance: iqToggle.checked }));
 gpuToggle.addEventListener('change', () => queueConfigUpdate({ use_gpu_fft: gpuToggle.checked }));
+if (recEnableToggle) recEnableToggle.addEventListener('change', () => queueConfigUpdate({ recorder: { enabled: recEnableToggle.checked } }));
+if (recIQToggle) recIQToggle.addEventListener('change', () => queueConfigUpdate({ recorder: { record_iq: recIQToggle.checked } }));
+if (recAudioToggle) recAudioToggle.addEventListener('change', () => queueConfigUpdate({ recorder: { record_audio: recAudioToggle.checked } }));
+if (recDemodToggle) recDemodToggle.addEventListener('change', () => queueConfigUpdate({ recorder: { auto_demod: recDemodToggle.checked } }));
+if (recDecodeToggle) recDecodeToggle.addEventListener('change', () => queueConfigUpdate({ recorder: { auto_decode: recDecodeToggle.checked } }));
+if (recMinSNR) recMinSNR.addEventListener('change', () => queueConfigUpdate({ recorder: { min_snr_db: parseFloat(recMinSNR.value) } }));
+if (recMaxDisk) recMaxDisk.addEventListener('change', () => queueConfigUpdate({ recorder: { max_disk_mb: parseInt(recMaxDisk.value || '0', 10) } }));
 
 avgSelect.addEventListener('change', () => {
   avgAlpha = parseFloat(avgSelect.value) || 0;

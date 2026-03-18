@@ -66,7 +66,7 @@ Edit `config.yaml`:
 - `iq_balance`: enable basic IQ imbalance correction
 - `detector.threshold_db`: power threshold in dB
 - `detector.min_duration_ms`, `detector.hold_ms`: debounce/merge
-- `recorder.*`: enable IQ/audio recording, preroll, output_dir
+- `recorder.*`: enable IQ/audio recording, preroll, output_dir, max_disk_mb
 - `decoder.*`: external decode commands (use `{iq}` and `{sr}` placeholders)
 
 ## APIs

@@ -21,6 +21,7 @@ type Policy struct {
 	RecordAudio bool          `yaml:"record_audio" json:"record_audio"`
 	AutoDemod   bool          `yaml:"auto_demod" json:"auto_demod"`
 	AutoDecode  bool          `yaml:"auto_decode" json:"auto_decode"`
+	MaxDiskMB   int           `yaml:"max_disk_mb" json:"max_disk_mb"`
 	OutputDir   string        `yaml:"output_dir" json:"output_dir"`
 	ClassFilter []string      `yaml:"class_filter" json:"class_filter"`
 	RingSeconds int           `yaml:"ring_seconds" json:"ring_seconds"`

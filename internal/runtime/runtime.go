@@ -40,6 +40,7 @@ type RecorderUpdate struct {
 	RecordAudio *bool     `json:"record_audio"`
 	AutoDemod   *bool     `json:"auto_demod"`
 	AutoDecode  *bool     `json:"auto_decode"`
+	MaxDiskMB   *int      `json:"max_disk_mb"`
 	OutputDir   *string   `json:"output_dir"`
 	ClassFilter *[]string `json:"class_filter"`
 	RingSeconds *int      `json:"ring_seconds"`
@@ -148,6 +149,9 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 		}
 		if update.Recorder.AutoDecode != nil {
 			next.Recorder.AutoDecode = *update.Recorder.AutoDecode
+		}
+		if update.Recorder.MaxDiskMB != nil {
+			next.Recorder.MaxDiskMB = *update.Recorder.MaxDiskMB
 		}
 		if update.Recorder.OutputDir != nil {
 			next.Recorder.OutputDir = *update.Recorder.OutputDir
