@@ -52,6 +52,15 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 			_ = writeWAV(rdsPath, rds, 2400, 1)
 			files["rds_baseband"] = "rds.wav"
 			files["rds_sample_rate"] = 2400
+			// naive decode
+			dec := rdsdecoder{}
+			res := dec.Decode(rds, 2400)
+			if res.PI != 0 {
+				files["rds_pi"] = res.PI
+			}
+			if res.PS != "" {
+				files["rds_ps"] = res.PS
+			}
 		}
 	}
 	return nil
