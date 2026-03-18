@@ -10,6 +10,12 @@ const (
 	ClassSSBUSB  SignalClass = "USB"
 	ClassSSBLSB  SignalClass = "LSB"
 	ClassCW      SignalClass = "CW"
+	ClassFSK     SignalClass = "FSK"
+	ClassPSK     SignalClass = "PSK"
+	ClassDMR     SignalClass = "DMR"
+	ClassDStar   SignalClass = "D-STAR"
+	ClassFT8     SignalClass = "FT8"
+	ClassWSPR    SignalClass = "WSPR"
 	ClassNoise   SignalClass = "NOISE"
 	ClassUnknown SignalClass = "UNKNOWN"
 )

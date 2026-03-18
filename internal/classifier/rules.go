@@ -22,12 +22,21 @@ func RuleClassify(feat Features) Classification {
 		if flat > 0.7 {
 			second = ClassNoise
 		}
+		// digital voice rough guesses
+		if feat.InstFreqStd < 0.5 && feat.EnvVariance < 0.3 {
+			second = ClassDMR
+		}
 	case bw >= 2000 && bw < 3000:
-		// candidate for FT8/WSPR (very rough): low env variance, narrow BW
+		// candidate for FT8
 		if feat.EnvVariance < 0.5 && feat.InstFreqStd < 0.7 {
-			best = ClassUnknown
-			second = ClassUnknown
-			conf = 0.5
+			best = ClassFT8
+			conf = 0.55
+		}
+	case bw >= 150 && bw < 500:
+		// candidate for WSPR
+		if feat.EnvVariance < 0.4 && feat.InstFreqStd < 0.5 {
+			best = ClassWSPR
+			conf = 0.55
 		}
 	case bw >= 500 && bw < 3e3:
 		if sym > 0.2 {
@@ -39,8 +48,14 @@ func RuleClassify(feat Features) Classification {
 		} else if p2a > 3 && flat < 0.4 {
 			best = ClassAM
 			conf = 0.6
+		} else if feat.InstFreqStd > 0.8 {
+			best = ClassFSK
+			conf = 0.5
+		} else if feat.InstFreqStd < 0.3 {
+			best = ClassPSK
+			conf = 0.5
 		}
-	case bw < 500:
+	case bw < 150:
 		best = ClassCW
 		conf = 0.7
 	}
