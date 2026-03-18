@@ -59,6 +59,23 @@ type gpuStatus struct {
 	Error     string `json:"error"`
 }
 
+type signalSnapshot struct {
+	mu      sync.RWMutex
+	signals []detector.Signal
+}
+
+func (s *signalSnapshot) set(sig []detector.Signal) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.signals = append([]detector.Signal(nil), sig...)
+}
+
+func (s *signalSnapshot) get() []detector.Signal {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]detector.Signal(nil), s.signals...)
+}
+
 func (g *gpuStatus) set(active bool, err error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -310,7 +327,9 @@ func main() {
 		RingSeconds: cfg.Recorder.RingSeconds,
 	}, cfg.CenterHz, decodeMap)
 
-	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr)
+	sigSnap := &signalSnapshot{}
+
+	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr, sigSnap)
 
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
@@ -488,6 +507,15 @@ func main() {
 		_ = json.NewEncoder(w).Encode(evs)
 	})
 
+	http.HandleFunc("/api/signals", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if sigSnap == nil {
+			_ = json.NewEncoder(w).Encode([]detector.Signal{})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(sigSnap.get())
+	})
+
 	http.HandleFunc("/api/recordings", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -585,7 +613,7 @@ func main() {
 	_ = server.Shutdown(ctxTimeout)
 }
 
-func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager) {
+func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot) {
 	ticker := time.NewTicker(cfg.FrameInterval())
 	defer ticker.Stop()
 	logTicker := time.NewTicker(5 * time.Second)
@@ -734,6 +762,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb}, spectrum, cfg.SampleRate, cfg.FFTSize, iq)
 					signals[i].Class = cls
 				}
+			}
+			if sigSnap != nil {
+				sigSnap.set(signals)
 			}
 			eventMu.Lock()
 			for _, ev := range finished {
