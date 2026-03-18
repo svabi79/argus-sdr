@@ -15,6 +15,26 @@ detector:
   threshold_db: -20
   min_duration_ms: 250
   hold_ms: 500
+recorder:
+  enabled: true
+  min_snr_db: 10
+  min_duration: 1s
+  max_duration: 300s
+  preroll_ms: 500
+  record_iq: true
+  record_audio: true
+  auto_demod: true
+  auto_decode: false
+  output_dir: "data/recordings"
+  class_filter: []
+  ring_seconds: 8
+decoder:
+  ft8_cmd: "tools/ft8/ft8_decoder --iq {iq} --sample-rate {sr}"
+  wspr_cmd: "tools/wspr/wspr_decoder --iq {iq} --sample-rate {sr}"
+  dmr_cmd: "tools/dmr/dmr_decoder --iq {iq} --sample-rate {sr}"
+  dstar_cmd: "tools/dstar/dstar_decoder --iq {iq} --sample-rate {sr}"
+  fsk_cmd: "tools/fsk/fsk_decoder --iq {iq} --sample-rate {sr}"
+  psk_cmd: "tools/psk/psk_decoder --iq {iq} --sample-rate {sr}"
 web_addr: ":8080"
 event_path: "data/events.jsonl"
 frame_rate: 15

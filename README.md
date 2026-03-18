@@ -68,6 +68,8 @@ Edit `config.yaml`:
 - `iq_balance`: enable basic IQ imbalance correction
 - `detector.threshold_db`: power threshold in dB
 - `detector.min_duration_ms`, `detector.hold_ms`: debounce/merge
+- `recorder.*`: enable IQ/audio recording, preroll, output_dir
+- `decoder.*`: external decode commands (use `{iq}` and `{sr}` placeholders)
 
 ## Web UI
 The UI is served from `web/` and connects to `/ws` for spectrum frames.
@@ -103,5 +105,8 @@ go test ./...
 
 ## Troubleshooting
 - If you see `sdrplay support not built`, rebuild with `-tags sdrplay`.
+- If the SDRplay library is not found, ensure `CGO_CFLAGS` and `CGO_LDFLAGS` point to the API headers and library.
+- Use `--mock` to run without hardware.
+lay`.
 - If the SDRplay library is not found, ensure `CGO_CFLAGS` and `CGO_LDFLAGS` point to the API headers and library.
 - Use `--mock` to run without hardware.
