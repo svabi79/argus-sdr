@@ -102,11 +102,12 @@ func decodeBlock(bits []int) (block, bool) {
 	}
 	data := uint16(raw >> 10)
 	synd := crcSyndrome(raw)
-	if synd == 0 {
+	switch synd {
+	case offA, offB, offC, offD:
+		return block{data: data, offset: uint16(synd)}, true
+	default:
 		return block{}, false
 	}
-	// use syndrome as offset word
-	return block{data: data, offset: uint16(synd)}, true
 }
 
 func crcSyndrome(raw uint32) uint16 {

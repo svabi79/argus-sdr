@@ -34,6 +34,7 @@ type Manager struct {
 	blockSize      int
 	centerHz       float64
 	decodeCommands map[string]string
+	queue          chan detector.Event
 }
 
 func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeCommands map[string]string) *Manager {
@@ -43,7 +44,9 @@ func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeC
 	if policy.RingSeconds <= 0 {
 		policy.RingSeconds = 8
 	}
-	return &Manager{policy: policy, ring: NewRing(sampleRate, blockSize, policy.RingSeconds), sampleRate: sampleRate, blockSize: blockSize, centerHz: centerHz, decodeCommands: decodeCommands}
+	m := &Manager{policy: policy, ring: NewRing(sampleRate, blockSize, policy.RingSeconds), sampleRate: sampleRate, blockSize: blockSize, centerHz: centerHz, decodeCommands: decodeCommands, queue: make(chan detector.Event, 64)}
+	go m.worker()
+	return m
 }
 
 func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeCommands map[string]string) {
@@ -71,6 +74,16 @@ func (m *Manager) OnEvents(events []detector.Event) {
 		return
 	}
 	for _, ev := range events {
+		select {
+		case m.queue <- ev:
+		default:
+			// drop if queue full
+		}
+	}
+}
+
+func (m *Manager) worker() {
+	for ev := range m.queue {
 		_ = m.recordEvent(ev)
 	}
 }

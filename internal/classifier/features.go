@@ -16,7 +16,11 @@ func ExtractFeatures(s SignalInput, spectrum []float64, sampleRate int, fftSize 
 	if s.LastBin >= len(spectrum) {
 		s.LastBin = len(spectrum) - 1
 	}
-	binHz := float64(sampleRate) / float64(max(1, fftSize))
+	den := fftSize
+	if den < 1 {
+		den = 1
+	}
+	binHz := float64(sampleRate) / float64(den)
 	// slice
 	start := s.FirstBin
 	end := s.LastBin
@@ -157,11 +161,4 @@ func clamp01(v float64) float64 {
 		return 1
 	}
 	return v
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

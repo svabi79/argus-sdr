@@ -26,20 +26,24 @@ func RuleClassify(feat Features) Classification {
 		if feat.InstFreqStd < 0.5 && feat.EnvVariance < 0.3 {
 			second = ClassDMR
 		}
-	case bw >= 2000 && bw < 3000:
-		// candidate for FT8
-		if feat.EnvVariance < 0.5 && feat.InstFreqStd < 0.7 {
-			best = ClassFT8
-			conf = 0.55
-		}
-	case bw >= 150 && bw < 500:
-		// candidate for WSPR
-		if feat.EnvVariance < 0.4 && feat.InstFreqStd < 0.5 {
-			best = ClassWSPR
-			conf = 0.55
+	case bw >= 3e3 && bw < 6e3:
+		// wider SSB/AM
+		if sym > 0.2 {
+			best = ClassSSBUSB
+			conf = 0.65
+		} else if sym < -0.2 {
+			best = ClassSSBLSB
+			conf = 0.65
+		} else if p2a > 2.5 && flat < 0.5 {
+			best = ClassAM
+			conf = 0.6
 		}
 	case bw >= 500 && bw < 3e3:
-		if sym > 0.2 {
+		// narrow SSB/AM + digital
+		if feat.EnvVariance < 0.6 && feat.InstFreqStd < 0.7 && bw >= 2000 && bw < 3000 {
+			best = ClassFT8
+			conf = 0.55
+		} else if sym > 0.2 {
 			best = ClassSSBUSB
 			conf = 0.7
 		} else if sym < -0.2 {
@@ -54,6 +58,11 @@ func RuleClassify(feat Features) Classification {
 		} else if feat.InstFreqStd < 0.3 {
 			best = ClassPSK
 			conf = 0.5
+		}
+	case bw >= 150 && bw < 500:
+		if feat.EnvVariance < 0.4 && feat.InstFreqStd < 0.5 {
+			best = ClassWSPR
+			conf = 0.55
 		}
 	case bw < 150:
 		best = ClassCW

@@ -3,6 +3,7 @@ package recorder
 import (
 	"bytes"
 	"errors"
+	"math"
 	"time"
 
 	"sdr-visual-suite/internal/demod"
@@ -47,15 +48,16 @@ func (m *Manager) DemodLive(centerHz float64, bw float64, mode string, seconds i
 	}
 	taps := dsp.LowpassFIR(cutoff, m.sampleRate, 101)
 	filtered := dsp.ApplyFIR(shifted, taps)
-	decim := m.sampleRate / d.OutputSampleRate()
+	decim := int(math.Round(float64(m.sampleRate) / float64(d.OutputSampleRate())))
 	if decim < 1 {
 		decim = 1
 	}
 	dec := dsp.Decimate(filtered, decim)
-	audio := d.Demod(dec, m.sampleRate/decim)
+	inputRate := m.sampleRate / decim
+	audio := d.Demod(dec, inputRate)
 	buf := &bytes.Buffer{}
-	if err := writeWAVTo(buf, audio, d.OutputSampleRate(), d.Channels()); err != nil {
+	if err := writeWAVTo(buf, audio, inputRate, d.Channels()); err != nil {
 		return nil, 0, err
 	}
-	return buf.Bytes(), d.OutputSampleRate(), nil
+	return buf.Bytes(), inputRate, nil
 }

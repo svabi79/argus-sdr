@@ -2,6 +2,7 @@ package recorder
 
 import (
 	"errors"
+	"math"
 	"path/filepath"
 
 	"sdr-visual-suite/internal/classifier"
@@ -32,21 +33,19 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	}
 	taps := dsp.LowpassFIR(cutoff, m.sampleRate, 101)
 	filtered := dsp.ApplyFIR(shifted, taps)
-	decim := m.sampleRate / d.OutputSampleRate()
-	if decim < 1 {
-		decim = 1
-	}
+	decim := int(math.Round(float64(m.sampleRate) / float64(d.OutputSampleRate())))
 	if decim < 1 {
 		decim = 1
 	}
 	dec := dsp.Decimate(filtered, decim)
-	audio := d.Demod(dec, m.sampleRate/decim)
+	inputRate := m.sampleRate / decim
+	audio := d.Demod(dec, inputRate)
 	wav := filepath.Join(dir, "audio.wav")
-	if err := writeWAV(wav, audio, d.OutputSampleRate(), d.Channels()); err != nil {
+	if err := writeWAV(wav, audio, inputRate, d.Channels()); err != nil {
 		return err
 	}
 	files["audio"] = "audio.wav"
-	files["audio_sample_rate"] = d.OutputSampleRate()
+	files["audio_sample_rate"] = inputRate
 	files["audio_channels"] = d.Channels()
 	files["audio_demod"] = name
 	if name == "WFM_STEREO" {

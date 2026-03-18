@@ -1,8 +1,9 @@
 package recorder
 
 import (
-	"encoding/binary"
+	"bufio"
 	"os"
+	"unsafe"
 )
 
 func writeCF32(path string, samples []complex64) error {
@@ -11,13 +12,12 @@ func writeCF32(path string, samples []complex64) error {
 		return err
 	}
 	defer f.Close()
-	for _, v := range samples {
-		if err := binary.Write(f, binary.LittleEndian, real(v)); err != nil {
-			return err
-		}
-		if err := binary.Write(f, binary.LittleEndian, imag(v)); err != nil {
-			return err
-		}
+	if len(samples) == 0 {
+		return nil
 	}
-	return nil
+	w := bufio.NewWriterSize(f, 1<<20)
+	defer w.Flush()
+	b := unsafe.Slice((*byte)(unsafe.Pointer(&samples[0])), len(samples)*8)
+	_, err = w.Write(b)
+	return err
 }

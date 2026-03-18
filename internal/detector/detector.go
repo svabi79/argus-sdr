@@ -82,6 +82,21 @@ func (d *Detector) Process(now time.Time, spectrum []float64, centerHz float64) 
 	return finished, signals
 }
 
+// UpdateClasses refreshes active event classes from current signals.
+func (d *Detector) UpdateClasses(signals []Signal) {
+	for _, s := range signals {
+		for _, ev := range d.active {
+			if overlapHz(s.CenterHz, s.BWHz, ev.centerHz, ev.bwHz) && math.Abs(s.CenterHz-ev.centerHz) < (s.BWHz+ev.bwHz)/2.0 {
+				if s.Class != nil {
+					if ev.class == nil || s.Class.Confidence >= ev.class.Confidence {
+						ev.class = s.Class
+					}
+				}
+			}
+		}
+	}
+}
+
 func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal {
 	n := len(spectrum)
 	if n == 0 {
@@ -122,7 +137,6 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 	centerFreq := centerHz + (centerBin-float64(d.nbins)/2.0)*d.binWidth
 	bw := float64(last-first+1) * d.binWidth
 	snr := peak - noise
-	cls := classifier.Classify(classifier.SignalInput{FirstBin: first, LastBin: last, SNRDb: snr}, spectrum, d.sampleRate, d.nbins, nil)
 	return Signal{
 		FirstBin: first,
 		LastBin:  last,
@@ -130,7 +144,6 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 		BWHz:     bw,
 		PeakDb:   peak,
 		SNRDb:    snr,
-		Class:    cls,
 	}
 }
 

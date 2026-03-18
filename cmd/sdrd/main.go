@@ -777,12 +777,14 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			now := time.Now()
 			finished, signals := det.Process(now, spectrum, cfg.CenterHz)
-			// enrich classification with temporal IQ features
+			// enrich classification with temporal IQ features on per-signal snippet
 			if len(iq) > 0 {
 				for i := range signals {
-					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb}, spectrum, cfg.SampleRate, cfg.FFTSize, iq)
+					snip := extractSignalIQ(iq, cfg.SampleRate, cfg.CenterHz, signals[i].CenterHz, signals[i].BWHz)
+					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb}, spectrum, cfg.SampleRate, cfg.FFTSize, snip)
 					signals[i].Class = cls
 				}
+				det.UpdateClasses(signals)
 			}
 			if sigSnap != nil {
 				sigSnap.set(signals)
@@ -848,6 +850,28 @@ func decoderKeys(cfg config.Config) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func extractSignalIQ(iq []complex64, sampleRate int, centerHz float64, sigHz float64, bwHz float64) []complex64 {
+	if len(iq) == 0 || sampleRate <= 0 {
+		return nil
+	}
+	offset := sigHz - centerHz
+	shifted := dsp.FreqShift(iq, sampleRate, offset)
+	cutoff := bwHz / 2
+	if cutoff < 200 {
+		cutoff = 200
+	}
+	if cutoff > float64(sampleRate)/2-1 {
+		cutoff = float64(sampleRate)/2 - 1
+	}
+	taps := dsp.LowpassFIR(cutoff, sampleRate, 101)
+	filtered := dsp.ApplyFIR(shifted, taps)
+	decim := sampleRate / 200000
+	if decim < 1 {
+		decim = 1
+	}
+	return dsp.Decimate(filtered, decim)
 }
 
 func parseSince(raw string) (time.Time, error) {
