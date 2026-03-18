@@ -257,6 +257,7 @@ func (d *Detector) smoothSpectrum(spectrum []float64) []float64 {
 		v := spectrum[i]
 		d.ema[i] = alpha*v + (1-alpha)*d.ema[i]
 	}
+	// IMPORTANT: caller must not modify returned slice
 	return d.ema
 }
 

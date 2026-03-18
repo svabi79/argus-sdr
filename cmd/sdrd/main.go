@@ -12,8 +12,6 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sort"
-
-	"sdr-visual-suite/internal/config"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +21,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"sdr-visual-suite/internal/classifier"
+	"sdr-visual-suite/internal/config"
 	"sdr-visual-suite/internal/detector"
 	"sdr-visual-suite/internal/dsp"
 	"sdr-visual-suite/internal/events"
@@ -853,7 +852,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			eventMu.Unlock()
 			if rec != nil {
-				rec.OnEvents(finished)
+				go rec.OnEvents(finished)
 			}
 			h.broadcast(SpectrumFrame{
 				Timestamp: now.UnixMilli(),

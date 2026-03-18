@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"math"
 	"sync"
 
 	"sdr-visual-suite/internal/config"
@@ -131,15 +132,29 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 			next.Detector.HoldMs = *update.Detector.HoldMs
 		}
 		if update.Detector.EmaAlpha != nil {
-			next.Detector.EmaAlpha = *update.Detector.EmaAlpha
+			v := *update.Detector.EmaAlpha
+			if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 1 {
+				return m.cfg, errors.New("ema_alpha must be between 0 and 1")
+			}
+			next.Detector.EmaAlpha = v
 		}
 		if update.Detector.HysteresisDb != nil {
-			next.Detector.HysteresisDb = *update.Detector.HysteresisDb
+			v := *update.Detector.HysteresisDb
+			if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+				return m.cfg, errors.New("hysteresis_db must be >= 0")
+			}
+			next.Detector.HysteresisDb = v
 		}
 		if update.Detector.MinStableFrames != nil {
+			if *update.Detector.MinStableFrames < 1 {
+				return m.cfg, errors.New("min_stable_frames must be >= 1")
+			}
 			next.Detector.MinStableFrames = *update.Detector.MinStableFrames
 		}
 		if update.Detector.GapToleranceMs != nil {
+			if *update.Detector.GapToleranceMs < 0 {
+				return m.cfg, errors.New("gap_tolerance_ms must be >= 0")
+			}
 			next.Detector.GapToleranceMs = *update.Detector.GapToleranceMs
 		}
 		if update.Detector.CFAREnabled != nil {

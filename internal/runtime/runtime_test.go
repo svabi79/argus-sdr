@@ -72,14 +72,72 @@ func TestApplyConfigUpdate(t *testing.T) {
 
 func TestApplyConfigRejectsInvalid(t *testing.T) {
 	cfg := config.Default()
-	mgr := New(cfg)
-	bad := 0
-	if _, err := mgr.ApplyConfig(ConfigUpdate{SampleRate: &bad}); err == nil {
-		t.Fatalf("expected error")
+
+	{
+		mgr := New(cfg)
+		bad := 0
+		if _, err := mgr.ApplyConfig(ConfigUpdate{SampleRate: &bad}); err == nil {
+			t.Fatalf("expected error")
+		}
+		snap := mgr.Snapshot()
+		if snap.SampleRate != cfg.SampleRate {
+			t.Fatalf("sample rate changed on error")
+		}
 	}
-	snap := mgr.Snapshot()
-	if snap.SampleRate != cfg.SampleRate {
-		t.Fatalf("sample rate changed on error")
+
+	{
+		mgr := New(cfg)
+		badAlpha := -0.5
+		if _, err := mgr.ApplyConfig(ConfigUpdate{Detector: &DetectorUpdate{EmaAlpha: &badAlpha}}); err == nil {
+			t.Fatalf("expected ema_alpha error")
+		}
+		if mgr.Snapshot().Detector.EmaAlpha != cfg.Detector.EmaAlpha {
+			t.Fatalf("ema_alpha changed on error")
+		}
+	}
+
+	{
+		mgr := New(cfg)
+		badAlpha := 1.5
+		if _, err := mgr.ApplyConfig(ConfigUpdate{Detector: &DetectorUpdate{EmaAlpha: &badAlpha}}); err == nil {
+			t.Fatalf("expected ema_alpha upper bound error")
+		}
+		if mgr.Snapshot().Detector.EmaAlpha != cfg.Detector.EmaAlpha {
+			t.Fatalf("ema_alpha changed on error")
+		}
+	}
+
+	{
+		mgr := New(cfg)
+		badHyst := -1.0
+		if _, err := mgr.ApplyConfig(ConfigUpdate{Detector: &DetectorUpdate{HysteresisDb: &badHyst}}); err == nil {
+			t.Fatalf("expected hysteresis_db error")
+		}
+		if mgr.Snapshot().Detector.HysteresisDb != cfg.Detector.HysteresisDb {
+			t.Fatalf("hysteresis_db changed on error")
+		}
+	}
+
+	{
+		mgr := New(cfg)
+		badStable := 0
+		if _, err := mgr.ApplyConfig(ConfigUpdate{Detector: &DetectorUpdate{MinStableFrames: &badStable}}); err == nil {
+			t.Fatalf("expected min_stable_frames error")
+		}
+		if mgr.Snapshot().Detector.MinStableFrames != cfg.Detector.MinStableFrames {
+			t.Fatalf("min_stable_frames changed on error")
+		}
+	}
+
+	{
+		mgr := New(cfg)
+		badGap := -10
+		if _, err := mgr.ApplyConfig(ConfigUpdate{Detector: &DetectorUpdate{GapToleranceMs: &badGap}}); err == nil {
+			t.Fatalf("expected gap_tolerance_ms error")
+		}
+		if mgr.Snapshot().Detector.GapToleranceMs != cfg.Detector.GapToleranceMs {
+			t.Fatalf("gap_tolerance_ms changed on error")
+		}
 	}
 }
 

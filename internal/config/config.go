@@ -115,6 +115,11 @@ func Default() Config {
 
 func Load(path string) (Config, error) {
 	cfg := Default()
+	if b, err := os.ReadFile(autosavePath(path)); err == nil {
+		if err := yaml.Unmarshal(b, &cfg); err == nil {
+			return applyDefaults(cfg), nil
+		}
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return cfg, err
@@ -122,6 +127,10 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		return cfg, err
 	}
+	return applyDefaults(cfg), nil
+}
+
+func applyDefaults(cfg Config) Config {
 	if cfg.Detector.MinDurationMs <= 0 {
 		cfg.Detector.MinDurationMs = 250
 	}
@@ -182,7 +191,7 @@ func Load(path string) (Config, error) {
 	if cfg.Recorder.RingSeconds <= 0 {
 		cfg.Recorder.RingSeconds = 8
 	}
-	return cfg, nil
+	return cfg
 }
 
 func (c Config) FrameInterval() time.Duration {

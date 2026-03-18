@@ -34,6 +34,8 @@ const cfarGuardInput = qs('cfarGuardInput');
 const cfarTrainInput = qs('cfarTrainInput');
 const cfarRankInput = qs('cfarRankInput');
 const cfarScaleInput = qs('cfarScaleInput');
+const minDurationInput = qs('minDurationInput');
+const holdInput = qs('holdInput');
 const emaAlphaInput = qs('emaAlphaInput');
 const hysteresisInput = qs('hysteresisInput');
 const stableFramesInput = qs('stableFramesInput');
@@ -83,6 +85,7 @@ const liveListenEventBtn = qs('liveListenEventBtn');
 const decodeEventBtn = qs('decodeEventBtn');
 const decodeModeSelect = qs('decodeMode');
 const recordingMetaEl = qs('recordingMeta');
+const decodeResultEl = qs('decodeResult');
 const recordingMetaLink = qs('recordingMetaLink');
 const recordingIQLink = qs('recordingIQLink');
 const recordingAudioLink = qs('recordingAudioLink');
@@ -98,6 +101,8 @@ const railTabs = Array.from(document.querySelectorAll('.rail-tab'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
 const presetButtons = Array.from(document.querySelectorAll('.preset-btn'));
 const liveListenBtn = qs('liveListenBtn');
+const listenSecondsInput = qs('listenSeconds');
+const listenModeSelect = qs('listenMode');
 
 let latest = null;
 let currentConfig = null;
@@ -113,6 +118,9 @@ let avgAlpha = 0;
 let avgSpectrum = null;
 let maxSpectrum = null;
 let lastFFTSize = null;
+let processedSpectrum = null;
+let processedSpectrumSource = null;
+let processingDirty = true;
 
 let pendingConfigUpdate = null;
 let pendingSettingsUpdate = null;
@@ -201,6 +209,10 @@ function maxInBinRange(spectrum, b0, b1) {
   return max;
 }
 
+function markSpectrumDirty() {
+  processingDirty = true;
+}
+
 function processSpectrum(spectrum) {
   if (!spectrum) return spectrum;
   let base = spectrum;
@@ -230,6 +242,18 @@ function processSpectrum(spectrum) {
 function resetProcessingCaches() {
   avgSpectrum = null;
   maxSpectrum = null;
+  processedSpectrum = null;
+  processedSpectrumSource = null;
+  processingDirty = true;
+}
+
+function getProcessedSpectrum() {
+  if (!latest?.spectrum_db) return null;
+  if (!processingDirty && processedSpectrumSource === latest.spectrum_db) return processedSpectrum;
+  processedSpectrum = processSpectrum(latest.spectrum_db);
+  processedSpectrumSource = latest.spectrum_db;
+  processingDirty = false;
+  return processedSpectrum;
 }
 
 function resizeCanvas(canvas) {
@@ -311,6 +335,7 @@ function applyConfigToUI(cfg) {
     if (recDecodeToggle) recDecodeToggle.checked = !!cfg.recorder.auto_decode;
     if (recMinSNR) recMinSNR.value = cfg.recorder.min_snr_db ?? 10;
     if (recMaxDisk) recMaxDisk.value = cfg.recorder.max_disk_mb ?? 0;
+    if (recClassFilter) recClassFilter.value = (cfg.recorder.class_filter || []).join(', ');
   }
   spanInput.value = (cfg.sample_rate / zoom / 1e6).toFixed(3);
   isSyncingConfig = false;
@@ -460,7 +485,8 @@ function renderBandNavigator() {
   const h = navCanvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  const display = processSpectrum(latest.spectrum_db);
+  const display = getProcessedSpectrum();
+  if (!display) return;
   const minDb = -120;
   const maxDb = 0;
 
@@ -523,7 +549,8 @@ function renderSpectrum() {
   const h = spectrumCanvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  const display = processSpectrum(latest.spectrum_db);
+  const display = getProcessedSpectrum();
+  if (!display) return;
   const n = display.length;
   const span = latest.sample_rate / zoom;
   const startHz = latest.center_hz - span / 2 + pan * span;
@@ -612,7 +639,8 @@ function renderWaterfall() {
   const prev = ctx.getImageData(0, 0, w, h - 1);
   ctx.putImageData(prev, 0, 1);
 
-  const display = processSpectrum(latest.spectrum_db);
+  const display = getProcessedSpectrum();
+  if (!display) return;
   const n = display.length;
   const span = latest.sample_rate / zoom;
   const startHz = latest.center_hz - span / 2 + pan * span;
@@ -766,7 +794,8 @@ function renderDetailSpectrogram() {
   ctx.fillRect(0, 0, w, h);
   if (!latest || !ev) return;
 
-  const display = processSpectrum(latest.spectrum_db);
+  const display = getProcessedSpectrum();
+  if (!display) return;
   const n = display.length;
   const localSpan = Math.min(latest.sample_rate, Math.max(ev.bandwidth_hz * 4, latest.sample_rate / 10));
   const startHz = ev.center_hz - localSpan / 2;
@@ -981,6 +1010,7 @@ function connect() {
   ws.onopen = () => setWsBadge('Live', 'ok');
   ws.onmessage = (ev) => {
     latest = JSON.parse(ev.data);
+    markSpectrumDirty();
     if (followLive) pan = 0;
     updateHeroMetrics();
     renderLists();
@@ -1163,6 +1193,30 @@ if (cfarScaleInput) cfarScaleInput.addEventListener('change', () => {
   const v = parseFloat(cfarScaleInput.value);
   if (Number.isFinite(v)) queueConfigUpdate({ detector: { cfar_scale_db: v } });
 });
+if (minDurationInput) minDurationInput.addEventListener('change', () => {
+  const v = parseInt(minDurationInput.value, 10);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { min_duration_ms: v } });
+});
+if (holdInput) holdInput.addEventListener('change', () => {
+  const v = parseInt(holdInput.value, 10);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { hold_ms: v } });
+});
+if (emaAlphaInput) emaAlphaInput.addEventListener('change', () => {
+  const v = parseFloat(emaAlphaInput.value);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { ema_alpha: v } });
+});
+if (hysteresisInput) hysteresisInput.addEventListener('change', () => {
+  const v = parseFloat(hysteresisInput.value);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { hysteresis_db: v } });
+});
+if (stableFramesInput) stableFramesInput.addEventListener('change', () => {
+  const v = parseInt(stableFramesInput.value, 10);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { min_stable_frames: v } });
+});
+if (gapToleranceInput) gapToleranceInput.addEventListener('change', () => {
+  const v = parseInt(gapToleranceInput.value, 10);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { gap_tolerance_ms: v } });
+});
 
 agcToggle.addEventListener('change', () => queueSettingsUpdate({ agc: agcToggle.checked }));
 dcToggle.addEventListener('change', () => queueSettingsUpdate({ dc_block: dcToggle.checked }));
@@ -1175,16 +1229,27 @@ if (recDemodToggle) recDemodToggle.addEventListener('change', () => queueConfigU
 if (recDecodeToggle) recDecodeToggle.addEventListener('change', () => queueConfigUpdate({ recorder: { auto_decode: recDecodeToggle.checked } }));
 if (recMinSNR) recMinSNR.addEventListener('change', () => queueConfigUpdate({ recorder: { min_snr_db: parseFloat(recMinSNR.value) } }));
 if (recMaxDisk) recMaxDisk.addEventListener('change', () => queueConfigUpdate({ recorder: { max_disk_mb: parseInt(recMaxDisk.value || '0', 10) } }));
+if (recClassFilter) recClassFilter.addEventListener('change', () => {
+  const list = (recClassFilter.value || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  queueConfigUpdate({ recorder: { class_filter: list } });
+});
 
 avgSelect.addEventListener('change', () => {
   avgAlpha = parseFloat(avgSelect.value) || 0;
-  avgSpectrum = null;
+  resetProcessingCaches();
 });
 maxHoldToggle.addEventListener('change', () => {
   maxHold = maxHoldToggle.checked;
-  if (!maxHold) maxSpectrum = null;
+  maxSpectrum = null;
+  markSpectrumDirty();
 });
-resetMaxBtn.addEventListener('click', () => { maxSpectrum = null; });
+resetMaxBtn.addEventListener('click', () => {
+  maxSpectrum = null;
+  markSpectrumDirty();
+});
 followBtn.addEventListener('click', () => { followLive = true; pan = 0; });
 fitBtn.addEventListener('click', fitView);
 timelineFollowBtn.addEventListener('click', () => { timelineFrozen = false; });
@@ -1338,6 +1403,7 @@ window.addEventListener('keydown', (ev) => {
     maxHold = !maxHold;
     maxHoldToggle.checked = maxHold;
     if (!maxHold) maxSpectrum = null;
+    markSpectrumDirty();
   } else if (ev.key.toLowerCase() === 'g') {
     gpuToggle.checked = !gpuToggle.checked;
     queueConfigUpdate({ use_gpu_fft: gpuToggle.checked });
