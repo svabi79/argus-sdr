@@ -4,18 +4,21 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"sdr-visual-suite/internal/classifier"
 )
 
 type Event struct {
-	ID         int64     `json:"id"`
-	Start      time.Time `json:"start"`
-	End        time.Time `json:"end"`
-	CenterHz   float64   `json:"center_hz"`
-	Bandwidth  float64   `json:"bandwidth_hz"`
-	PeakDb     float64   `json:"peak_db"`
-	SNRDb      float64   `json:"snr_db"`
-	FirstBin   int       `json:"first_bin"`
-	LastBin    int       `json:"last_bin"`
+	ID        int64                      `json:"id"`
+	Start     time.Time                  `json:"start"`
+	End       time.Time                  `json:"end"`
+	CenterHz  float64                    `json:"center_hz"`
+	Bandwidth float64                    `json:"bandwidth_hz"`
+	PeakDb    float64                    `json:"peak_db"`
+	SNRDb     float64                    `json:"snr_db"`
+	FirstBin  int                        `json:"first_bin"`
+	LastBin   int                        `json:"last_bin"`
+	Class     *classifier.Classification `json:"class,omitempty"`
 }
 
 type Detector struct {
@@ -23,32 +26,35 @@ type Detector struct {
 	MinDuration time.Duration
 	Hold        time.Duration
 
-	binWidth float64
-	nbins    int
+	binWidth   float64
+	nbins      int
+	sampleRate int
 
-	active   map[int64]*activeEvent
-	nextID   int64
+	active map[int64]*activeEvent
+	nextID int64
 }
 
 type activeEvent struct {
-	id        int64
-	start     time.Time
-	lastSeen  time.Time
-	centerHz  float64
-	bwHz      float64
-	peakDb    float64
-	snrDb     float64
-	firstBin  int
-	lastBin   int
+	id       int64
+	start    time.Time
+	lastSeen time.Time
+	centerHz float64
+	bwHz     float64
+	peakDb   float64
+	snrDb    float64
+	firstBin int
+	lastBin  int
+	class    *classifier.Classification
 }
 
 type Signal struct {
-	FirstBin int     `json:"first_bin"`
-	LastBin  int     `json:"last_bin"`
-	CenterHz float64 `json:"center_hz"`
-	BWHz     float64 `json:"bw_hz"`
-	PeakDb   float64 `json:"peak_db"`
-	SNRDb    float64 `json:"snr_db"`
+	FirstBin int                        `json:"first_bin"`
+	LastBin  int                        `json:"last_bin"`
+	CenterHz float64                    `json:"center_hz"`
+	BWHz     float64                    `json:"bw_hz"`
+	PeakDb   float64                    `json:"peak_db"`
+	SNRDb    float64                    `json:"snr_db"`
+	Class    *classifier.Classification `json:"class,omitempty"`
 }
 
 func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration) *Detector {
@@ -64,6 +70,7 @@ func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Dur
 		Hold:        hold,
 		binWidth:    float64(sampleRate) / float64(fftSize),
 		nbins:       fftSize,
+		sampleRate:  sampleRate,
 		active:      map[int64]*activeEvent{},
 		nextID:      1,
 	}
@@ -100,21 +107,22 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 				peakBin = i
 			}
 		} else if in {
-			signals = append(signals, d.makeSignal(start, i-1, peak, peakBin, noise, centerHz))
+			signals = append(signals, d.makeSignal(start, i-1, peak, peakBin, noise, centerHz, spectrum))
 			in = false
 		}
 	}
 	if in {
-		signals = append(signals, d.makeSignal(start, n-1, peak, peakBin, noise, centerHz))
+		signals = append(signals, d.makeSignal(start, n-1, peak, peakBin, noise, centerHz, spectrum))
 	}
 	return signals
 }
 
-func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise float64, centerHz float64) Signal {
+func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise float64, centerHz float64, spectrum []float64) Signal {
 	centerBin := float64(first+last) / 2.0
 	centerFreq := centerHz + (centerBin-float64(d.nbins)/2.0)*d.binWidth
 	bw := float64(last-first+1) * d.binWidth
 	snr := peak - noise
+	cls := classifier.Classify(classifier.SignalInput{FirstBin: first, LastBin: last, SNRDb: snr}, spectrum, d.sampleRate, d.nbins)
 	return Signal{
 		FirstBin: first,
 		LastBin:  last,
@@ -122,6 +130,7 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 		BWHz:     bw,
 		PeakDb:   peak,
 		SNRDb:    snr,
+		Class:    cls,
 	}
 }
 
@@ -158,6 +167,7 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 				snrDb:    s.SNRDb,
 				firstBin: s.FirstBin,
 				lastBin:  s.LastBin,
+				class:    s.Class,
 			}
 			continue
 		}
@@ -178,6 +188,11 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 		}
 		if s.LastBin > best.lastBin {
 			best.lastBin = s.LastBin
+		}
+		if s.Class != nil {
+			if best.class == nil || s.Class.Confidence >= best.class.Confidence {
+				best.class = s.Class
+			}
 		}
 	}
 
@@ -204,6 +219,7 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 			SNRDb:     ev.snrDb,
 			FirstBin:  ev.firstBin,
 			LastBin:   ev.lastBin,
+			Class:     ev.class,
 		})
 		delete(d.active, id)
 	}
