@@ -11,9 +11,15 @@ $env:CGO_CFLAGS = '-IC:\PROGRA~1\SDRplay\API\inc'
 $env:CGO_LDFLAGS = '-LC:\PROGRA~1\SDRplay\API\x64 -lsdrplay_api'
 
 # CUDA (cuFFT)
-$cudaInc = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\include'
-$cudaLib = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\lib\x64'
-$cudaBin = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin'
+$cudaInc = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\include'
+$cudaLib = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\lib\x64'
+$cudaBin = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin'
+
+if (-not (Test-Path $cudaInc)) {
+  $cudaInc = 'C:\CUDA\include'
+  $cudaLib = 'C:\CUDA\lib\x64'
+  $cudaBin = 'C:\CUDA\bin'
+}
 if (Test-Path $cudaInc) {
   $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I`"$cudaInc`""
 }
