@@ -32,7 +32,10 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	}
 	taps := dsp.LowpassFIR(cutoff, m.sampleRate, 101)
 	filtered := dsp.ApplyFIR(shifted, taps)
-	decim := m.sampleRate / (d.OutputSampleRate() * 4)
+	decim := m.sampleRate / d.OutputSampleRate()
+	if decim < 1 {
+		decim = 1
+	}
 	if decim < 1 {
 		decim = 1
 	}

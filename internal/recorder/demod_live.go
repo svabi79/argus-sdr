@@ -47,7 +47,7 @@ func (m *Manager) DemodLive(centerHz float64, bw float64, mode string, seconds i
 	}
 	taps := dsp.LowpassFIR(cutoff, m.sampleRate, 101)
 	filtered := dsp.ApplyFIR(shifted, taps)
-	decim := m.sampleRate / (d.OutputSampleRate() * 4)
+	decim := m.sampleRate / d.OutputSampleRate()
 	if decim < 1 {
 		decim = 1
 	}
