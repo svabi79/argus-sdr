@@ -22,11 +22,13 @@ type Event struct {
 }
 
 type Detector struct {
-	ThresholdDb  float64
-	MinDuration  time.Duration
-	Hold         time.Duration
-	EmaAlpha     float64
-	HysteresisDb float64
+	ThresholdDb     float64
+	MinDuration     time.Duration
+	Hold            time.Duration
+	EmaAlpha        float64
+	HysteresisDb    float64
+	MinStableFrames int
+	GapTolerance    time.Duration
 
 	binWidth   float64
 	nbins      int
@@ -38,16 +40,17 @@ type Detector struct {
 }
 
 type activeEvent struct {
-	id       int64
-	start    time.Time
-	lastSeen time.Time
-	centerHz float64
-	bwHz     float64
-	peakDb   float64
-	snrDb    float64
-	firstBin int
-	lastBin  int
-	class    *classifier.Classification
+	id         int64
+	start      time.Time
+	lastSeen   time.Time
+	centerHz   float64
+	bwHz       float64
+	peakDb     float64
+	snrDb      float64
+	firstBin   int
+	lastBin    int
+	class      *classifier.Classification
+	stableHits int
 }
 
 type Signal struct {
@@ -60,7 +63,7 @@ type Signal struct {
 	Class    *classifier.Classification `json:"class,omitempty"`
 }
 
-func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration, emaAlpha, hysteresis float64) *Detector {
+func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration, emaAlpha, hysteresis float64, minStable int, gapTolerance time.Duration) *Detector {
 	if minDur <= 0 {
 		minDur = 250 * time.Millisecond
 	}
@@ -73,18 +76,26 @@ func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Dur
 	if hysteresis <= 0 {
 		hysteresis = 3
 	}
+	if minStable <= 0 {
+		minStable = 3
+	}
+	if gapTolerance <= 0 {
+		gapTolerance = hold
+	}
 	return &Detector{
-		ThresholdDb:  thresholdDb,
-		MinDuration:  minDur,
-		Hold:         hold,
-		EmaAlpha:     emaAlpha,
-		HysteresisDb: hysteresis,
-		binWidth:     float64(sampleRate) / float64(fftSize),
-		nbins:        fftSize,
-		sampleRate:   sampleRate,
-		ema:          make([]float64, fftSize),
-		active:       map[int64]*activeEvent{},
-		nextID:       1,
+		ThresholdDb:     thresholdDb,
+		MinDuration:     minDur,
+		Hold:            hold,
+		EmaAlpha:        emaAlpha,
+		HysteresisDb:    hysteresis,
+		MinStableFrames: minStable,
+		GapTolerance:    gapTolerance,
+		binWidth:        float64(sampleRate) / float64(fftSize),
+		nbins:           fftSize,
+		sampleRate:      sampleRate,
+		ema:             make([]float64, fftSize),
+		active:          map[int64]*activeEvent{},
+		nextID:          1,
 	}
 }
 
@@ -199,21 +210,23 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 			id := d.nextID
 			d.nextID++
 			d.active[id] = &activeEvent{
-				id:       id,
-				start:    now,
-				lastSeen: now,
-				centerHz: s.CenterHz,
-				bwHz:     s.BWHz,
-				peakDb:   s.PeakDb,
-				snrDb:    s.SNRDb,
-				firstBin: s.FirstBin,
-				lastBin:  s.LastBin,
-				class:    s.Class,
+				id:         id,
+				start:      now,
+				lastSeen:   now,
+				centerHz:   s.CenterHz,
+				bwHz:       s.BWHz,
+				peakDb:     s.PeakDb,
+				snrDb:      s.SNRDb,
+				firstBin:   s.FirstBin,
+				lastBin:    s.LastBin,
+				class:      s.Class,
+				stableHits: 1,
 			}
 			continue
 		}
 		used[best.id] = true
 		best.lastSeen = now
+		best.stableHits++
 		best.centerHz = (best.centerHz + s.CenterHz) / 2.0
 		if s.BWHz > best.bwHz {
 			best.bwHz = s.BWHz
@@ -242,11 +255,11 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 		if used[id] {
 			continue
 		}
-		if now.Sub(ev.lastSeen) < d.Hold {
+		if now.Sub(ev.lastSeen) < d.GapTolerance {
 			continue
 		}
 		duration := ev.lastSeen.Sub(ev.start)
-		if duration < d.MinDuration {
+		if duration < d.MinDuration || ev.stableHits < d.MinStableFrames {
 			delete(d.active, id)
 			continue
 		}

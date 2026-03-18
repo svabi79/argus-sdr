@@ -316,7 +316,9 @@ func main() {
 		time.Duration(cfg.Detector.MinDurationMs)*time.Millisecond,
 		time.Duration(cfg.Detector.HoldMs)*time.Millisecond,
 		cfg.Detector.EmaAlpha,
-		cfg.Detector.HysteresisDb)
+		cfg.Detector.HysteresisDb,
+		cfg.Detector.MinStableFrames,
+		time.Duration(cfg.Detector.GapToleranceMs)*time.Millisecond)
 
 	window := fftutil.Hann(cfg.FFTSize)
 	h := newHub()
@@ -429,6 +431,10 @@ func main() {
 			detChanged := prev.Detector.ThresholdDb != next.Detector.ThresholdDb ||
 				prev.Detector.MinDurationMs != next.Detector.MinDurationMs ||
 				prev.Detector.HoldMs != next.Detector.HoldMs ||
+				prev.Detector.EmaAlpha != next.Detector.EmaAlpha ||
+				prev.Detector.HysteresisDb != next.Detector.HysteresisDb ||
+				prev.Detector.MinStableFrames != next.Detector.MinStableFrames ||
+				prev.Detector.GapToleranceMs != next.Detector.GapToleranceMs ||
 				prev.SampleRate != next.SampleRate ||
 				prev.FFTSize != next.FFTSize
 			windowChanged := prev.FFTSize != next.FFTSize
@@ -439,7 +445,9 @@ func main() {
 					time.Duration(next.Detector.MinDurationMs)*time.Millisecond,
 					time.Duration(next.Detector.HoldMs)*time.Millisecond,
 					next.Detector.EmaAlpha,
-					next.Detector.HysteresisDb)
+					next.Detector.HysteresisDb,
+					next.Detector.MinStableFrames,
+					time.Duration(next.Detector.GapToleranceMs)*time.Millisecond)
 			}
 			if windowChanged {
 				newWindow = fftutil.Hann(next.FFTSize)

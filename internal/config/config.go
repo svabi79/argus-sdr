@@ -14,11 +14,13 @@ type Band struct {
 }
 
 type DetectorConfig struct {
-	ThresholdDb   float64 `yaml:"threshold_db" json:"threshold_db"`
-	MinDurationMs int     `yaml:"min_duration_ms" json:"min_duration_ms"`
-	HoldMs        int     `yaml:"hold_ms" json:"hold_ms"`
-	EmaAlpha      float64 `yaml:"ema_alpha" json:"ema_alpha"`
-	HysteresisDb  float64 `yaml:"hysteresis_db" json:"hysteresis_db"`
+	ThresholdDb     float64 `yaml:"threshold_db" json:"threshold_db"`
+	MinDurationMs   int     `yaml:"min_duration_ms" json:"min_duration_ms"`
+	HoldMs          int     `yaml:"hold_ms" json:"hold_ms"`
+	EmaAlpha        float64 `yaml:"ema_alpha" json:"ema_alpha"`
+	HysteresisDb    float64 `yaml:"hysteresis_db" json:"hysteresis_db"`
+	MinStableFrames int     `yaml:"min_stable_frames" json:"min_stable_frames"`
+	GapToleranceMs  int     `yaml:"gap_tolerance_ms" json:"gap_tolerance_ms"`
 }
 
 type RecorderConfig struct {
@@ -81,7 +83,7 @@ func Default() Config {
 		AGC:        false,
 		DCBlock:    false,
 		IQBalance:  false,
-		Detector:   DetectorConfig{ThresholdDb: -20, MinDurationMs: 250, HoldMs: 500, EmaAlpha: 0.2, HysteresisDb: 3},
+		Detector:   DetectorConfig{ThresholdDb: -20, MinDurationMs: 250, HoldMs: 500, EmaAlpha: 0.2, HysteresisDb: 3, MinStableFrames: 3, GapToleranceMs: 500},
 		Recorder: RecorderConfig{
 			Enabled:     false,
 			MinSNRDb:    10,
@@ -119,6 +121,12 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Detector.HoldMs <= 0 {
 		cfg.Detector.HoldMs = 500
+	}
+	if cfg.Detector.MinStableFrames <= 0 {
+		cfg.Detector.MinStableFrames = 3
+	}
+	if cfg.Detector.GapToleranceMs <= 0 {
+		cfg.Detector.GapToleranceMs = cfg.Detector.HoldMs
 	}
 	if cfg.FrameRate <= 0 {
 		cfg.FrameRate = 15

@@ -17,6 +17,8 @@ detector:
   hold_ms: 500
   ema_alpha: 0.2
   hysteresis_db: 3
+  min_stable_frames: 3
+  gap_tolerance_ms: 500
 recorder:
   enabled: true
   min_snr_db: 10

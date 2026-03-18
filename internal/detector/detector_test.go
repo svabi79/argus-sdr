@@ -6,7 +6,7 @@ import (
 )
 
 func TestDetectorCreatesEvent(t *testing.T) {
-	d := New(-10, 1000, 10, 1*time.Millisecond, 10*time.Millisecond, 0.2, 3)
+	d := New(-10, 1000, 10, 1*time.Millisecond, 10*time.Millisecond, 0.2, 3, 1, 10*time.Millisecond)
 	center := 0.0
 	spectrum := []float64{-30, -30, -30, -5, -5, -30, -30, -30, -30, -30}
 	now := time.Now()

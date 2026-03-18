@@ -19,11 +19,13 @@ type ConfigUpdate struct {
 }
 
 type DetectorUpdate struct {
-	ThresholdDb  *float64 `json:"threshold_db"`
-	MinDuration  *int     `json:"min_duration_ms"`
-	HoldMs       *int     `json:"hold_ms"`
-	EmaAlpha     *float64 `json:"ema_alpha"`
-	HysteresisDb *float64 `json:"hysteresis_db"`
+	ThresholdDb     *float64 `json:"threshold_db"`
+	MinDuration     *int     `json:"min_duration_ms"`
+	HoldMs          *int     `json:"hold_ms"`
+	EmaAlpha        *float64 `json:"ema_alpha"`
+	HysteresisDb    *float64 `json:"hysteresis_db"`
+	MinStableFrames *int     `json:"min_stable_frames"`
+	GapToleranceMs  *int     `json:"gap_tolerance_ms"`
 }
 
 type SettingsUpdate struct {
@@ -128,6 +130,12 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 		}
 		if update.Detector.HysteresisDb != nil {
 			next.Detector.HysteresisDb = *update.Detector.HysteresisDb
+		}
+		if update.Detector.MinStableFrames != nil {
+			next.Detector.MinStableFrames = *update.Detector.MinStableFrames
+		}
+		if update.Detector.GapToleranceMs != nil {
+			next.Detector.GapToleranceMs = *update.Detector.GapToleranceMs
 		}
 	}
 	if update.Recorder != nil {
