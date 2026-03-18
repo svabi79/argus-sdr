@@ -61,6 +61,9 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 			if res.PS != "" {
 				files["rds_ps"] = res.PS
 			}
+			if res.RT != "" {
+				files["rds_rt"] = res.RT
+			}
 		}
 	}
 	return nil

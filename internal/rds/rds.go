@@ -1,21 +1,22 @@
 package rds
 
-import (
-	"math"
-)
+import "math"
 
 // Decoder performs a simple RDS baseband decode (BPSK, 1187.5 bps).
 type Decoder struct {
-	lastPS string
+	ps     [8]rune
+	rt     [64]rune
 	lastPI uint16
 }
 
 type Result struct {
 	PI uint16 `json:"pi"`
 	PS string `json:"ps"`
+	RT string `json:"rt"`
 }
 
-// Decode takes baseband samples at ~2400 Hz and attempts to extract PI/PS.
+// Decode takes baseband samples at ~2400 Hz and attempts to extract PI/PS/RT.
+// NOTE: lightweight decoder with CRC+block sync; not a full RDS implementation.
 func (d *Decoder) Decode(base []float32, sampleRate int) Result {
 	if len(base) == 0 || sampleRate <= 0 {
 		return Result{}
@@ -23,69 +24,138 @@ func (d *Decoder) Decode(base []float32, sampleRate int) Result {
 	// crude clock: 1187.5 bps
 	baud := 1187.5
 	spb := float64(sampleRate) / baud
-	// carrier recovery simplified: assume baseband already mixed
 	bits := make([]int, 0, int(float64(len(base))/spb))
 	phase := 0.0
 	for i := 0; i < len(base); i++ {
 		phase += 1.0
 		if phase >= spb {
 			phase -= spb
-			// slice decision
-			v := base[i]
-			if v >= 0 {
+			if base[i] >= 0 {
 				bits = append(bits, 1)
 			} else {
 				bits = append(bits, 0)
 			}
 		}
 	}
-	// parse groups (very naive): look for 16-bit blocks and decode group type 0A for PS
-	// This is a placeholder: real RDS needs CRC and block sync.
-	if len(bits) < 104 {
-		return Result{PI: d.lastPI, PS: d.lastPS}
+	if len(bits) < 26*4 {
+		return Result{PI: d.lastPI, PS: d.psString(), RT: d.rtString()}
 	}
-	// best effort: just map first 16 bits to PI and next 8 chars from consecutive bytes
-	pi := bitsToU16(bits[0:16])
-	ps := decodePS(bits)
-	if pi != 0 {
-		d.lastPI = pi
+	// search for block sync
+	for i := 0; i+26*4 <= len(bits); i++ {
+		bA, okA := decodeBlock(bits[i : i+26])
+		bB, okB := decodeBlock(bits[i+26 : i+52])
+		bC, okC := decodeBlock(bits[i+52 : i+78])
+		bD, okD := decodeBlock(bits[i+78 : i+104])
+		if !(okA && okB && okC && okD) {
+			continue
+		}
+		if bA.offset != offA || bB.offset != offB || bC.offset != offC || bD.offset != offD {
+			continue
+		}
+		pi := bA.data
+		if pi != 0 {
+			d.lastPI = pi
+		}
+		groupType := (bB.data >> 12) & 0xF
+		versionA := ((bB.data >> 11) & 0x1) == 0
+		if groupType == 0 && versionA {
+			addr := bB.data & 0x3
+			chars := []byte{byte(bD.data >> 8), byte(bD.data & 0xFF)}
+			idx := int(addr) * 2
+			if idx+1 < len(d.ps) {
+				d.ps[idx] = sanitizeRune(chars[0])
+				d.ps[idx+1] = sanitizeRune(chars[1])
+			}
+		}
+		if groupType == 2 && versionA {
+			addr := bB.data & 0xF
+			chars := []byte{byte(bC.data >> 8), byte(bC.data & 0xFF), byte(bD.data >> 8), byte(bD.data & 0xFF)}
+			idx := int(addr) * 4
+			for j := 0; j < 4 && idx+j < len(d.rt); j++ {
+				d.rt[idx+j] = sanitizeRune(chars[j])
+			}
+		}
+		break
 	}
-	if ps != "" {
-		d.lastPS = ps
-	}
-	return Result{PI: d.lastPI, PS: d.lastPS}
+	return Result{PI: d.lastPI, PS: d.psString(), RT: d.rtString()}
 }
 
-func bitsToU16(bits []int) uint16 {
-	var v uint16
+type block struct {
+	data   uint16
+	offset uint16
+}
+
+const (
+	offA uint16 = 0x0FC
+	offB uint16 = 0x198
+	offC uint16 = 0x168
+	offD uint16 = 0x1B4
+)
+
+func decodeBlock(bits []int) (block, bool) {
+	if len(bits) != 26 {
+		return block{}, false
+	}
+	var raw uint32
 	for _, b := range bits {
-		v = (v << 1) | uint16(b&1)
+		raw = (raw << 1) | uint32(b&1)
 	}
-	return v
+	data := uint16(raw >> 10)
+	synd := crcSyndrome(raw)
+	if synd == 0 {
+		return block{}, false
+	}
+	// use syndrome as offset word
+	return block{data: data, offset: uint16(synd)}, true
 }
 
-func decodePS(bits []int) string {
-	// naive: take next 64 bits as 8 ASCII chars
-	if len(bits) < 16+64 {
-		return ""
-	}
-	start := 16
-	out := make([]rune, 0, 8)
-	for i := 0; i < 8; i++ {
-		var c byte
-		for j := 0; j < 8; j++ {
-			c = (c << 1) | byte(bits[start+i*8+j]&1)
+func crcSyndrome(raw uint32) uint16 {
+	// polynomial 0x1B9 (10-bit)
+	var reg uint32 = raw
+	poly := uint32(0x1B9)
+	for i := 25; i >= 10; i-- {
+		if (reg>>uint(i))&1 == 1 {
+			reg ^= poly << uint(i-10)
 		}
-		if c < 32 || c > 126 {
-			c = ' '
+	}
+	return uint16(reg & 0x3FF)
+}
+
+func sanitizeRune(b byte) rune {
+	if b < 32 || b > 126 {
+		return ' '
+	}
+	return rune(b)
+}
+
+func (d *Decoder) psString() string {
+	out := make([]rune, 0, len(d.ps))
+	for _, r := range d.ps {
+		if r == 0 {
+			r = ' '
 		}
-		out = append(out, rune(c))
+		out = append(out, r)
 	}
-	// trim
-	for len(out) > 0 && out[len(out)-1] == ' ' {
-		out = out[:len(out)-1]
+	return trimRight(out)
+}
+
+func (d *Decoder) rtString() string {
+	out := make([]rune, 0, len(d.rt))
+	for _, r := range d.rt {
+		if r == 0 {
+			r = ' '
+		}
+		out = append(out, r)
 	}
-	return string(out)
+	return trimRight(out)
+}
+
+func trimRight(in []rune) string {
+	end := len(in)
+	for end > 0 && in[end-1] == ' ' {
+		end--
+	}
+	return string(in[:end])
 }
 
 // BPSKCostas returns a simple carrier-locked version of baseband (placeholder).
