@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -516,6 +517,11 @@ func main() {
 		_ = json.NewEncoder(w).Encode(sigSnap.get())
 	})
 
+	http.HandleFunc("/api/decoders", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(decoderKeys(cfgManager.Snapshot()))
+	})
+
 	http.HandleFunc("/api/recordings", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -823,6 +829,16 @@ func buildDecoderMap(cfg config.Config) map[string]string {
 		out["PSK"] = cfg.Decoder.PSKCmd
 	}
 	return out
+}
+
+func decoderKeys(cfg config.Config) []string {
+	m := buildDecoderMap(cfg)
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func parseSince(raw string) (time.Time, error) {

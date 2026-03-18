@@ -1281,6 +1281,29 @@ loadStats();
 loadGPU();
 fetchEvents(true);
 fetchRecordings();
+loadDecoders();
+connect();
+requestAnimationFrame(renderLoop);
+setInterval(loadStats, 1000);
+setInterval(loadGPU, 1000);
+setInterval(() => fetchEvents(false), 2000);
+setInterval(fetchRecordings, 5000);
+setInterval(loadSignals, 1500);
+setInterval(loadDecoders, 10000);
+lse if (ev.key === 'ArrowLeft') {
+    pan = Math.max(-0.5, pan - 0.04);
+    followLive = false;
+  } else if (ev.key === 'ArrowRight') {
+    pan = Math.min(0.5, pan + 0.04);
+    followLive = false;
+  }
+});
+
+loadConfig();
+loadStats();
+loadGPU();
+fetchEvents(true);
+fetchRecordings();
 connect();
 requestAnimationFrame(renderLoop);
 setInterval(loadStats, 1000);
