@@ -4,6 +4,7 @@ type Demodulator interface {
 	Name() string
 	Demod(iq []complex64, sampleRate int) []float32
 	OutputSampleRate() int
+	Channels() int
 }
 
 var registry = map[string]Demodulator{}

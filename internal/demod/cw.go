@@ -6,6 +6,7 @@ type CW struct{}
 
 func (CW) Name() string          { return "CW" }
 func (CW) OutputSampleRate() int { return 48000 }
+func (CW) Channels() int         { return 1 }
 
 func (CW) Demod(iq []complex64, sampleRate int) []float32 {
 	if len(iq) == 0 {

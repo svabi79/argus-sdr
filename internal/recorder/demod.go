@@ -39,12 +39,21 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	dec := dsp.Decimate(filtered, decim)
 	audio := d.Demod(dec, m.sampleRate/decim)
 	wav := filepath.Join(dir, "audio.wav")
-	if err := writeWAV(wav, audio, d.OutputSampleRate()); err != nil {
+	if err := writeWAV(wav, audio, d.OutputSampleRate(), d.Channels()); err != nil {
 		return err
 	}
 	files["audio"] = "audio.wav"
 	files["audio_sample_rate"] = d.OutputSampleRate()
+	files["audio_channels"] = d.Channels()
 	files["audio_demod"] = name
+	if name == "WFM_STEREO" {
+		if rds := demod.RDSBaseband(iq, m.sampleRate); len(rds) > 0 {
+			rdsPath := filepath.Join(dir, "rds.wav")
+			_ = writeWAV(rdsPath, rds, 2400, 1)
+			files["rds_baseband"] = "rds.wav"
+			files["rds_sample_rate"] = 2400
+		}
+	}
 	return nil
 }
 

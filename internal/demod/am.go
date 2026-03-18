@@ -6,6 +6,7 @@ type AM struct{}
 
 func (AM) Name() string          { return "AM" }
 func (AM) OutputSampleRate() int { return 48000 }
+func (AM) Channels() int         { return 1 }
 
 func (AM) Demod(iq []complex64, sampleRate int) []float32 {
 	if len(iq) == 0 {

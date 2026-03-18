@@ -10,6 +10,8 @@ func (USB) Name() string          { return "USB" }
 func (LSB) Name() string          { return "LSB" }
 func (USB) OutputSampleRate() int { return 48000 }
 func (LSB) OutputSampleRate() int { return 48000 }
+func (USB) Channels() int         { return 1 }
+func (LSB) Channels() int         { return 1 }
 
 func (USB) Demod(iq []complex64, sampleRate int) []float32 { return ssb(iq, sampleRate, true) }
 func (LSB) Demod(iq []complex64, sampleRate int) []float32 { return ssb(iq, sampleRate, false) }

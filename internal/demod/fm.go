@@ -1,15 +1,28 @@
 package demod
 
-import "math"
+import (
+	"math"
+
+	"sdr-visual-suite/internal/dsp"
+)
 
 type NFM struct{}
 
 type WFM struct{}
 
+type WFMStereo struct{}
+
 func (NFM) Name() string          { return "NFM" }
 func (WFM) Name() string          { return "WFM" }
+func (WFMStereo) Name() string    { return "WFM_STEREO" }
 func (NFM) OutputSampleRate() int { return 48000 }
 func (WFM) OutputSampleRate() int { return 192000 }
+func (WFMStereo) OutputSampleRate() int {
+	return 192000
+}
+func (NFM) Channels() int       { return 1 }
+func (WFM) Channels() int       { return 1 }
+func (WFMStereo) Channels() int { return 2 }
 
 func (NFM) Demod(iq []complex64, sampleRate int) []float32 {
 	return fmDiscrim(iq)
@@ -17,6 +30,10 @@ func (NFM) Demod(iq []complex64, sampleRate int) []float32 {
 
 func (WFM) Demod(iq []complex64, sampleRate int) []float32 {
 	return fmDiscrim(iq)
+}
+
+func (WFMStereo) Demod(iq []complex64, sampleRate int) []float32 {
+	return wfmStereo(iq, sampleRate)
 }
 
 func fmDiscrim(iq []complex64) []float32 {
@@ -34,7 +51,66 @@ func fmDiscrim(iq []complex64) []float32 {
 	return out
 }
 
+func wfmStereo(iq []complex64, sampleRate int) []float32 {
+	base := fmDiscrim(iq)
+	if len(base) == 0 {
+		return nil
+	}
+	lp := dsp.LowpassFIR(15000, sampleRate, 101)
+	lpr := dsp.ApplyFIRReal(base, lp)
+	bpHi := dsp.LowpassFIR(53000, sampleRate, 101)
+	bpLo := dsp.LowpassFIR(23000, sampleRate, 101)
+	hi := dsp.ApplyFIRReal(base, bpHi)
+	lo := dsp.ApplyFIRReal(base, bpLo)
+	bpf := make([]float32, len(base))
+	for i := range base {
+		bpf[i] = hi[i] - lo[i]
+	}
+	lr := make([]float32, len(base))
+	phase := 0.0
+	inc := 2 * math.Pi * 38000 / float64(sampleRate)
+	for i := range bpf {
+		phase += inc
+		lr[i] = bpf[i] * float32(2*math.Cos(phase))
+	}
+	lr = dsp.ApplyFIRReal(lr, lp)
+	out := make([]float32, len(lpr)*2)
+	for i := range lpr {
+		l := 0.5 * (lpr[i] + lr[i])
+		r := 0.5 * (lpr[i] - lr[i])
+		out[i*2] = l
+		out[i*2+1] = r
+	}
+	return out
+}
+
+// RDSBaseband returns a rough 57k baseband (not decoded).
+func RDSBaseband(iq []complex64, sampleRate int) []float32 {
+	base := fmDiscrim(iq)
+	if len(base) == 0 {
+		return nil
+	}
+	bpHi := dsp.LowpassFIR(60000, sampleRate, 101)
+	bpLo := dsp.LowpassFIR(54000, sampleRate, 101)
+	hi := dsp.ApplyFIRReal(base, bpHi)
+	lo := dsp.ApplyFIRReal(base, bpLo)
+	bpf := make([]float32, len(base))
+	for i := range base {
+		bpf[i] = hi[i] - lo[i]
+	}
+	phase := 0.0
+	inc := 2 * math.Pi * 57000 / float64(sampleRate)
+	out := make([]float32, len(base))
+	for i := range bpf {
+		phase += inc
+		out[i] = bpf[i] * float32(math.Cos(phase))
+	}
+	lp := dsp.LowpassFIR(2400, sampleRate, 101)
+	return dsp.ApplyFIRReal(out, lp)
+}
+
 func init() {
 	Register(NFM{})
 	Register(WFM{})
+	Register(WFMStereo{})
 }

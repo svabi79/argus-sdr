@@ -5,13 +5,16 @@ import (
 	"os"
 )
 
-func writeWAV(path string, samples []float32, sampleRate int) error {
+func writeWAV(path string, samples []float32, sampleRate int, channels int) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
+	if channels <= 0 {
+		channels = 1
+	}
 	// 16-bit PCM
 	dataSize := uint32(len(samples) * 2)
 	// RIFF header
@@ -34,17 +37,17 @@ func writeWAV(path string, samples []float32, sampleRate int) error {
 	if err := binary.Write(f, binary.LittleEndian, uint16(1)); err != nil { // PCM
 		return err
 	}
-	if err := binary.Write(f, binary.LittleEndian, uint16(1)); err != nil { // mono
+	if err := binary.Write(f, binary.LittleEndian, uint16(channels)); err != nil {
 		return err
 	}
 	if err := binary.Write(f, binary.LittleEndian, uint32(sampleRate)); err != nil {
 		return err
 	}
-	byteRate := uint32(sampleRate * 2)
+	byteRate := uint32(sampleRate * channels * 2)
 	if err := binary.Write(f, binary.LittleEndian, byteRate); err != nil {
 		return err
 	}
-	if err := binary.Write(f, binary.LittleEndian, uint16(2)); err != nil { // block align
+	if err := binary.Write(f, binary.LittleEndian, uint16(channels*2)); err != nil {
 		return err
 	}
 	if err := binary.Write(f, binary.LittleEndian, uint16(16)); err != nil { // bits
