@@ -321,6 +321,25 @@ async function loadSignals() {
   } catch {}
 }
 
+async function loadDecoders() {
+  if (!decodeModeSelect) return;
+  try {
+    const res = await fetch('/api/decoders');
+    if (!res.ok) return;
+    const list = await res.json();
+    if (!Array.isArray(list)) return;
+    const current = decodeModeSelect.value;
+    decodeModeSelect.innerHTML = '';
+    list.forEach((mode) => {
+      const opt = document.createElement('option');
+      opt.value = mode;
+      opt.textContent = mode;
+      decodeModeSelect.appendChild(opt);
+    });
+    if (current) decodeModeSelect.value = current;
+  } catch {}
+}
+
 async function loadStats() {
   try {
     const res = await fetch('/api/stats');
@@ -1226,10 +1245,14 @@ if (liveListenBtn) {
     if (!first) return;
     const freq = parseFloat(first.dataset.center);
     const bw = parseFloat(first.dataset.bw || '12000');
-    const mode = first.dataset.class || 'NFM';
-    const url = `/api/demod?freq=${freq}&bw=${bw}&mode=${mode}&sec=2`;
-    const audio = new Audio(url);
-    audio.play();
+    const mode = (listenModeSelect?.value || first.dataset.class || 'NFM');
+    const sec = parseInt(listenSecondsInput?.value || '2', 10);
+    const url = `/api/demod?freq=${freq}&bw=${bw}&mode=${mode}&sec=${sec}`;
+    if (liveAudio) {
+      liveAudio.pause();
+    }
+    liveAudio = new Audio(url);
+    liveAudio.play().catch(() => {});
   });
 }
 
