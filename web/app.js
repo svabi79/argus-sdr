@@ -1215,6 +1215,15 @@ if (recordingList) {
       recordingIQLink.href = `/api/recordings/${id}/iq`;
       recordingAudioLink.href = `/api/recordings/${id}/audio`;
     }
+    try {
+      const res = await fetch(`/api/recordings/${id}`);
+      if (!res.ok) return;
+      const meta = await res.json();
+      if (decodeResultEl) {
+        const rds = meta.rds_ps ? `RDS: ${meta.rds_ps}` : '';
+        decodeResultEl.textContent = `Decode: ${rds}`;
+      }
+    } catch {}
   });
 }
 
