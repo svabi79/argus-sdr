@@ -29,6 +29,11 @@ const gainRange = qs('gainRange');
 const gainInput = qs('gainInput');
 const thresholdRange = qs('thresholdRange');
 const thresholdInput = qs('thresholdInput');
+const cfarToggle = qs('cfarToggle');
+const cfarGuardInput = qs('cfarGuardInput');
+const cfarTrainInput = qs('cfarTrainInput');
+const cfarRankInput = qs('cfarRankInput');
+const cfarScaleInput = qs('cfarScaleInput');
 const emaAlphaInput = qs('emaAlphaInput');
 const hysteresisInput = qs('hysteresisInput');
 const stableFramesInput = qs('stableFramesInput');
@@ -282,6 +287,11 @@ function applyConfigToUI(cfg) {
   gainInput.value = uiGain;
   thresholdRange.value = cfg.detector.threshold_db;
   thresholdInput.value = cfg.detector.threshold_db;
+  if (cfarToggle) cfarToggle.checked = !!cfg.detector.cfar_enabled;
+  if (cfarGuardInput) cfarGuardInput.value = cfg.detector.cfar_guard_cells ?? 2;
+  if (cfarTrainInput) cfarTrainInput.value = cfg.detector.cfar_train_cells ?? 16;
+  if (cfarRankInput) cfarRankInput.value = cfg.detector.cfar_rank ?? 24;
+  if (cfarScaleInput) cfarScaleInput.value = cfg.detector.cfar_scale_db ?? 6;
   if (minDurationInput) minDurationInput.value = cfg.detector.min_duration_ms;
   if (holdInput) holdInput.value = cfg.detector.hold_ms;
   if (emaAlphaInput) emaAlphaInput.value = cfg.detector.ema_alpha ?? 0.2;
@@ -1134,6 +1144,24 @@ thresholdInput.addEventListener('change', () => {
     thresholdRange.value = v;
     queueConfigUpdate({ detector: { threshold_db: v } });
   }
+});
+
+if (cfarToggle) cfarToggle.addEventListener('change', () => queueConfigUpdate({ detector: { cfar_enabled: cfarToggle.checked } }));
+if (cfarGuardInput) cfarGuardInput.addEventListener('change', () => {
+  const v = parseInt(cfarGuardInput.value, 10);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { cfar_guard_cells: v } });
+});
+if (cfarTrainInput) cfarTrainInput.addEventListener('change', () => {
+  const v = parseInt(cfarTrainInput.value, 10);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { cfar_train_cells: v } });
+});
+if (cfarRankInput) cfarRankInput.addEventListener('change', () => {
+  const v = parseInt(cfarRankInput.value, 10);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { cfar_rank: v } });
+});
+if (cfarScaleInput) cfarScaleInput.addEventListener('change', () => {
+  const v = parseFloat(cfarScaleInput.value);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { cfar_scale_db: v } });
 });
 
 agcToggle.addEventListener('change', () => queueSettingsUpdate({ agc: agcToggle.checked }));

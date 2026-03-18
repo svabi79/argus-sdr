@@ -64,7 +64,9 @@ Edit `config.yaml`:
 - `agc`: enable automatic gain control
 - `dc_block`: enable DC blocking filter
 - `iq_balance`: enable basic IQ imbalance correction
-- `detector.threshold_db`: power threshold in dB
+- `detector.threshold_db`: power threshold in dB (fallback if CFAR disabled)
+- `detector.cfar_enabled`: enable OS-CFAR detection
+- `detector.cfar_guard_cells`, `detector.cfar_train_cells`, `detector.cfar_rank`, `detector.cfar_scale_db`: OS-CFAR window + ordered-statistic parameters
 - `detector.min_duration_ms`, `detector.hold_ms`: debounce/merge
 - `recorder.*`: enable IQ/audio recording, preroll, output_dir, max_disk_mb
 - `decoder.*`: external decode commands (use `{iq}`, `{audio}`, `{sr}` placeholders)

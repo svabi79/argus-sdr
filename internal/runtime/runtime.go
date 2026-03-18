@@ -26,6 +26,11 @@ type DetectorUpdate struct {
 	HysteresisDb    *float64 `json:"hysteresis_db"`
 	MinStableFrames *int     `json:"min_stable_frames"`
 	GapToleranceMs  *int     `json:"gap_tolerance_ms"`
+	CFAREnabled     *bool    `json:"cfar_enabled"`
+	CFARGuardCells  *int     `json:"cfar_guard_cells"`
+	CFARTrainCells  *int     `json:"cfar_train_cells"`
+	CFARRank        *int     `json:"cfar_rank"`
+	CFARScaleDb     *float64 `json:"cfar_scale_db"`
 }
 
 type SettingsUpdate struct {
@@ -136,6 +141,33 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 		}
 		if update.Detector.GapToleranceMs != nil {
 			next.Detector.GapToleranceMs = *update.Detector.GapToleranceMs
+		}
+		if update.Detector.CFAREnabled != nil {
+			next.Detector.CFAREnabled = *update.Detector.CFAREnabled
+		}
+		if update.Detector.CFARGuardCells != nil {
+			if *update.Detector.CFARGuardCells < 0 {
+				return m.cfg, errors.New("cfar_guard_cells must be >= 0")
+			}
+			next.Detector.CFARGuardCells = *update.Detector.CFARGuardCells
+		}
+		if update.Detector.CFARTrainCells != nil {
+			if *update.Detector.CFARTrainCells <= 0 {
+				return m.cfg, errors.New("cfar_train_cells must be > 0")
+			}
+			next.Detector.CFARTrainCells = *update.Detector.CFARTrainCells
+		}
+		if update.Detector.CFARRank != nil {
+			if *update.Detector.CFARRank <= 0 {
+				return m.cfg, errors.New("cfar_rank must be > 0")
+			}
+			if next.Detector.CFARTrainCells > 0 && *update.Detector.CFARRank > 2*next.Detector.CFARTrainCells {
+				return m.cfg, errors.New("cfar_rank must be <= 2 * cfar_train_cells")
+			}
+			next.Detector.CFARRank = *update.Detector.CFARRank
+		}
+		if update.Detector.CFARScaleDb != nil {
+			next.Detector.CFARScaleDb = *update.Detector.CFARScaleDb
 		}
 	}
 	if update.Recorder != nil {

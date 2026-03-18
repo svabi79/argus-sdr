@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"os"
 	"time"
 
@@ -21,6 +22,11 @@ type DetectorConfig struct {
 	HysteresisDb    float64 `yaml:"hysteresis_db" json:"hysteresis_db"`
 	MinStableFrames int     `yaml:"min_stable_frames" json:"min_stable_frames"`
 	GapToleranceMs  int     `yaml:"gap_tolerance_ms" json:"gap_tolerance_ms"`
+	CFAREnabled     bool    `yaml:"cfar_enabled" json:"cfar_enabled"`
+	CFARGuardCells  int     `yaml:"cfar_guard_cells" json:"cfar_guard_cells"`
+	CFARTrainCells  int     `yaml:"cfar_train_cells" json:"cfar_train_cells"`
+	CFARRank        int     `yaml:"cfar_rank" json:"cfar_rank"`
+	CFARScaleDb     float64 `yaml:"cfar_scale_db" json:"cfar_scale_db"`
 }
 
 type RecorderConfig struct {
@@ -83,7 +89,7 @@ func Default() Config {
 		AGC:        false,
 		DCBlock:    false,
 		IQBalance:  false,
-		Detector:   DetectorConfig{ThresholdDb: -20, MinDurationMs: 250, HoldMs: 500, EmaAlpha: 0.2, HysteresisDb: 3, MinStableFrames: 3, GapToleranceMs: 500},
+		Detector:   DetectorConfig{ThresholdDb: -20, MinDurationMs: 250, HoldMs: 500, EmaAlpha: 0.2, HysteresisDb: 3, MinStableFrames: 3, GapToleranceMs: 500, CFAREnabled: true, CFARGuardCells: 2, CFARTrainCells: 16, CFARRank: 24, CFARScaleDb: 6},
 		Recorder: RecorderConfig{
 			Enabled:     false,
 			MinSNRDb:    10,
@@ -127,6 +133,21 @@ func Load(path string) (Config, error) {
 	}
 	if cfg.Detector.GapToleranceMs <= 0 {
 		cfg.Detector.GapToleranceMs = cfg.Detector.HoldMs
+	}
+	if cfg.Detector.CFARGuardCells <= 0 {
+		cfg.Detector.CFARGuardCells = 2
+	}
+	if cfg.Detector.CFARTrainCells <= 0 {
+		cfg.Detector.CFARTrainCells = 16
+	}
+	if cfg.Detector.CFARRank <= 0 || cfg.Detector.CFARRank > 2*cfg.Detector.CFARTrainCells {
+		cfg.Detector.CFARRank = int(math.Round(0.75 * float64(2*cfg.Detector.CFARTrainCells)))
+		if cfg.Detector.CFARRank <= 0 {
+			cfg.Detector.CFARRank = 1
+		}
+	}
+	if cfg.Detector.CFARScaleDb <= 0 {
+		cfg.Detector.CFARScaleDb = 6
 	}
 	if cfg.FrameRate <= 0 {
 		cfg.FrameRate = 15

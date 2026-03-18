@@ -29,6 +29,11 @@ type Detector struct {
 	HysteresisDb    float64
 	MinStableFrames int
 	GapTolerance    time.Duration
+	CFAREnabled     bool
+	CFARGuardCells  int
+	CFARTrainCells  int
+	CFARRank        int
+	CFARScaleDb     float64
 
 	binWidth   float64
 	nbins      int
@@ -63,7 +68,7 @@ type Signal struct {
 	Class    *classifier.Classification `json:"class,omitempty"`
 }
 
-func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration, emaAlpha, hysteresis float64, minStable int, gapTolerance time.Duration) *Detector {
+func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration, emaAlpha, hysteresis float64, minStable int, gapTolerance time.Duration, cfarEnabled bool, cfarGuard, cfarTrain, cfarRank int, cfarScaleDb float64) *Detector {
 	if minDur <= 0 {
 		minDur = 250 * time.Millisecond
 	}
@@ -82,6 +87,21 @@ func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Dur
 	if gapTolerance <= 0 {
 		gapTolerance = hold
 	}
+	if cfarGuard < 0 {
+		cfarGuard = 2
+	}
+	if cfarTrain <= 0 {
+		cfarTrain = 16
+	}
+	if cfarScaleDb <= 0 {
+		cfarScaleDb = 6
+	}
+	if cfarRank <= 0 || cfarRank > 2*cfarTrain {
+		cfarRank = int(math.Round(0.75 * float64(2*cfarTrain)))
+		if cfarRank <= 0 {
+			cfarRank = 1
+		}
+	}
 	return &Detector{
 		ThresholdDb:     thresholdDb,
 		MinDuration:     minDur,
@@ -90,6 +110,11 @@ func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Dur
 		HysteresisDb:    hysteresis,
 		MinStableFrames: minStable,
 		GapTolerance:    gapTolerance,
+		CFAREnabled:     cfarEnabled,
+		CFARGuardCells:  cfarGuard,
+		CFARTrainCells:  cfarTrain,
+		CFARRank:        cfarRank,
+		CFARScaleDb:     cfarScaleDb,
 		binWidth:        float64(sampleRate) / float64(fftSize),
 		nbins:           fftSize,
 		sampleRate:      sampleRate,
@@ -126,9 +151,8 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 		return nil
 	}
 	smooth := d.smoothSpectrum(spectrum)
-	thresholdOn := d.ThresholdDb
-	thresholdOff := d.ThresholdDb - d.HysteresisDb
-	noise := median(smooth)
+	thresholds := d.cfarThresholds(smooth)
+	noiseGlobal := median(smooth)
 	var signals []Signal
 	in := false
 	start := 0
@@ -136,6 +160,11 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 	peakBin := 0
 	for i := 0; i < n; i++ {
 		v := smooth[i]
+		thresholdOn := d.ThresholdDb
+		if thresholds != nil && !math.IsNaN(thresholds[i]) {
+			thresholdOn = thresholds[i]
+		}
+		thresholdOff := thresholdOn - d.HysteresisDb
 		if v >= thresholdOn {
 			if !in {
 				in = true
@@ -147,11 +176,19 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 				peakBin = i
 			}
 		} else if in && v < thresholdOff {
+			noise := noiseGlobal
+			if thresholds != nil && peakBin >= 0 && peakBin < len(thresholds) && !math.IsNaN(thresholds[peakBin]) {
+				noise = thresholds[peakBin] - d.CFARScaleDb
+			}
 			signals = append(signals, d.makeSignal(start, i-1, peak, peakBin, noise, centerHz, smooth))
 			in = false
 		}
 	}
 	if in {
+		noise := noiseGlobal
+		if thresholds != nil && peakBin >= 0 && peakBin < len(thresholds) && !math.IsNaN(thresholds[peakBin]) {
+			noise = thresholds[peakBin] - d.CFARScaleDb
+		}
 		signals = append(signals, d.makeSignal(start, n-1, peak, peakBin, noise, centerHz, smooth))
 	}
 	return signals
@@ -170,6 +207,43 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 		PeakDb:   peak,
 		SNRDb:    snr,
 	}
+}
+
+func (d *Detector) cfarThresholds(spectrum []float64) []float64 {
+	if !d.CFAREnabled || d.CFARTrainCells <= 0 {
+		return nil
+	}
+	n := len(spectrum)
+	train := d.CFARTrainCells
+	guard := d.CFARGuardCells
+	totalTrain := 2 * train
+	if totalTrain <= 0 {
+		return nil
+	}
+	rank := d.CFARRank
+	if rank <= 0 || rank > totalTrain {
+		rank = int(math.Round(0.75 * float64(totalTrain)))
+		if rank <= 0 {
+			rank = 1
+		}
+	}
+	rankIdx := rank - 1
+	thresholds := make([]float64, n)
+	buf := make([]float64, totalTrain)
+	for i := 0; i < n; i++ {
+		leftStart := i - guard - train
+		rightEnd := i + guard + train
+		if leftStart < 0 || rightEnd >= n {
+			thresholds[i] = math.NaN()
+			continue
+		}
+		copy(buf[:train], spectrum[leftStart:leftStart+train])
+		copy(buf[train:], spectrum[i+guard+1:i+guard+1+train])
+		sort.Float64s(buf)
+		noise := buf[rankIdx]
+		thresholds[i] = noise + d.CFARScaleDb
+	}
+	return thresholds
 }
 
 func (d *Detector) smoothSpectrum(spectrum []float64) []float64 {

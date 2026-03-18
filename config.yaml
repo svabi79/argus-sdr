@@ -19,6 +19,11 @@ detector:
   hysteresis_db: 3
   min_stable_frames: 3
   gap_tolerance_ms: 500
+  cfar_enabled: true
+  cfar_guard_cells: 2
+  cfar_train_cells: 16
+  cfar_rank: 24
+  cfar_scale_db: 6
 recorder:
   enabled: true
   min_snr_db: 10

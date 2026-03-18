@@ -15,6 +15,11 @@ func TestApplyConfigUpdate(t *testing.T) {
 	fftSize := 4096
 	threshold := -35.0
 	bw := 1536
+	cfarEnabled := true
+	cfarGuard := 2
+	cfarTrain := 12
+	cfarRank := 18
+	cfarScale := 5.5
 
 	updated, err := mgr.ApplyConfig(ConfigUpdate{
 		CenterHz:   &center,
@@ -22,7 +27,12 @@ func TestApplyConfigUpdate(t *testing.T) {
 		FFTSize:    &fftSize,
 		TunerBwKHz: &bw,
 		Detector: &DetectorUpdate{
-			ThresholdDb: &threshold,
+			ThresholdDb:    &threshold,
+			CFAREnabled:    &cfarEnabled,
+			CFARGuardCells: &cfarGuard,
+			CFARTrainCells: &cfarTrain,
+			CFARRank:       &cfarRank,
+			CFARScaleDb:    &cfarScale,
 		},
 	})
 	if err != nil {
@@ -39,6 +49,21 @@ func TestApplyConfigUpdate(t *testing.T) {
 	}
 	if updated.Detector.ThresholdDb != threshold {
 		t.Fatalf("threshold: %v", updated.Detector.ThresholdDb)
+	}
+	if updated.Detector.CFAREnabled != cfarEnabled {
+		t.Fatalf("cfar enabled: %v", updated.Detector.CFAREnabled)
+	}
+	if updated.Detector.CFARGuardCells != cfarGuard {
+		t.Fatalf("cfar guard: %v", updated.Detector.CFARGuardCells)
+	}
+	if updated.Detector.CFARTrainCells != cfarTrain {
+		t.Fatalf("cfar train: %v", updated.Detector.CFARTrainCells)
+	}
+	if updated.Detector.CFARRank != cfarRank {
+		t.Fatalf("cfar rank: %v", updated.Detector.CFARRank)
+	}
+	if updated.Detector.CFARScaleDb != cfarScale {
+		t.Fatalf("cfar scale: %v", updated.Detector.CFARScaleDb)
 	}
 	if updated.TunerBwKHz != bw {
 		t.Fatalf("tuner bw: %v", updated.TunerBwKHz)

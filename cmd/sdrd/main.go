@@ -319,7 +319,12 @@ func main() {
 		cfg.Detector.EmaAlpha,
 		cfg.Detector.HysteresisDb,
 		cfg.Detector.MinStableFrames,
-		time.Duration(cfg.Detector.GapToleranceMs)*time.Millisecond)
+		time.Duration(cfg.Detector.GapToleranceMs)*time.Millisecond,
+		cfg.Detector.CFAREnabled,
+		cfg.Detector.CFARGuardCells,
+		cfg.Detector.CFARTrainCells,
+		cfg.Detector.CFARRank,
+		cfg.Detector.CFARScaleDb)
 
 	window := fftutil.Hann(cfg.FFTSize)
 	h := newHub()
@@ -439,6 +444,11 @@ func main() {
 				prev.Detector.HysteresisDb != next.Detector.HysteresisDb ||
 				prev.Detector.MinStableFrames != next.Detector.MinStableFrames ||
 				prev.Detector.GapToleranceMs != next.Detector.GapToleranceMs ||
+				prev.Detector.CFAREnabled != next.Detector.CFAREnabled ||
+				prev.Detector.CFARGuardCells != next.Detector.CFARGuardCells ||
+				prev.Detector.CFARTrainCells != next.Detector.CFARTrainCells ||
+				prev.Detector.CFARRank != next.Detector.CFARRank ||
+				prev.Detector.CFARScaleDb != next.Detector.CFARScaleDb ||
 				prev.SampleRate != next.SampleRate ||
 				prev.FFTSize != next.FFTSize
 			windowChanged := prev.FFTSize != next.FFTSize
@@ -451,7 +461,12 @@ func main() {
 					next.Detector.EmaAlpha,
 					next.Detector.HysteresisDb,
 					next.Detector.MinStableFrames,
-					time.Duration(next.Detector.GapToleranceMs)*time.Millisecond)
+					time.Duration(next.Detector.GapToleranceMs)*time.Millisecond,
+					next.Detector.CFAREnabled,
+					next.Detector.CFARGuardCells,
+					next.Detector.CFARTrainCells,
+					next.Detector.CFARRank,
+					next.Detector.CFARScaleDb)
 			}
 			if windowChanged {
 				newWindow = fftutil.Hann(next.FFTSize)
