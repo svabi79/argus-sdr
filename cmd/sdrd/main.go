@@ -585,6 +585,12 @@ func main() {
 		freq, _ := strconv.ParseFloat(q.Get("freq"), 64)
 		bw, _ := strconv.ParseFloat(q.Get("bw"), 64)
 		sec, _ := strconv.Atoi(q.Get("sec"))
+		if sec < 1 {
+			sec = 1
+		}
+		if sec > 10 {
+			sec = 10
+		}
 		mode := q.Get("mode")
 		data, _, err := recMgr.DemodLive(freq, bw, mode, sec)
 		if err != nil {
