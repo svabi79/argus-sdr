@@ -104,6 +104,7 @@
           <button class="rail-tab" data-tab="signals" type="button">Signals</button>
           <button class="rail-tab" data-tab="events" type="button">Events</button>
           <button class="rail-tab" data-tab="health" type="button">Health</button>
+          <button class="rail-tab" data-tab="recordings" type="button">Recordings</button>
         </div>
 
         <div class="rail-body">
@@ -197,6 +198,11 @@
               <div class="health-card health-card--wide"><span class="health-lbl">GPU status</span><span class="health-val" id="healthGpu">-</span></div>
               <div class="health-card health-card--wide"><span class="health-lbl">Render rate</span><span class="health-val" id="healthFps">-</span></div>
             </div>
+          </section>
+
+          <section class="tab-panel" data-panel="recordings">
+            <div class="list-head"><span class="grp-title">Recordings</span><span class="count-pill" id="recordingCountBadge">0</span></div>
+            <div class="event-list" id="recordingList"><div class="empty-state">No recordings yet.</div></div>
           </section>
         </div>
       </aside>

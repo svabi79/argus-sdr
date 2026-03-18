@@ -38,8 +38,10 @@ const gpuToggle = qs('gpuToggle');
 
 const signalList = qs('signalList');
 const eventList = qs('eventList');
+const recordingList = qs('recordingList');
 const signalCountBadge = qs('signalCountBadge');
 const eventCountBadge = qs('eventCountBadge');
+const recordingCountBadge = qs('recordingCountBadge');
 
 const healthBuffer = qs('healthBuffer');
 const healthDropped = qs('healthDropped');
@@ -112,6 +114,8 @@ let lastEventEndMs = 0;
 let selectedEventId = null;
 let timelineRects = [];
 let liveSignalRects = [];
+let recordings = [];
+let recordingsFetchInFlight = false;
 
 const GAIN_MAX = 60;
 const timelineWindowMs = 5 * 60 * 1000;
@@ -761,6 +765,26 @@ function renderLists() {
       </button>
     `).join('');
   }
+
+  if (recordingList && recordingCountBadge) {
+    recordingCountBadge.textContent = `${recordings.length}`;
+    if (recordings.length === 0) {
+      recordingList.innerHTML = '<div class="empty-state">No recordings yet.</div>';
+    } else {
+      recordingList.innerHTML = recordings.slice(0, 50).map((rec) => `
+        <button class="list-item recording-item" type="button" data-id="${rec.id}">
+          <div class="item-top">
+            <span class="item-title">${new Date(rec.start).toLocaleString()}</span>
+            <span class="item-badge">${fmtMHz(rec.center_hz || 0, 6)}</span>
+          </div>
+          <div class="item-bottom">
+            <span class="item-meta">${rec.id}</span>
+            <span class="item-meta">recording</span>
+          </div>
+        </button>
+      `).join('');
+    }
+  }
 }
 
 function normalizeEvent(ev) {
@@ -808,6 +832,22 @@ async function fetchEvents(initial) {
     if (Array.isArray(data)) upsertEvents(data, initial);
   } finally {
     eventsFetchInFlight = false;
+  }
+}
+
+async function fetchRecordings() {
+  if (recordingsFetchInFlight || !recordingList) return;
+  recordingsFetchInFlight = true;
+  try {
+    const res = await fetch('/api/recordings');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      recordings = data;
+      renderLists();
+    }
+  } finally {
+    recordingsFetchInFlight = false;
   }
 }
 
@@ -1127,6 +1167,16 @@ eventList.addEventListener('click', (ev) => {
   openDrawer(eventsById.get(id));
 });
 
+if (recordingList) {
+  recordingList.addEventListener('click', async (ev) => {
+    const target = ev.target.closest('.recording-item');
+    if (!target) return;
+    const id = target.dataset.id;
+    const audio = new Audio(`/api/recordings/${id}/audio`);
+    audio.play();
+  });
+}
+
 window.addEventListener('keydown', (ev) => {
   if (ev.target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ev.target.tagName)) return;
   if (ev.key === ' ') {
@@ -1159,8 +1209,10 @@ loadConfig();
 loadStats();
 loadGPU();
 fetchEvents(true);
+fetchRecordings();
 connect();
 requestAnimationFrame(renderLoop);
 setInterval(loadStats, 1000);
 setInterval(loadGPU, 1000);
 setInterval(() => fetchEvents(false), 2000);
+setInterval(fetchRecordings, 5000);
