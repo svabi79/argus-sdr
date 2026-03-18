@@ -15,6 +15,7 @@ type ConfigUpdate struct {
 	TunerBwKHz *int            `json:"tuner_bw_khz"`
 	UseGPUFFT  *bool           `json:"use_gpu_fft"`
 	Detector   *DetectorUpdate `json:"detector"`
+	Recorder   *RecorderUpdate `json:"recorder"`
 }
 
 type DetectorUpdate struct {
@@ -27,6 +28,21 @@ type SettingsUpdate struct {
 	AGC       *bool `json:"agc"`
 	DCBlock   *bool `json:"dc_block"`
 	IQBalance *bool `json:"iq_balance"`
+}
+
+type RecorderUpdate struct {
+	Enabled     *bool     `json:"enabled"`
+	MinSNRDb    *float64  `json:"min_snr_db"`
+	MinDuration *string   `json:"min_duration"`
+	MaxDuration *string   `json:"max_duration"`
+	PrerollMs   *int      `json:"preroll_ms"`
+	RecordIQ    *bool     `json:"record_iq"`
+	RecordAudio *bool     `json:"record_audio"`
+	AutoDemod   *bool     `json:"auto_demod"`
+	AutoDecode  *bool     `json:"auto_decode"`
+	OutputDir   *string   `json:"output_dir"`
+	ClassFilter *[]string `json:"class_filter"`
+	RingSeconds *int      `json:"ring_seconds"`
 }
 
 type Manager struct {
@@ -71,6 +87,9 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 		if *update.FFTSize <= 0 {
 			return m.cfg, errors.New("fft_size must be > 0")
 		}
+		if *update.FFTSize&(*update.FFTSize-1) != 0 {
+			return m.cfg, errors.New("fft_size must be a power of 2")
+		}
 		next.FFTSize = *update.FFTSize
 	}
 	if update.GainDb != nil {
@@ -100,6 +119,44 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 				return m.cfg, errors.New("hold_ms must be > 0")
 			}
 			next.Detector.HoldMs = *update.Detector.HoldMs
+		}
+	}
+	if update.Recorder != nil {
+		if update.Recorder.Enabled != nil {
+			next.Recorder.Enabled = *update.Recorder.Enabled
+		}
+		if update.Recorder.MinSNRDb != nil {
+			next.Recorder.MinSNRDb = *update.Recorder.MinSNRDb
+		}
+		if update.Recorder.MinDuration != nil {
+			next.Recorder.MinDuration = *update.Recorder.MinDuration
+		}
+		if update.Recorder.MaxDuration != nil {
+			next.Recorder.MaxDuration = *update.Recorder.MaxDuration
+		}
+		if update.Recorder.PrerollMs != nil {
+			next.Recorder.PrerollMs = *update.Recorder.PrerollMs
+		}
+		if update.Recorder.RecordIQ != nil {
+			next.Recorder.RecordIQ = *update.Recorder.RecordIQ
+		}
+		if update.Recorder.RecordAudio != nil {
+			next.Recorder.RecordAudio = *update.Recorder.RecordAudio
+		}
+		if update.Recorder.AutoDemod != nil {
+			next.Recorder.AutoDemod = *update.Recorder.AutoDemod
+		}
+		if update.Recorder.AutoDecode != nil {
+			next.Recorder.AutoDecode = *update.Recorder.AutoDecode
+		}
+		if update.Recorder.OutputDir != nil {
+			next.Recorder.OutputDir = *update.Recorder.OutputDir
+		}
+		if update.Recorder.ClassFilter != nil {
+			next.Recorder.ClassFilter = *update.Recorder.ClassFilter
+		}
+		if update.Recorder.RingSeconds != nil {
+			next.Recorder.RingSeconds = *update.Recorder.RingSeconds
 		}
 	}
 
