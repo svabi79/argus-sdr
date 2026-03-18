@@ -22,6 +22,13 @@ func RuleClassify(feat Features) Classification {
 		if flat > 0.7 {
 			second = ClassNoise
 		}
+	case bw >= 2000 && bw < 3000:
+		// candidate for FT8/WSPR (very rough): low env variance, narrow BW
+		if feat.EnvVariance < 0.5 && feat.InstFreqStd < 0.7 {
+			best = ClassUnknown
+			second = ClassUnknown
+			conf = 0.5
+		}
 	case bw >= 500 && bw < 3e3:
 		if sym > 0.2 {
 			best = ClassSSBUSB
