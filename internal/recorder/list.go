@@ -12,6 +12,7 @@ type Recording struct {
 	ID       string    `json:"id"`
 	Start    time.Time `json:"start"`
 	CenterHz float64   `json:"center_hz"`
+	EventID  int64     `json:"event_id"`
 	Path     string    `json:"path"`
 }
 
@@ -38,7 +39,7 @@ func ListRecordings(root string) ([]Recording, error) {
 		if err := json.Unmarshal(b, &m); err != nil {
 			continue
 		}
-		out = append(out, Recording{ID: id, Start: m.Start, CenterHz: m.CenterHz, Path: filepath.Join(root, id)})
+		out = append(out, Recording{ID: id, Start: m.Start, CenterHz: m.CenterHz, EventID: m.EventID, Path: filepath.Join(root, id)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Start.After(out[j].Start) })
 	return out, nil

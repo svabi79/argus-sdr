@@ -1138,7 +1138,7 @@ if (decodeEventBtn) {
     const ev = eventsById.get(selectedEventId);
     if (!ev) return;
     if (!recordingMetaEl) return;
-    const rec = recordings.find(r => r.center_hz === ev.center_hz);
+    const rec = recordings.find(r => r.event_id === ev.id) || recordings.find(r => r.center_hz === ev.center_hz);
     if (!rec) {
       decodeResultEl.textContent = 'Decode: no recording';
       return;
