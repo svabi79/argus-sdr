@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -353,6 +355,7 @@ func main() {
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			log.Printf("ws upgrade failed: %v (origin: %s)", err, r.Header.Get("Origin"))
 			return
 		}
 		c := &client{conn: conn, send: make(chan []byte, 32), done: make(chan struct{})}
@@ -645,6 +648,11 @@ func main() {
 }
 
 func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("FATAL: runDSP goroutine panic: %v\n%s", r, debug.Stack())
+		}
+	}()
 	ticker := time.NewTicker(cfg.FrameInterval())
 	defer ticker.Stop()
 	logTicker := time.NewTicker(5 * time.Second)
@@ -785,6 +793,11 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 			} else {
 				spectrum = fftutil.SpectrumWithPlan(iq, window, plan)
+			}
+			for i := range spectrum {
+				if math.IsNaN(spectrum[i]) || math.IsInf(spectrum[i], 0) {
+					spectrum[i] = -200
+				}
 			}
 			now := time.Now()
 			finished, signals := det.Process(now, spectrum, cfg.CenterHz)
