@@ -5,11 +5,27 @@ if (-not (Test-Path (Join-Path $gcc 'gcc.exe'))) {
 }
 $env:PATH = "$gcc;" + $env:PATH
 $env:CGO_ENABLED = '1'
+
+# SDRplay
 $env:CGO_CFLAGS = '-IC:\PROGRA~1\SDRplay\API\inc'
 $env:CGO_LDFLAGS = '-LC:\PROGRA~1\SDRplay\API\x64 -lsdrplay_api'
 
-Write-Host "Building with SDRplay support..." -ForegroundColor Cyan
+# CUDA (cuFFT)
+$cudaInc = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\include'
+$cudaLib = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\lib\x64'
+$cudaBin = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\bin'
+if (Test-Path $cudaInc) {
+  $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I`"$cudaInc`""
+}
+if (Test-Path $cudaLib) {
+  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L`"$cudaLib`" -lcufft -lcudart"
+}
+if (Test-Path $cudaBin) {
+  $env:PATH = "$cudaBin;" + $env:PATH
+}
 
-go build -tags sdrplay ./cmd/sdrd
+Write-Host "Building with SDRplay + cuFFT support..." -ForegroundColor Cyan
+
+go build -tags "sdrplay,cufft" ./cmd/sdrd
 
 Write-Host "Done." -ForegroundColor Green
