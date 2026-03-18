@@ -19,9 +19,11 @@ type ConfigUpdate struct {
 }
 
 type DetectorUpdate struct {
-	ThresholdDb *float64 `json:"threshold_db"`
-	MinDuration *int     `json:"min_duration_ms"`
-	HoldMs      *int     `json:"hold_ms"`
+	ThresholdDb  *float64 `json:"threshold_db"`
+	MinDuration  *int     `json:"min_duration_ms"`
+	HoldMs       *int     `json:"hold_ms"`
+	EmaAlpha     *float64 `json:"ema_alpha"`
+	HysteresisDb *float64 `json:"hysteresis_db"`
 }
 
 type SettingsUpdate struct {
@@ -120,6 +122,12 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 				return m.cfg, errors.New("hold_ms must be > 0")
 			}
 			next.Detector.HoldMs = *update.Detector.HoldMs
+		}
+		if update.Detector.EmaAlpha != nil {
+			next.Detector.EmaAlpha = *update.Detector.EmaAlpha
+		}
+		if update.Detector.HysteresisDb != nil {
+			next.Detector.HysteresisDb = *update.Detector.HysteresisDb
 		}
 	}
 	if update.Recorder != nil {

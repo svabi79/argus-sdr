@@ -22,14 +22,17 @@ type Event struct {
 }
 
 type Detector struct {
-	ThresholdDb float64
-	MinDuration time.Duration
-	Hold        time.Duration
+	ThresholdDb  float64
+	MinDuration  time.Duration
+	Hold         time.Duration
+	EmaAlpha     float64
+	HysteresisDb float64
 
 	binWidth   float64
 	nbins      int
 	sampleRate int
 
+	ema    []float64
 	active map[int64]*activeEvent
 	nextID int64
 }
@@ -57,22 +60,31 @@ type Signal struct {
 	Class    *classifier.Classification `json:"class,omitempty"`
 }
 
-func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration) *Detector {
+func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration, emaAlpha, hysteresis float64) *Detector {
 	if minDur <= 0 {
 		minDur = 250 * time.Millisecond
 	}
 	if hold <= 0 {
 		hold = 500 * time.Millisecond
 	}
+	if emaAlpha <= 0 || emaAlpha > 1 {
+		emaAlpha = 0.2
+	}
+	if hysteresis <= 0 {
+		hysteresis = 3
+	}
 	return &Detector{
-		ThresholdDb: thresholdDb,
-		MinDuration: minDur,
-		Hold:        hold,
-		binWidth:    float64(sampleRate) / float64(fftSize),
-		nbins:       fftSize,
-		sampleRate:  sampleRate,
-		active:      map[int64]*activeEvent{},
-		nextID:      1,
+		ThresholdDb:  thresholdDb,
+		MinDuration:  minDur,
+		Hold:         hold,
+		EmaAlpha:     emaAlpha,
+		HysteresisDb: hysteresis,
+		binWidth:     float64(sampleRate) / float64(fftSize),
+		nbins:        fftSize,
+		sampleRate:   sampleRate,
+		ema:          make([]float64, fftSize),
+		active:       map[int64]*activeEvent{},
+		nextID:       1,
 	}
 }
 
@@ -102,16 +114,18 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 	if n == 0 {
 		return nil
 	}
-	threshold := d.ThresholdDb
-	noise := median(spectrum)
+	smooth := d.smoothSpectrum(spectrum)
+	thresholdOn := d.ThresholdDb
+	thresholdOff := d.ThresholdDb - d.HysteresisDb
+	noise := median(smooth)
 	var signals []Signal
 	in := false
 	start := 0
 	peak := -1e9
 	peakBin := 0
 	for i := 0; i < n; i++ {
-		v := spectrum[i]
-		if v >= threshold {
+		v := smooth[i]
+		if v >= thresholdOn {
 			if !in {
 				in = true
 				start = i
@@ -121,13 +135,13 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 				peak = v
 				peakBin = i
 			}
-		} else if in {
-			signals = append(signals, d.makeSignal(start, i-1, peak, peakBin, noise, centerHz, spectrum))
+		} else if in && v < thresholdOff {
+			signals = append(signals, d.makeSignal(start, i-1, peak, peakBin, noise, centerHz, smooth))
 			in = false
 		}
 	}
 	if in {
-		signals = append(signals, d.makeSignal(start, n-1, peak, peakBin, noise, centerHz, spectrum))
+		signals = append(signals, d.makeSignal(start, n-1, peak, peakBin, noise, centerHz, smooth))
 	}
 	return signals
 }
@@ -145,6 +159,20 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 		PeakDb:   peak,
 		SNRDb:    snr,
 	}
+}
+
+func (d *Detector) smoothSpectrum(spectrum []float64) []float64 {
+	if d.ema == nil || len(d.ema) != len(spectrum) {
+		d.ema = make([]float64, len(spectrum))
+		copy(d.ema, spectrum)
+		return d.ema
+	}
+	alpha := d.EmaAlpha
+	for i := range spectrum {
+		v := spectrum[i]
+		d.ema[i] = alpha*v + (1-alpha)*d.ema[i]
+	}
+	return d.ema
 }
 
 func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {

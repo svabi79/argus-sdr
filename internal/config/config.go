@@ -17,6 +17,8 @@ type DetectorConfig struct {
 	ThresholdDb   float64 `yaml:"threshold_db" json:"threshold_db"`
 	MinDurationMs int     `yaml:"min_duration_ms" json:"min_duration_ms"`
 	HoldMs        int     `yaml:"hold_ms" json:"hold_ms"`
+	EmaAlpha      float64 `yaml:"ema_alpha" json:"ema_alpha"`
+	HysteresisDb  float64 `yaml:"hysteresis_db" json:"hysteresis_db"`
 }
 
 type RecorderConfig struct {
@@ -79,7 +81,7 @@ func Default() Config {
 		AGC:        false,
 		DCBlock:    false,
 		IQBalance:  false,
-		Detector:   DetectorConfig{ThresholdDb: -20, MinDurationMs: 250, HoldMs: 500},
+		Detector:   DetectorConfig{ThresholdDb: -20, MinDurationMs: 250, HoldMs: 500, EmaAlpha: 0.2, HysteresisDb: 3},
 		Recorder: RecorderConfig{
 			Enabled:     false,
 			MinSNRDb:    10,

@@ -314,7 +314,9 @@ func main() {
 
 	det := detector.New(cfg.Detector.ThresholdDb, cfg.SampleRate, cfg.FFTSize,
 		time.Duration(cfg.Detector.MinDurationMs)*time.Millisecond,
-		time.Duration(cfg.Detector.HoldMs)*time.Millisecond)
+		time.Duration(cfg.Detector.HoldMs)*time.Millisecond,
+		cfg.Detector.EmaAlpha,
+		cfg.Detector.HysteresisDb)
 
 	window := fftutil.Hann(cfg.FFTSize)
 	h := newHub()
@@ -435,7 +437,9 @@ func main() {
 			if detChanged {
 				newDet = detector.New(next.Detector.ThresholdDb, next.SampleRate, next.FFTSize,
 					time.Duration(next.Detector.MinDurationMs)*time.Millisecond,
-					time.Duration(next.Detector.HoldMs)*time.Millisecond)
+					time.Duration(next.Detector.HoldMs)*time.Millisecond,
+					next.Detector.EmaAlpha,
+					next.Detector.HysteresisDb)
 			}
 			if windowChanged {
 				newWindow = fftutil.Hann(next.FFTSize)
