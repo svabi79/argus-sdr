@@ -18,7 +18,13 @@ func (m *Manager) runDecodeIfConfigured(mod string, iqPath string, sampleRate in
 	if cmd == "" {
 		return
 	}
-	res, err := decoder.Run(cmd, iqPath, sampleRate)
+	audioPath := ""
+	if v, ok := files["audio"]; ok {
+		if name, ok := v.(string); ok {
+			audioPath = filepath.Join(dir, name)
+		}
+	}
+	res, err := decoder.Run(cmd, iqPath, sampleRate, audioPath)
 	if err != nil {
 		return
 	}

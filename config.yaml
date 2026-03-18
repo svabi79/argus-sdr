@@ -32,8 +32,8 @@ recorder:
 decoder:
   ft8_cmd: "tools/ft8/ft8_decoder --iq {iq} --sample-rate {sr}"
   wspr_cmd: "tools/wspr/wspr_decoder --iq {iq} --sample-rate {sr}"
-  dmr_cmd: "tools/dmr/dmr_decoder --iq {iq} --sample-rate {sr}"
-  dstar_cmd: "tools/dstar/dstar_decoder --iq {iq} --sample-rate {sr}"
+  dmr_cmd: "tools/dsd-neo/bin/dsd-neo.exe -fs -i {audio} -s {sr} -o null"
+  dstar_cmd: "tools/dsd-neo/bin/dsd-neo.exe -fd -i {audio} -s {sr} -o null"
   fsk_cmd: "tools/fsk/fsk_decoder --iq {iq} --sample-rate {sr}"
   psk_cmd: "tools/psk/psk_decoder --iq {iq} --sample-rate {sr}"
 web_addr: ":8080"

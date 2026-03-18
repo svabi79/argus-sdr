@@ -67,7 +67,7 @@ Edit `config.yaml`:
 - `detector.threshold_db`: power threshold in dB
 - `detector.min_duration_ms`, `detector.hold_ms`: debounce/merge
 - `recorder.*`: enable IQ/audio recording, preroll, output_dir, max_disk_mb
-- `decoder.*`: external decode commands (use `{iq}` and `{sr}` placeholders)
+- `decoder.*`: external decode commands (use `{iq}`, `{audio}`, `{sr}` placeholders)
 
 ## APIs
 ### Config API

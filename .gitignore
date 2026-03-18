@@ -24,5 +24,11 @@ web/openai/
 web/*-web.zip
 sdr-visual-suite.zip
 
+# downloaded decoder binaries
+tools/downloads/
+tools/wsjtx/
+tools/fldigi/
+tools/dsd-neo/
+
 # temp binaries
 sdrd.exe~

@@ -570,7 +570,11 @@ func main() {
 				http.Error(w, "meta read failed", http.StatusInternalServerError)
 				return
 			}
-			res, err := recorder.DecodeOnDemand(cmd, filepath.Join(base, "signal.cf32"), meta.SampleRate)
+			audioPath := filepath.Join(base, "audio.wav")
+			if _, errStat := os.Stat(audioPath); errStat != nil {
+				audioPath = ""
+			}
+			res, err := recorder.DecodeOnDemand(cmd, filepath.Join(base, "signal.cf32"), meta.SampleRate, audioPath)
 			if err != nil {
 				http.Error(w, res.Stderr, http.StatusInternalServerError)
 				return
