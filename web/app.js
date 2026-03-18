@@ -1133,6 +1133,26 @@ if (liveListenEventBtn) {
     audio.play();
   });
 }
+if (decodeEventBtn) {
+  decodeEventBtn.addEventListener('click', async () => {
+    const ev = eventsById.get(selectedEventId);
+    if (!ev) return;
+    if (!recordingMetaEl) return;
+    const rec = recordings.find(r => r.center_hz === ev.center_hz);
+    if (!rec) {
+      decodeResultEl.textContent = 'Decode: no recording';
+      return;
+    }
+    const mode = ev.class?.mod_type || 'FT8';
+    const res = await fetch(`/api/recordings/${rec.id}/decode?mode=${mode}`);
+    if (!res.ok) {
+      decodeResultEl.textContent = 'Decode: failed';
+      return;
+    }
+    const data = await res.json();
+    decodeResultEl.textContent = `Decode: ${String(data.stdout || '').slice(0, 80)}`;
+  });
+}
 jumpToEventBtn.addEventListener('click', () => {
   const ev = eventsById.get(selectedEventId);
   if (!ev) return;
