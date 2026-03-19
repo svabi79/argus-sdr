@@ -9,6 +9,7 @@
 
 # runtime data
 data/events.jsonl
+config.autosave.yaml
 
 # local prompts
 prompt*.txt
