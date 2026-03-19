@@ -102,6 +102,7 @@ func main() {
 		ClassFilter: cfg.Recorder.ClassFilter,
 		RingSeconds: cfg.Recorder.RingSeconds,
 	}, cfg.CenterHz, decodeMap)
+	defer recMgr.Close()
 
 	sigSnap := &signalSnapshot{}
 
