@@ -3,7 +3,7 @@
 package gpudemod
 
 /*
-#cgo windows LDFLAGS: -L${SRCDIR}/../../../cuda-mingw -lcufft64_12 -lcudart64_13 ${SRCDIR}/build/kernels.obj
+#cgo windows LDFLAGS: -L${SRCDIR}/../../../cuda-mingw -L${SRCDIR}/build -lgpudemod_kernels -lcufft64_12 -lcudart64_13
 #cgo windows CFLAGS: -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/include"
 #include <cuda_runtime.h>
 #include <cufft.h>
@@ -31,15 +31,39 @@ static int gpud_device_sync() {
 }
 
 extern int gpud_launch_freq_shift_cuda(const gpud_float2* in, gpud_float2* out, int n, double phase_inc, double phase_start);
+extern int gpud_launch_fm_discrim_cuda(const gpud_float2* in, float* out, int n);
+extern int gpud_upload_fir_taps_cuda(const float* taps, int n);
+extern int gpud_launch_fir_cuda(const gpud_float2* in, gpud_float2* out, int n, int num_taps);
+extern int gpud_launch_decimate_cuda(const gpud_float2* in, gpud_float2* out, int n_out, int factor);
+extern int gpud_launch_am_envelope_cuda(const gpud_float2* in, float* out, int n);
+extern int gpud_launch_ssb_product_cuda(const gpud_float2* in, float* out, int n, double phase_inc, double phase_start);
 
 static int gpud_launch_freq_shift(gpud_float2 *in, gpud_float2 *out, int n, double phase_inc, double phase_start) {
 	return gpud_launch_freq_shift_cuda(in, out, n, phase_inc, phase_start);
 }
 
-extern int gpud_launch_fm_discrim_cuda(const gpud_float2* in, float* out, int n);
-
 static int gpud_launch_fm_discrim(gpud_float2 *in, float *out, int n) {
 	return gpud_launch_fm_discrim_cuda(in, out, n);
+}
+
+static int gpud_upload_fir_taps(const float* taps, int n) {
+	return gpud_upload_fir_taps_cuda(taps, n);
+}
+
+static int gpud_launch_fir(gpud_float2 *in, gpud_float2 *out, int n, int num_taps) {
+	return gpud_launch_fir_cuda(in, out, n, num_taps);
+}
+
+static int gpud_launch_decimate(gpud_float2 *in, gpud_float2 *out, int n_out, int factor) {
+	return gpud_launch_decimate_cuda(in, out, n_out, factor);
+}
+
+static int gpud_launch_am_envelope(gpud_float2 *in, float *out, int n) {
+	return gpud_launch_am_envelope_cuda(in, out, n);
+}
+
+static int gpud_launch_ssb_product(gpud_float2 *in, float *out, int n, double phase_inc, double phase_start) {
+	return gpud_launch_ssb_product_cuda(in, out, n, phase_inc, phase_start);
 }
 */
 import "C"
@@ -66,18 +90,23 @@ const (
 )
 
 type Engine struct {
-	maxSamples       int
-	sampleRate       int
-	phase            float64
-	bfoPhase         float64
-	firTaps          []float32
-	cudaReady        bool
-	lastShiftUsedGPU bool
-	dIQIn            *C.gpud_float2
-	dShifted         *C.gpud_float2
-	dAudio           *C.float
-	iqBytes          C.size_t
-	audioBytes       C.size_t
+	maxSamples        int
+	sampleRate        int
+	phase             float64
+	bfoPhase          float64
+	firTaps           []float32
+	cudaReady         bool
+	lastShiftUsedGPU  bool
+	lastFIRUsedGPU    bool
+	lastDecimUsedGPU  bool
+	lastDemodUsedGPU  bool
+	dIQIn             *C.gpud_float2
+	dShifted          *C.gpud_float2
+	dFiltered         *C.gpud_float2
+	dDecimated        *C.gpud_float2
+	dAudio            *C.float
+	iqBytes           C.size_t
+	audioBytes        C.size_t
 }
 
 func Available() bool {
@@ -118,6 +147,18 @@ func New(maxSamples int, sampleRate int) (*Engine, error) {
 	}
 	e.dShifted = (*C.gpud_float2)(ptr)
 	ptr = nil
+	if C.gpud_cuda_malloc(&ptr, e.iqBytes) != C.cudaSuccess {
+		e.Close()
+		return nil, errors.New("cudaMalloc dFiltered failed")
+	}
+	e.dFiltered = (*C.gpud_float2)(ptr)
+	ptr = nil
+	if C.gpud_cuda_malloc(&ptr, e.iqBytes) != C.cudaSuccess {
+		e.Close()
+		return nil, errors.New("cudaMalloc dDecimated failed")
+	}
+	e.dDecimated = (*C.gpud_float2)(ptr)
+	ptr = nil
 	if C.gpud_cuda_malloc(&ptr, e.audioBytes) != C.cudaSuccess {
 		e.Close()
 		return nil, errors.New("cudaMalloc dAudio failed")
@@ -131,18 +172,21 @@ func (e *Engine) SetFIR(taps []float32) {
 		e.firTaps = nil
 		return
 	}
-	e.firTaps = append(e.firTaps[:0], taps...)
-}
-
-func phaseStatus() string {
-	return "phase1c-validated-shift"
-}
-
-func (e *Engine) LastShiftUsedGPU() bool {
-	if e == nil {
-		return false
+	if len(taps) > 256 {
+		taps = taps[:256]
 	}
-	return e.lastShiftUsedGPU
+	e.firTaps = append(e.firTaps[:0], taps...)
+	if e.cudaReady {
+		_ = C.gpud_upload_fir_taps((*C.float)(unsafe.Pointer(&e.firTaps[0])), C.int(len(e.firTaps)))
+	}
+}
+
+func phaseStatus() string { return "phase1c-validated-shift" }
+func (e *Engine) LastShiftUsedGPU() bool {
+	return e != nil && e.lastShiftUsedGPU
+}
+func (e *Engine) LastDemodUsedGPU() bool {
+	return e != nil && e.lastDemodUsedGPU
 }
 
 func (e *Engine) tryCUDAFreqShift(iq []complex64, offsetHz float64) ([]complex64, bool) {
@@ -165,6 +209,53 @@ func (e *Engine) tryCUDAFreqShift(iq []complex64, offsetHz float64) ([]complex64
 		return nil, false
 	}
 	e.phase += phaseInc * float64(len(iq))
+	return out, true
+}
+
+func (e *Engine) tryCUDAFIR(iq []complex64, numTaps int) ([]complex64, bool) {
+	if e == nil || !e.cudaReady || len(iq) == 0 || numTaps <= 0 || e.dShifted == nil || e.dFiltered == nil {
+		return nil, false
+	}
+	iqBytes := C.size_t(len(iq)) * C.size_t(unsafe.Sizeof(complex64(0)))
+	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dShifted), unsafe.Pointer(&iq[0]), iqBytes) != C.cudaSuccess {
+		return nil, false
+	}
+	if C.gpud_launch_fir(e.dShifted, e.dFiltered, C.int(len(iq)), C.int(numTaps)) != 0 {
+		return nil, false
+	}
+	if C.gpud_device_sync() != C.cudaSuccess {
+		return nil, false
+	}
+	out := make([]complex64, len(iq))
+	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dFiltered), iqBytes) != C.cudaSuccess {
+		return nil, false
+	}
+	return out, true
+}
+
+func (e *Engine) tryCUDADecimate(filtered []complex64, factor int) ([]complex64, bool) {
+	if e == nil || !e.cudaReady || len(filtered) == 0 || factor <= 0 || e.dFiltered == nil || e.dDecimated == nil {
+		return nil, false
+	}
+	nOut := len(filtered) / factor
+	if nOut <= 0 {
+		return nil, false
+	}
+	iqBytes := C.size_t(len(filtered)) * C.size_t(unsafe.Sizeof(complex64(0)))
+	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dFiltered), unsafe.Pointer(&filtered[0]), iqBytes) != C.cudaSuccess {
+		return nil, false
+	}
+	if C.gpud_launch_decimate(e.dFiltered, e.dDecimated, C.int(nOut), C.int(factor)) != 0 {
+		return nil, false
+	}
+	if C.gpud_device_sync() != C.cudaSuccess {
+		return nil, false
+	}
+	out := make([]complex64, nOut)
+	outBytes := C.size_t(nOut) * C.size_t(unsafe.Sizeof(complex64(0)))
+	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dDecimated), outBytes) != C.cudaSuccess {
+		return nil, false
+	}
 	return out, true
 }
 
@@ -273,20 +364,32 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	}
 	taps := e.firTaps
 	if len(taps) == 0 {
-		base := dsp.LowpassFIR(cutoff, e.sampleRate, 101)
-		taps = append(make([]float32, 0, len(base)), base...)
+		base64 := dsp.LowpassFIR(cutoff, e.sampleRate, 101)
+		taps = make([]float32, len(base64))
+		for i, v := range base64 {
+			taps[i] = float32(v)
+		}
 		e.SetFIR(taps)
 	}
 	filtered, ok := e.tryCUDAFIR(shifted, len(taps))
-	if !ok {
-		filtered = dsp.ApplyFIR(shifted, taps)
+	e.lastFIRUsedGPU = ok && ValidateFIR(shifted, taps, filtered, 1e-3)
+	if !e.lastFIRUsedGPU {
+		ftaps := make([]float64, len(taps))
+		for i, v := range taps {
+			ftaps[i] = float64(v)
+		}
+		filtered = dsp.ApplyFIR(shifted, ftaps)
 	}
+
 	decim := int(math.Round(float64(e.sampleRate) / float64(outRate)))
 	if decim < 1 {
 		decim = 1
 	}
-	dec := dsp.Decimate(filtered, decim)
-	e.lastDecimUsedGPU = false
+	dec, ok := e.tryCUDADecimate(filtered, decim)
+	e.lastDecimUsedGPU = ok && ValidateDecimate(filtered, decim, dec, 1e-3)
+	if !e.lastDecimUsedGPU {
+		dec = dsp.Decimate(filtered, decim)
+	}
 	inputRate := e.sampleRate / decim
 
 	e.lastDemodUsedGPU = false
@@ -344,37 +447,9 @@ func (e *Engine) Close() {
 		_ = C.gpud_cuda_free(unsafe.Pointer(e.dShifted))
 		e.dShifted = nil
 	}
-	if e.dDecimated != nil {
-		_ = C.gpud_cuda_free(unsafe.Pointer(e.dDecimated))
-		e.dDecimated = nil
-	}
-	if e.dAudio != nil {
-		_ = C.gpud_cuda_free(unsafe.Pointer(e.dAudio))
-		e.dAudio = nil
-	}
-	e.firTaps = nil
-	e.cudaReady = false
-}
-odLSB:
-		return demod.LSB{}.Demod(dec, inputRate), inputRate, nil
-	case DemodCW:
-		return demod.CW{}.Demod(dec, inputRate), inputRate, nil
-	default:
-		return nil, 0, errors.New("unsupported demod type")
-	}
-}
-
-func (e *Engine) Close() {
-	if e == nil {
-		return
-	}
-	if e.dIQIn != nil {
-		_ = C.gpud_cuda_free(unsafe.Pointer(e.dIQIn))
-		e.dIQIn = nil
-	}
-	if e.dShifted != nil {
-		_ = C.gpud_cuda_free(unsafe.Pointer(e.dShifted))
-		e.dShifted = nil
+	if e.dFiltered != nil {
+		_ = C.gpud_cuda_free(unsafe.Pointer(e.dFiltered))
+		e.dFiltered = nil
 	}
 	if e.dDecimated != nil {
 		_ = C.gpud_cuda_free(unsafe.Pointer(e.dDecimated))

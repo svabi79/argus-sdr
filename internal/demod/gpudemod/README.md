@@ -20,9 +20,10 @@ This is **not compiled automatically yet** in the current environment because th
 
 On a CUDA-capable dev machine with toolchain installed:
 
-1. Compile `kernels.cu` into an object file
+1. Compile `kernels.cu` into an object file and archive it into a linkable library
    - helper script: `tools/build-gpudemod-kernel.ps1`
-2. Link it into the `cufft` build
+2. For MinGW/CGO builds, prefer building the archive with MinGW host compiler + `ar.exe`
+3. Link `gpudemod_kernels.lib` into the `cufft` build
 3. Replace `gpud_launch_freq_shift(...)` stub body with the real kernel launch
 4. Validate copied-back shifted IQ against `dsp.FreqShift`
 5. Only then move the next stage (FM discriminator) onto the GPU

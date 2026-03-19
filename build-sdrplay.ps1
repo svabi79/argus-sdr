@@ -39,6 +39,14 @@ if (Test-Path $cudaMingw) {
 
 Write-Host "Building with SDRplay + cuFFT support..." -ForegroundColor Cyan
 
+$gccHost = Join-Path $gcc 'g++.exe'
+if (!(Test-Path $gccHost)) {
+  throw "g++.exe not found at $gccHost"
+}
+
+powershell -ExecutionPolicy Bypass -File tools\build-gpudemod-kernel.ps1 -HostCompiler $gccHost
+if ($LASTEXITCODE -ne 0) { throw "kernel build failed" }
+
 go build -tags "sdrplay,cufft" ./cmd/sdrd
 
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
