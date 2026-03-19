@@ -1,6 +1,11 @@
 package recorder
 
-import "sdr-visual-suite/internal/demod"
+import (
+	"log"
+
+	"sdr-visual-suite/internal/demod"
+	"sdr-visual-suite/internal/demod/gpudemod"
+)
 
 type wfmHybridResult struct {
 	Audio     []float32
@@ -10,14 +15,35 @@ type wfmHybridResult struct {
 	RDSRate   int
 }
 
-func demodWFMStereoHybrid(iq []complex64, sampleRate int, offset float64, bw float64) wfmHybridResult {
+func demodWFMStereoHybrid(gpu *gpudemod.Engine, iq []complex64, sampleRate int, offset float64, bw float64) wfmHybridResult {
 	audio, rate := demodAudioCPU(demod.Get("WFM_STEREO"), iq, sampleRate, offset, bw)
-	rds := demod.RDSBasebandDecimated(iq, sampleRate)
+
+	var rdsSamples []float32
+	var rdsRate int
+	if gpu != nil {
+		rdsIQ, gpuRate, err := gpu.ShiftFilterDecimate(iq, 57000, 4800, 4800)
+		if err == nil && len(rdsIQ) > 0 {
+			rdsSamples = make([]float32, len(rdsIQ))
+			for i, v := range rdsIQ {
+				rdsSamples[i] = real(v)
+			}
+			rdsRate = gpuRate
+			log.Printf("gpudemod: GPU RDS extraction used (%d samples at %d Hz)", len(rdsSamples), rdsRate)
+		} else if err != nil {
+			log.Printf("gpudemod: GPU RDS extraction failed: %v - CPU fallback", err)
+		}
+	}
+	if rdsSamples == nil {
+		rds := demod.RDSBasebandDecimated(iq, sampleRate)
+		rdsSamples = rds.Samples
+		rdsRate = rds.SampleRate
+	}
+
 	return wfmHybridResult{
 		Audio:     audio,
 		AudioRate: rate,
 		Channels:  2,
-		RDS:       rds.Samples,
-		RDSRate:   rds.SampleRate,
+		RDS:       rdsSamples,
+		RDSRate:   rdsRate,
 	}
 }

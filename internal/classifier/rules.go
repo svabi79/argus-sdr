@@ -69,7 +69,7 @@ func RuleClassify(feat Features) Classification {
 		add(ClassDMR, 0.7)
 	}
 
-	best, bestScore, second, secondScore := top2(scores)
+	best, _, second, _ := top2(scores)
 	if best == "" {
 		best = ClassUnknown
 	}
@@ -77,11 +77,7 @@ func RuleClassify(feat Features) Classification {
 		second = ClassUnknown
 	}
 
-	conf := 0.3
-	if best != ClassUnknown {
-		sum := bestScore + secondScore + 1e-6
-		conf = 0.3 + 0.7*(bestScore/sum)
-	}
+	conf := softmaxConfidence(scores, best)
 	if best == ClassNFM || best == ClassWFM {
 		conf = conf * (0.8 + 0.2*clamp01(1-flat))
 	}
@@ -89,7 +85,7 @@ func RuleClassify(feat Features) Classification {
 		conf = conf * (0.7 + 0.3*clamp01(p2a/6.0))
 	}
 	if math.IsNaN(conf) || conf <= 0 {
-		conf = 0.3
+		conf = 0.1
 	}
 
 	if (best == ClassSSBUSB || best == ClassSSBLSB) && second == ClassUnknown {
@@ -108,6 +104,34 @@ func RuleClassify(feat Features) Classification {
 		SecondBest: second,
 		Scores:     scores,
 	}
+}
+
+func softmaxConfidence(scores map[SignalClass]float64, best SignalClass) float64 {
+	if len(scores) == 0 || best == "" || best == ClassUnknown {
+		return 0.1
+	}
+	maxScore := math.Inf(-1)
+	for _, v := range scores {
+		if v > maxScore {
+			maxScore = v
+		}
+	}
+	if math.IsInf(maxScore, -1) {
+		return 0.1
+	}
+	var expSum float64
+	var expBest float64
+	for k, v := range scores {
+		e := math.Exp(v - maxScore)
+		expSum += e
+		if k == best {
+			expBest = e
+		}
+	}
+	if expSum <= 0 {
+		return 0.1
+	}
+	return expBest / expSum
 }
 
 func top2(scores map[SignalClass]float64) (SignalClass, float64, SignalClass, float64) {
