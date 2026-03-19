@@ -224,8 +224,12 @@ function renderSignalPopover(rect, signal) {
     return `<div class="signal-popover__row"><span>${label}</span><span class="signal-popover__bar"><span class="signal-popover__fill" style="width:${width}%"></span></span><span>${Number(value).toFixed(2)}</span></div>`;
   }).join('');
   signalPopover.innerHTML = `<div class="signal-popover__title">${signal.class?.mod_type || 'Signal'}</div><div class="signal-popover__meta">${fmtMHz(signal.center_hz, 5)} · ${fmtKHz(signal.bw_hz || 0)} · ${(signal.snr_db || 0).toFixed(1)} dB SNR</div><div class="signal-popover__scores">${rows || '<div class="signal-popover__meta">No classifier scores</div>'}</div>`;
-  signalPopover.style.left = `${Math.max(8, rect.x + rect.w + 8)}px`;
-  signalPopover.style.top = `${Math.max(8, rect.y + 8)}px`;
+  const popW = 220;
+  const left = rect.x + rect.w + 8;
+  const top = rect.y + 8;
+  const maxLeft = Math.max(8, spectrumCanvas.width - popW - 8);
+  signalPopover.style.left = `${Math.max(8, Math.min(maxLeft, left))}px`;
+  signalPopover.style.top = `${Math.max(8, top)}px`;
   signalPopover.classList.add('open');
   signalPopover.setAttribute('aria-hidden', 'false');
 }
@@ -1649,4 +1653,5 @@ setInterval(() => fetchEvents(false), 2000);
 setInterval(fetchRecordings, 5000);
 setInterval(loadSignals, 1500);
 setInterval(loadDecoders, 10000);
+
 
