@@ -10,14 +10,15 @@ import (
 )
 
 type ConfigUpdate struct {
-	CenterHz   *float64        `json:"center_hz"`
-	SampleRate *int            `json:"sample_rate"`
-	FFTSize    *int            `json:"fft_size"`
-	GainDb     *float64        `json:"gain_db"`
-	TunerBwKHz *int            `json:"tuner_bw_khz"`
-	UseGPUFFT  *bool           `json:"use_gpu_fft"`
-	Detector   *DetectorUpdate `json:"detector"`
-	Recorder   *RecorderUpdate `json:"recorder"`
+	CenterHz       *float64        `json:"center_hz"`
+	SampleRate     *int            `json:"sample_rate"`
+	FFTSize        *int            `json:"fft_size"`
+	GainDb         *float64        `json:"gain_db"`
+	TunerBwKHz     *int            `json:"tuner_bw_khz"`
+	UseGPUFFT      *bool           `json:"use_gpu_fft"`
+	ClassifierMode *string         `json:"classifier_mode"`
+	Detector       *DetectorUpdate `json:"detector"`
+	Recorder       *RecorderUpdate `json:"recorder"`
 }
 
 type DetectorUpdate struct {
@@ -122,6 +123,15 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 	}
 	if update.UseGPUFFT != nil {
 		next.UseGPUFFT = *update.UseGPUFFT
+	}
+	if update.ClassifierMode != nil {
+		mode := *update.ClassifierMode
+		switch mode {
+		case "rule", "math", "combined":
+			next.ClassifierMode = mode
+		default:
+			return m.cfg, errors.New("classifier_mode must be rule, math, or combined")
+		}
 	}
 	if update.Detector != nil {
 		if update.Detector.ThresholdDb != nil {

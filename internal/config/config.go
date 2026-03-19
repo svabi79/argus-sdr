@@ -73,6 +73,7 @@ type Config struct {
 	GainDb         float64        `yaml:"gain_db" json:"gain_db"`
 	TunerBwKHz     int            `yaml:"tuner_bw_khz" json:"tuner_bw_khz"`
 	UseGPUFFT      bool           `yaml:"use_gpu_fft" json:"use_gpu_fft"`
+	ClassifierMode string         `yaml:"classifier_mode" json:"classifier_mode"`
 	AGC            bool           `yaml:"agc" json:"agc"`
 	DCBlock        bool           `yaml:"dc_block" json:"dc_block"`
 	IQBalance      bool           `yaml:"iq_balance" json:"iq_balance"`
@@ -97,6 +98,7 @@ func Default() Config {
 		GainDb:     30,
 		TunerBwKHz: 1536,
 		UseGPUFFT:  false,
+		ClassifierMode: "combined",
 		AGC:        false,
 		DCBlock:    false,
 		IQBalance:  false,
@@ -245,6 +247,14 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.SampleRate <= 0 {
 		cfg.SampleRate = 2_048_000
+	}
+	if cfg.ClassifierMode == "" {
+		cfg.ClassifierMode = "combined"
+	}
+	switch cfg.ClassifierMode {
+	case "rule", "math", "combined":
+	default:
+		cfg.ClassifierMode = "combined"
 	}
 	if cfg.FFTSize <= 0 {
 		cfg.FFTSize = 2048

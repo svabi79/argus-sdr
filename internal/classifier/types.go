@@ -39,12 +39,13 @@ type Features struct {
 
 // Classification is the classifier output attached to signals/events.
 type Classification struct {
-	ModType    SignalClass             `json:"mod_type"`
-	Confidence float64                 `json:"confidence"`
-	BW3dB      float64                 `json:"bw_3db_hz"`
-	Features   Features                `json:"features,omitempty"`
-	SecondBest SignalClass             `json:"second_best,omitempty"`
-	Scores     map[SignalClass]float64 `json:"scores,omitempty"`
+	ModType      SignalClass             `json:"mod_type"`
+	Confidence   float64                 `json:"confidence"`
+	BW3dB        float64                 `json:"bw_3db_hz"`
+	Features     Features                `json:"features,omitempty"`
+	MathFeatures *MathFeatures           `json:"math_features,omitempty"`
+	SecondBest   SignalClass             `json:"second_best,omitempty"`
+	Scores       map[SignalClass]float64 `json:"scores,omitempty"`
 }
 
 // SignalInput is the minimal input needed for classification.

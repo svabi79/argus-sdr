@@ -30,6 +30,7 @@ const gainRange = qs('gainRange');
 const gainInput = qs('gainInput');
 const thresholdRange = qs('thresholdRange');
 const thresholdInput = qs('thresholdInput');
+const classifierModeSelect = qs('classifierModeSelect');
 const cfarModeSelect = qs('cfarModeSelect');
 const cfarWrapToggle = qs('cfarWrapToggle');
 const cfarGuardHzInput = qs('cfarGuardHzInput');
@@ -408,6 +409,7 @@ function applyConfigToUI(cfg) {
   gainInput.value = uiGain;
   thresholdRange.value = cfg.detector.threshold_db;
   thresholdInput.value = cfg.detector.threshold_db;
+  if (classifierModeSelect) classifierModeSelect.value = cfg.classifier_mode || 'combined';
   if (cfarModeSelect) cfarModeSelect.value = cfg.detector.cfar_mode || 'OFF';
   if (cfarWrapToggle) cfarWrapToggle.checked = cfg.detector.cfar_wrap_around !== false;
   if (cfarGuardHzInput) cfarGuardHzInput.value = cfg.detector.cfar_guard_hz ?? 500;
@@ -1375,6 +1377,10 @@ thresholdInput.addEventListener('change', () => {
     thresholdRange.value = v;
     queueConfigUpdate({ detector: { threshold_db: v } });
   }
+});
+
+if (classifierModeSelect) classifierModeSelect.addEventListener('change', () => {
+  queueConfigUpdate({ classifier_mode: classifierModeSelect.value });
 });
 
 if (cfarModeSelect) cfarModeSelect.addEventListener('change', () => {
