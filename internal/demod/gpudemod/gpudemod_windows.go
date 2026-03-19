@@ -448,7 +448,12 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 		return nil, 0, errors.New("cudaMemcpy H2D failed")
 	}
 	phaseInc := -2.0 * math.Pi * offsetHz / float64(e.sampleRate)
-	if bridgeLaunchFreqShift(e.dIQIn, e.dShifted, n, phaseInc, e.phase) != 0 {
+	phaseStart := e.phase
+	phaseEnd := phaseStart + phaseInc*float64(n)
+	defer func() {
+		e.phase = phaseEnd
+	}()
+	if bridgeLaunchFreqShift(e.dIQIn, e.dShifted, n, phaseInc, phaseStart) != 0 {
 		return nil, 0, errors.New("gpu freq shift failed")
 	}
 	if bridgeLaunchFIR(e.dShifted, e.dFiltered, n, len(taps)) != 0 {
@@ -474,7 +479,6 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 		if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != 0 {
 			return nil, 0, errors.New("cudaMemcpy D2H failed")
 		}
-		e.phase += phaseInc * float64(n)
 		e.lastDemodUsedGPU = true
 		return out, e.sampleRate / decim, nil
 	case DemodAM:
@@ -489,7 +493,6 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 		if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != 0 {
 			return nil, 0, errors.New("cudaMemcpy D2H failed")
 		}
-		e.phase += phaseInc * float64(n)
 		e.lastDemodUsedGPU = true
 		return out, e.sampleRate / decim, nil
 	case DemodUSB, DemodLSB, DemodCW:
@@ -509,7 +512,6 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 		if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != 0 {
 			return nil, 0, errors.New("cudaMemcpy D2H failed")
 		}
-		e.phase += phaseInc * float64(n)
 		e.bfoPhase += phaseBFO * float64(nOut)
 		e.lastDemodUsedGPU = true
 		return out, e.sampleRate / decim, nil
@@ -532,9 +534,18 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 		return nil, 0, errors.New("sample count exceeds engine capacity")
 	}
 	shifted, ok := e.tryCUDAFreqShift(iq, offsetHz)
-	e.lastShiftUsedGPU = ok && ValidateFreqShift(iq, e.sampleRate, offsetHz, shifted, 1e-3)
-	if !e.lastShiftUsedGPU {
+	if ok {
+		if validationEnabled() {
+			e.lastShiftUsedGPU = ValidateFreqShift(iq, e.sampleRate, offsetHz, shifted, 1e-3)
+			if !e.lastShiftUsedGPU {
+				shifted = dsp.FreqShift(iq, e.sampleRate, offsetHz)
+			}
+		} else {
+			e.lastShiftUsedGPU = true
+		}
+	} else {
 		shifted = dsp.FreqShift(iq, e.sampleRate, offsetHz)
+		e.lastShiftUsedGPU = false
 	}
 	var outRate int
 	switch mode {
