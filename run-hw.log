@@ -1,0 +1,100 @@
+gpudemod: loaded DLL C:\Users\jan\Downloads\sdr-visual-suite\gpudemod_kernels.dll
+2026/03/19 11:19:40 web listening on :8080
+2026/03/19 11:19:40 received IQ samples
+2026/03/19 11:19:40 ws connected (1 clients)
+2026/03/19 11:19:42 broadcast frames=29 clients=1
+2026/03/19 11:19:44 broadcast frames=59 clients=1
+2026/03/19 11:19:45 stats: buf=4079616 drop=15303168 reset=1 last=22ms
+2026/03/19 11:19:46 broadcast frames=90 clients=1
+2026/03/19 11:19:48 broadcast frames=121 clients=1
+2026/03/19 11:19:50 stats: buf=4079616 drop=34492416 reset=1 last=34ms
+2026/03/19 11:19:50 broadcast frames=151 clients=1
+2026/03/19 11:19:52 broadcast frames=181 clients=1
+2026/03/19 11:19:54 broadcast frames=212 clients=1
+2026/03/19 11:19:55 stats: buf=4079616 drop=53875200 reset=1 last=6ms
+2026/03/19 11:19:56 broadcast frames=243 clients=1
+2026/03/19 11:19:58 broadcast frames=274 clients=1
+2026/03/19 11:20:00 stats: buf=4096000 drop=73065200 reset=1 last=0ms
+2026/03/19 11:20:00 broadcast frames=304 clients=1
+2026/03/19 11:20:02 broadcast frames=334 clients=1
+2026/03/19 11:20:04 broadcast frames=365 clients=1
+2026/03/19 11:20:05 stats: buf=4079616 drop=92350464 reset=1 last=14ms
+2026/03/19 11:20:06 broadcast frames=395 clients=1
+2026/03/19 11:20:08 broadcast frames=426 clients=1
+2026/03/19 11:20:10 stats: buf=4079616 drop=111539712 reset=1 last=19ms
+2026/03/19 11:20:10 broadcast frames=457 clients=1
+2026/03/19 11:20:12 broadcast frames=488 clients=1
+2026/03/19 11:20:14 broadcast frames=519 clients=1
+2026/03/19 11:20:15 stats: buf=4079616 drop=130825728 reset=1 last=13ms
+2026/03/19 11:20:16 broadcast frames=550 clients=1
+2026/03/19 11:20:18 broadcast frames=581 clients=1
+2026/03/19 11:20:20 stats: buf=4079616 drop=150111744 reset=1 last=5ms
+2026/03/19 11:20:20 broadcast frames=612 clients=1
+2026/03/19 11:20:23 broadcast frames=643 clients=1
+2026/03/19 11:20:25 broadcast frames=673 clients=1
+2026/03/19 11:20:25 stats: buf=4079616 drop=169300992 reset=1 last=22ms
+2026/03/19 11:20:27 broadcast frames=704 clients=1
+2026/03/19 11:20:29 broadcast frames=735 clients=1
+2026/03/19 11:20:30 stats: buf=4079616 drop=188587008 reset=1 last=13ms
+2026/03/19 11:20:31 broadcast frames=765 clients=1
+2026/03/19 11:20:33 broadcast frames=796 clients=1
+2026/03/19 11:20:35 stats: buf=4079616 drop=207873024 reset=1 last=7ms
+2026/03/19 11:20:35 broadcast frames=827 clients=1
+2026/03/19 11:20:37 broadcast frames=858 clients=1
+2026/03/19 11:20:39 broadcast frames=888 clients=1
+2026/03/19 11:20:40 stats: buf=4079616 drop=227062272 reset=1 last=21ms
+2026/03/19 11:20:41 broadcast frames=919 clients=1
+2026/03/19 11:20:43 broadcast frames=949 clients=1
+2026/03/19 11:20:45 stats: buf=4079616 drop=246348288 reset=1 last=14ms
+2026/03/19 11:20:45 broadcast frames=979 clients=1
+2026/03/19 11:20:47 broadcast frames=1010 clients=1
+2026/03/19 11:20:48 ws connected (2 clients)
+2026/03/19 11:20:49 broadcast frames=1041 clients=2
+2026/03/19 11:20:50 stats: buf=4096000 drop=265617920 reset=1 last=4ms
+2026/03/19 11:20:51 broadcast frames=1071 clients=2
+2026/03/19 11:20:53 broadcast frames=1102 clients=2
+2026/03/19 11:20:55 stats: buf=4079616 drop=284823552 reset=1 last=22ms
+2026/03/19 11:20:55 broadcast frames=1132 clients=2
+2026/03/19 11:20:57 broadcast frames=1163 clients=2
+2026/03/19 11:20:59 broadcast frames=1194 clients=2
+2026/03/19 11:21:00 stats: buf=4079616 drop=304109568 reset=1 last=19ms
+2026/03/19 11:21:01 broadcast frames=1225 clients=2
+2026/03/19 11:21:03 broadcast frames=1256 clients=2
+2026/03/19 11:21:05 stats: buf=4079616 drop=323395584 reset=1 last=5ms
+2026/03/19 11:21:05 broadcast frames=1286 clients=2
+2026/03/19 11:21:07 broadcast frames=1317 clients=2
+2026/03/19 11:21:10 broadcast frames=1348 clients=2
+2026/03/19 11:21:10 stats: buf=4079616 drop=342584832 reset=1 last=23ms
+2026/03/19 11:21:12 broadcast frames=1378 clients=2
+2026/03/19 11:21:14 broadcast frames=1408 clients=2
+2026/03/19 11:21:15 stats: buf=4079616 drop=361870848 reset=1 last=11ms
+2026/03/19 11:21:16 broadcast frames=1438 clients=2
+2026/03/19 11:21:18 broadcast frames=1469 clients=2
+2026/03/19 11:21:20 broadcast frames=1499 clients=2
+2026/03/19 11:21:20 stats: buf=4079616 drop=381156864 reset=1 last=7ms
+2026/03/19 11:21:22 broadcast frames=1529 clients=2
+2026/03/19 11:21:24 broadcast frames=1559 clients=2
+2026/03/19 11:21:25 stats: buf=4079616 drop=400346112 reset=1 last=14ms
+2026/03/19 11:21:26 broadcast frames=1589 clients=2
+2026/03/19 11:21:28 broadcast frames=1620 clients=2
+2026/03/19 11:21:30 broadcast frames=1650 clients=2
+2026/03/19 11:21:30 stats: buf=4079616 drop=419632128 reset=1 last=6ms
+2026/03/19 11:21:32 broadcast frames=1681 clients=2
+2026/03/19 11:21:34 broadcast frames=1711 clients=2
+2026/03/19 11:21:35 stats: buf=4079616 drop=438821376 reset=1 last=22ms
+2026/03/19 11:21:36 broadcast frames=1742 clients=2
+2026/03/19 11:21:38 broadcast frames=1773 clients=2
+2026/03/19 11:21:40 stats: buf=4079616 drop=458107392 reset=1 last=13ms
+2026/03/19 11:21:40 broadcast frames=1803 clients=2
+2026/03/19 11:21:42 broadcast frames=1833 clients=2
+2026/03/19 11:21:44 broadcast frames=1864 clients=2
+2026/03/19 11:21:45 stats: buf=4096000 drop=477377024 reset=1 last=5ms
+2026/03/19 11:21:46 broadcast frames=1894 clients=2
+2026/03/19 11:21:48 broadcast frames=1924 clients=2
+2026/03/19 11:21:50 stats: buf=4079616 drop=496582656 reset=1 last=21ms
+2026/03/19 11:21:50 broadcast frames=1955 clients=2
+2026/03/19 11:21:52 broadcast frames=1985 clients=2
+2026/03/19 11:21:54 broadcast frames=2015 clients=2
+2026/03/19 11:21:55 stats: buf=4079616 drop=515868672 reset=1 last=15ms
+2026/03/19 11:21:56 broadcast frames=2046 clients=2
+2026/03/19 11:21:58 broadcast frames=2076 clients=2
