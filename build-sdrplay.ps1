@@ -32,21 +32,27 @@ Write-Host 'Building SDRplay + cuFFT app (Windows DLL path)...' -ForegroundColor
 go build -tags "sdrplay,cufft" ./cmd/sdrd
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 
+$exePath = Join-Path $PSScriptRoot 'sdrd.exe'
+$exeDir = Split-Path $exePath -Parent
 $dllCandidates = @(
   (Join-Path $PSScriptRoot 'internal\demod\gpudemod\build\gpudemod_kernels.dll'),
   (Join-Path $PSScriptRoot 'gpudemod_kernels.dll')
 )
-$dllDst = Join-Path $PSScriptRoot 'gpudemod_kernels.dll'
+$dllDst = Join-Path $exeDir 'gpudemod_kernels.dll'
 $dllSrc = $dllCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($dllSrc) {
-  if ((Resolve-Path $dllSrc).Path -ne (Resolve-Path (Split-Path $dllDst -Parent)).Path + '\gpudemod_kernels.dll') {
-    try {
+  $resolvedSrc = (Resolve-Path $dllSrc).Path
+  $resolvedDst = $dllDst
+  try {
+    if ((Test-Path $dllDst) -and ((Resolve-Path $dllDst).Path -eq $resolvedSrc)) {
+      Write-Host "CUDA DLL already current at $dllDst" -ForegroundColor Green
+    } else {
       Copy-Item $dllSrc $dllDst -Force
-    } catch {
-      Write-Host "WARNING: could not refresh runtime DLL at $dllDst ($($_.Exception.Message))" -ForegroundColor Yellow
+      Write-Host "CUDA DLL copied to $dllDst" -ForegroundColor Green
     }
+  } catch {
+    Write-Host "WARNING: could not refresh runtime DLL at $dllDst ($($_.Exception.Message))" -ForegroundColor Yellow
   }
-  Write-Host "CUDA DLL ready at $dllDst" -ForegroundColor Green
 } else {
   Write-Host 'WARNING: gpudemod_kernels.dll not found; build succeeded but runtime GPU demod will not load.' -ForegroundColor Yellow
 }
