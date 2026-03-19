@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"sdr-visual-suite/internal/demod"
+	"sdr-visual-suite/internal/demod/gpudemod"
 	"sdr-visual-suite/internal/dsp"
 )
 
@@ -38,23 +39,55 @@ func (m *Manager) DemodLive(centerHz float64, bw float64, mode string, seconds i
 		return nil, 0, errors.New("demodulator not found")
 	}
 	offset := centerHz - m.centerHz
-	shifted := dsp.FreqShift(segment, m.sampleRate, offset)
 	if bw <= 0 {
 		bw = 12000
 	}
-	cutoff := bw / 2
-	if cutoff < 200 {
-		cutoff = 200
+
+	var audio []float32
+	var inputRate int
+	if m.gpuDemod != nil {
+		var gpuMode gpudemod.DemodType
+		var useGPU bool
+		switch name {
+		case "NFM":
+			gpuMode, useGPU = gpudemod.DemodNFM, true
+		case "WFM":
+			gpuMode, useGPU = gpudemod.DemodWFM, true
+		case "AM":
+			gpuMode, useGPU = gpudemod.DemodAM, true
+		case "USB":
+			gpuMode, useGPU = gpudemod.DemodUSB, true
+		case "LSB":
+			gpuMode, useGPU = gpudemod.DemodLSB, true
+		case "CW":
+			gpuMode, useGPU = gpudemod.DemodCW, true
+		}
+		if useGPU {
+			if gpuAudio, gpuRate, err := m.gpuDemod.DemodFused(segment, offset, bw, gpuMode); err == nil {
+				audio = gpuAudio
+				inputRate = gpuRate
+			} else if gpuAudio, gpuRate, err := m.gpuDemod.Demod(segment, offset, bw, gpuMode); err == nil {
+				audio = gpuAudio
+				inputRate = gpuRate
+			}
+		}
 	}
-	taps := dsp.LowpassFIR(cutoff, m.sampleRate, 101)
-	filtered := dsp.ApplyFIR(shifted, taps)
-	decim := int(math.Round(float64(m.sampleRate) / float64(d.OutputSampleRate())))
-	if decim < 1 {
-		decim = 1
+	if audio == nil {
+		shifted := dsp.FreqShift(segment, m.sampleRate, offset)
+		cutoff := bw / 2
+		if cutoff < 200 {
+			cutoff = 200
+		}
+		taps := dsp.LowpassFIR(cutoff, m.sampleRate, 101)
+		filtered := dsp.ApplyFIR(shifted, taps)
+		decim := int(math.Round(float64(m.sampleRate) / float64(d.OutputSampleRate())))
+		if decim < 1 {
+			decim = 1
+		}
+		dec := dsp.Decimate(filtered, decim)
+		inputRate = m.sampleRate / decim
+		audio = d.Demod(dec, inputRate)
 	}
-	dec := dsp.Decimate(filtered, decim)
-	inputRate := m.sampleRate / decim
-	audio := d.Demod(dec, inputRate)
 	buf := &bytes.Buffer{}
 	if err := writeWAVTo(buf, audio, inputRate, d.Channels()); err != nil {
 		return nil, 0, err
