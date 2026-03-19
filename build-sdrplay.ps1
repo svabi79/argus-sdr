@@ -3,7 +3,11 @@ $gcc = 'C:\msys64\mingw64\bin'
 if (-not (Test-Path (Join-Path $gcc 'gcc.exe'))) {
   throw "gcc not found at $gcc"
 }
-$env:PATH = "$gcc;" + $env:PATH
+$msvcCl = 'C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\bin\Hostx64\x64'
+if (-not (Test-Path (Join-Path $msvcCl 'cl.exe'))) {
+  throw "cl.exe not found at $msvcCl"
+}
+$env:PATH = "$gcc;$msvcCl;" + $env:PATH
 $env:CGO_ENABLED = '1'
 
 # SDRplay
@@ -38,13 +42,16 @@ if (Test-Path $cudaMingw) {
 }
 
 Write-Host "Building with SDRplay + cuFFT support..." -ForegroundColor Cyan
+Write-Host "WARNING: this path still performs final Go linking through MinGW GCC." -ForegroundColor Yellow
+Write-Host "If CUDA kernel artifacts are MSVC-built, final link may fail due to mixed toolchains." -ForegroundColor Yellow
 
 $gccHost = Join-Path $gcc 'g++.exe'
 if (!(Test-Path $gccHost)) {
   throw "g++.exe not found at $gccHost"
 }
 
-powershell -ExecutionPolicy Bypass -File tools\build-gpudemod-kernel.ps1 -HostCompiler $gccHost
+# Kernel build currently relies on nvcc + MSVC host compiler availability.
+powershell -ExecutionPolicy Bypass -File tools\build-gpudemod-kernel.ps1
 if ($LASTEXITCODE -ne 0) { throw "kernel build failed" }
 
 go build -tags "sdrplay,cufft" ./cmd/sdrd

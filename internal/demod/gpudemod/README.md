@@ -8,6 +8,7 @@ Phase 1 CUDA demod scaffolding.
 - `cufft` builds allocate GPU buffers and cross the CGO/CUDA launch boundary.
 - If CUDA launch wrappers are not backed by compiled kernels yet, the code falls back to CPU DSP.
 - The shifted IQ path is already wired so a successful GPU freq-shift result can be copied back and reused immediately.
+- Build orchestration should now be considered OS-specific; see `docs/build-cuda.md`.
 
 ## First real kernel
 
@@ -22,7 +23,7 @@ On a CUDA-capable dev machine with toolchain installed:
 
 1. Compile `kernels.cu` into an object file and archive it into a linkable library
    - helper script: `tools/build-gpudemod-kernel.ps1`
-2. For MinGW/CGO builds, prefer building the archive with MinGW host compiler + `ar.exe`
+2. On Jan's Windows machine, the working kernel-build path currently relies on `nvcc` + MSVC `cl.exe` in PATH
 3. Link `gpudemod_kernels.lib` into the `cufft` build
 3. Replace `gpud_launch_freq_shift(...)` stub body with the real kernel launch
 4. Validate copied-back shifted IQ against `dsp.FreqShift`
