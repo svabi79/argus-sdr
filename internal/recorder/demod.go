@@ -8,7 +8,6 @@ import (
 
 	"sdr-visual-suite/internal/classifier"
 	"sdr-visual-suite/internal/demod"
-	"sdr-visual-suite/internal/demod/gpudemod"
 	"sdr-visual-suite/internal/detector"
 	"sdr-visual-suite/internal/dsp"
 )
@@ -31,40 +30,11 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	var inputRate int
 	gpu := m.gpuEngine()
 	if gpu != nil {
-		var gpuMode gpudemod.DemodType
-		var useGPU bool
-		switch name {
-		case "NFM":
-			gpuMode, useGPU = gpudemod.DemodNFM, true
-		case "WFM":
-			gpuMode, useGPU = gpudemod.DemodWFM, true
-		case "AM":
-			gpuMode, useGPU = gpudemod.DemodAM, true
-		case "USB":
-			gpuMode, useGPU = gpudemod.DemodUSB, true
-		case "LSB":
-			gpuMode, useGPU = gpudemod.DemodLSB, true
-		case "CW":
-			gpuMode, useGPU = gpudemod.DemodCW, true
-		}
+		gpuMode, useGPU := gpuModeFor(name)
 		if useGPU {
-			if gpuAudio, gpuRate, err := gpu.DemodFused(iq, offset, bw, gpuMode); err == nil {
+			if gpuAudio, gpuRate, ok := tryGPUAudio(gpu, name, iq, offset, bw, gpuMode); ok {
 				audio = gpuAudio
 				inputRate = gpuRate
-				if gpu.LastDemodUsedGPU() {
-					log.Printf("gpudemod: fused GPU demod used for event %d (%s)", ev.ID, name)
-				}
-			} else {
-				log.Printf("gpudemod: fused GPU demod failed for event %d (%s): %v", ev.ID, name, err)
-				if gpuAudio, gpuRate, err := gpu.Demod(iq, offset, bw, gpuMode); err == nil {
-					audio = gpuAudio
-					inputRate = gpuRate
-					if gpu.LastDemodUsedGPU() {
-						log.Printf("gpudemod: legacy GPU demod used for event %d (%s)", ev.ID, name)
-					}
-				} else {
-					log.Printf("gpudemod: legacy GPU demod failed for event %d (%s): %v", ev.ID, name, err)
-				}
 			}
 		}
 	}

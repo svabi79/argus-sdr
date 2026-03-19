@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"sdr-visual-suite/internal/demod"
-	"sdr-visual-suite/internal/demod/gpudemod"
 	"sdr-visual-suite/internal/dsp"
 )
 
@@ -48,36 +47,11 @@ func (m *Manager) DemodLive(centerHz float64, bw float64, mode string, seconds i
 	var inputRate int
 	gpu := m.gpuEngine()
 	if gpu != nil {
-		var gpuMode gpudemod.DemodType
-		var useGPU bool
-		switch name {
-		case "NFM":
-			gpuMode, useGPU = gpudemod.DemodNFM, true
-		case "WFM":
-			gpuMode, useGPU = gpudemod.DemodWFM, true
-		case "AM":
-			gpuMode, useGPU = gpudemod.DemodAM, true
-		case "USB":
-			gpuMode, useGPU = gpudemod.DemodUSB, true
-		case "LSB":
-			gpuMode, useGPU = gpudemod.DemodLSB, true
-		case "CW":
-			gpuMode, useGPU = gpudemod.DemodCW, true
-		}
+		gpuMode, useGPU := gpuModeFor(name)
 		if useGPU {
-			if gpuAudio, gpuRate, err := gpu.DemodFused(segment, offset, bw, gpuMode); err == nil {
+			if gpuAudio, gpuRate, ok := tryGPUAudio(gpu, name, segment, offset, bw, gpuMode); ok {
 				audio = gpuAudio
 				inputRate = gpuRate
-				log.Printf("gpudemod: fused GPU live demod used (%s)", name)
-			} else {
-				log.Printf("gpudemod: fused GPU live demod failed (%s): %v", name, err)
-				if gpuAudio, gpuRate, err := gpu.Demod(segment, offset, bw, gpuMode); err == nil {
-					audio = gpuAudio
-					inputRate = gpuRate
-					log.Printf("gpudemod: legacy GPU live demod used (%s)", name)
-				} else {
-					log.Printf("gpudemod: legacy GPU live demod failed (%s): %v", name, err)
-				}
 			}
 		}
 	}
