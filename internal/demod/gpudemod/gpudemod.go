@@ -4,6 +4,7 @@ package gpudemod
 
 /*
 #cgo windows LDFLAGS: -lcufft64_12 -lcudart64_13
+#cgo windows CFLAGS: -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/include"
 #include <cuda_runtime.h>
 #include <cufft.h>
 

@@ -21,6 +21,7 @@ This is **not compiled automatically yet** in the current environment because th
 On a CUDA-capable dev machine with toolchain installed:
 
 1. Compile `kernels.cu` into an object file
+   - helper script: `tools/build-gpudemod-kernel.ps1`
 2. Link it into the `cufft` build
 3. Replace `gpud_launch_freq_shift(...)` stub body with the real kernel launch
 4. Validate copied-back shifted IQ against `dsp.FreqShift`
