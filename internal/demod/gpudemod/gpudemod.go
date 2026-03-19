@@ -30,11 +30,10 @@ static int gpud_device_sync() {
 	return (int)cudaDeviceSynchronize();
 }
 
+extern int gpud_launch_freq_shift_cuda(const gpud_float2* in, gpud_float2* out, int n, double phase_inc, double phase_start);
+
 static int gpud_launch_freq_shift(gpud_float2 *in, gpud_float2 *out, int n, double phase_inc, double phase_start) {
-	// TODO(phase2): replace with real CUDA kernel launch.
-	// Phase 1b keeps the launch boundary in place without pretending acceleration.
-	(void)in; (void)out; (void)n; (void)phase_inc; (void)phase_start;
-	return -1;
+	return gpud_launch_freq_shift_cuda(in, out, n, phase_inc, phase_start);
 }
 
 static int gpud_launch_fm_discrim(gpud_float2 *in, float *out, int n) {
@@ -138,22 +137,27 @@ func phaseStatus() string {
 	return "phase1b-launch-boundary"
 }
 
-func (e *Engine) tryCUDAFreqShift(iq []complex64, offsetHz float64) bool {
+func (e *Engine) tryCUDAFreqShift(iq []complex64, offsetHz float64) ([]complex64, bool) {
 	if e == nil || !e.cudaReady || len(iq) == 0 || e.dIQIn == nil || e.dShifted == nil {
-		return false
+		return nil, false
 	}
-	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dIQIn), unsafe.Pointer(&iq[0]), C.size_t(len(iq))*C.size_t(unsafe.Sizeof(complex64(0)))) != C.cudaSuccess {
-		return false
+	bytes := C.size_t(len(iq)) * C.size_t(unsafe.Sizeof(complex64(0)))
+	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dIQIn), unsafe.Pointer(&iq[0]), bytes) != C.cudaSuccess {
+		return nil, false
 	}
 	phaseInc := -2.0 * math.Pi * offsetHz / float64(e.sampleRate)
 	if C.gpud_launch_freq_shift(e.dIQIn, e.dShifted, C.int(len(iq)), C.double(phaseInc), C.double(e.phase)) != 0 {
-		return false
+		return nil, false
 	}
 	if C.gpud_device_sync() != C.cudaSuccess {
-		return false
+		return nil, false
+	}
+	out := make([]complex64, len(iq))
+	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dShifted), bytes) != C.cudaSuccess {
+		return nil, false
 	}
 	e.phase += phaseInc * float64(len(iq))
-	return true
+	return out, true
 }
 
 func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodType) ([]float32, int, error) {

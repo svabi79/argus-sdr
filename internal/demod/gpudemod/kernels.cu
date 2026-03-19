@@ -19,3 +19,17 @@ extern "C" __global__ void gpud_freq_shift_kernel(
     out[idx].x = v.x * co - v.y * si;
     out[idx].y = v.x * si + v.y * co;
 }
+
+extern "C" int gpud_launch_freq_shift_cuda(
+    const float2* in,
+    float2* out,
+    int n,
+    double phase_inc,
+    double phase_start
+) {
+    if (n <= 0) return 0;
+    const int block = 256;
+    const int grid = (n + block - 1) / block;
+    gpud_freq_shift_kernel<<<grid, block>>>(in, out, n, phase_inc, phase_start);
+    return (int)cudaGetLastError();
+}
