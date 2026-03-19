@@ -24,7 +24,7 @@ powershell -ExecutionPolicy Bypass -File tools\build-gpudemod-kernel.ps1
 if ($LASTEXITCODE -ne 0) { throw "kernel build failed" }
 
 Write-Host "Building Windows CUDA app with MSVC-oriented CGO path..." -ForegroundColor Cyan
-Write-Host "NOTE: This path is experimental. Go's CGO runtime still emits GCC-style warning flags that MSVC rejects in this environment." -ForegroundColor Yellow
+Write-Host "NOTE: This path is experimental. In this environment even 'go build runtime/cgo' emits GCC-style flags that MSVC rejects." -ForegroundColor Yellow
 & cmd.exe /c "call `"$vcvars`" && go build -x -tags `"sdrplay,cufft`" ./cmd/sdrd"
 if ($LASTEXITCODE -ne 0) {
   throw "windows cuda app build failed (current blocker: Go CGO emits GCC-style flags that cl.exe rejects, e.g. -Werror / -Wall / -fno-stack-protector)"
