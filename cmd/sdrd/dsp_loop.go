@@ -177,8 +177,12 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			thresholds := det.LastThresholds()
 			noiseFloor := det.LastNoiseFloor()
 			if len(iq) > 0 {
+				snips := extractSignalIQBatch(iq, cfg.SampleRate, cfg.CenterHz, signals)
 				for i := range signals {
-					snip := extractSignalIQ(iq, cfg.SampleRate, cfg.CenterHz, signals[i].CenterHz, signals[i].BWHz)
+					var snip []complex64
+					if i < len(snips) {
+						snip = snips[i]
+					}
 					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb}, spectrum, cfg.SampleRate, cfg.FFTSize, snip)
 					signals[i].Class = cls
 				}

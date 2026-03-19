@@ -7,6 +7,7 @@ import (
 
 	"sdr-visual-suite/internal/config"
 	"sdr-visual-suite/internal/demod/gpudemod"
+	"sdr-visual-suite/internal/detector"
 	"sdr-visual-suite/internal/dsp"
 )
 
@@ -57,34 +58,56 @@ func extractSignalIQ(iq []complex64, sampleRate int, centerHz float64, sigHz flo
 	if len(iq) == 0 || sampleRate <= 0 {
 		return nil
 	}
-	offset := sigHz - centerHz
+	results := extractSignalIQBatch(iq, sampleRate, centerHz, []detector.Signal{{CenterHz: sigHz, BWHz: bwHz}})
+	if len(results) == 0 {
+		return nil
+	}
+	return results[0]
+}
+
+func extractSignalIQBatch(iq []complex64, sampleRate int, centerHz float64, signals []detector.Signal) [][]complex64 {
+	out := make([][]complex64, len(signals))
+	if len(iq) == 0 || sampleRate <= 0 || len(signals) == 0 {
+		return out
+	}
 	decimTarget := 200000
 	if decimTarget <= 0 {
 		decimTarget = sampleRate
 	}
+
+	var eng *gpudemod.Engine
 	if gpudemod.Available() {
-		if eng, err := gpudemod.New(len(iq), sampleRate); err == nil {
+		if gpuEng, err := gpudemod.New(len(iq), sampleRate); err == nil {
+			eng = gpuEng
 			defer eng.Close()
-			if out, _, err := eng.ShiftFilterDecimate(iq, offset, bwHz, decimTarget); err == nil && len(out) > 0 {
-				return out
-			}
 		}
 	}
-	shifted := dsp.FreqShift(iq, sampleRate, offset)
-	cutoff := bwHz / 2
-	if cutoff < 200 {
-		cutoff = 200
+
+	for i, sig := range signals {
+		offset := sig.CenterHz - centerHz
+		if eng != nil {
+			if gpuOut, _, err := eng.ShiftFilterDecimate(iq, offset, sig.BWHz, decimTarget); err == nil && len(gpuOut) > 0 {
+				out[i] = gpuOut
+				continue
+			}
+		}
+		shifted := dsp.FreqShift(iq, sampleRate, offset)
+		cutoff := sig.BWHz / 2
+		if cutoff < 200 {
+			cutoff = 200
+		}
+		if cutoff > float64(sampleRate)/2-1 {
+			cutoff = float64(sampleRate)/2 - 1
+		}
+		taps := dsp.LowpassFIR(cutoff, sampleRate, 101)
+		filtered := dsp.ApplyFIR(shifted, taps)
+		decim := sampleRate / decimTarget
+		if decim < 1 {
+			decim = 1
+		}
+		out[i] = dsp.Decimate(filtered, decim)
 	}
-	if cutoff > float64(sampleRate)/2-1 {
-		cutoff = float64(sampleRate)/2 - 1
-	}
-	taps := dsp.LowpassFIR(cutoff, sampleRate, 101)
-	filtered := dsp.ApplyFIR(shifted, taps)
-	decim := sampleRate / decimTarget
-	if decim < 1 {
-		decim = 1
-	}
-	return dsp.Decimate(filtered, decim)
+	return out
 }
 
 func parseSince(raw string) (time.Time, error) {
