@@ -33,15 +33,19 @@ go build -tags sdrplay ./cmd/sdrd
 .\sdrd.exe -config config.yaml
 ```
 
-#### Windows (GPU FFT / cuFFT)
-Requires the NVIDIA CUDA Toolkit installed (cuFFT + cudart). Ensure CUDA `bin` and `lib/x64` are on PATH/LIB.
-```powershell
-$env:CGO_CFLAGS='-IC:\Program Files\SDRplay\API\inc -IC:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\include'
-$env:CGO_LDFLAGS='-LC:\Program Files\SDRplay\API\x64 -lsdrplay_api -LC:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\lib\x64 -lcufft -lcudart'
+#### Windows (GPU / CUDA status)
+Windows CUDA support in this repository is currently split into separate steps:
 
-go build -tags "sdrplay,cufft" ./cmd/sdrd
-.\sdrd.exe -config config.yaml
-```
+- `build-windows-default.ps1` → reliable default Windows app build
+- `build-cuda-windows.ps1` → builds CUDA kernel artifacts (`kernels.obj`, `gpudemod_kernels.lib`)
+- `build-windows-cuda-app.ps1` → experimental full Windows CUDA app build path
+
+Important:
+- the original invalid `#cgo LDFLAGS` CUDA integration issue has been fixed
+- CUDA kernel artifact preparation works on Jan's machine
+- a full end-to-end Windows CUDA app build is still blocked by Go/CGO + Windows toolchain behavior (see `docs/build-cuda.md` and `docs/windows-cgo-msvc-note.md`)
+
+Use the scripts above instead of the older manual one-liner.
 
 ### Linux
 ```bash
