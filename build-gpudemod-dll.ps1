@@ -17,7 +17,7 @@ if (!(Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Nul
 Remove-Item $dll,$lib,$exp -Force -ErrorAction SilentlyContinue
 
 $cmd = @"
-call "$vcvars" && "$nvcc" -shared "$src" -o "$dll" -cudart=shared -Xcompiler "/MD" -arch=sm_75 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_86,code=sm_86 -gencode arch=compute_89,code=sm_89 -gencode arch=compute_90,code=sm_90
+call "$vcvars" && "$nvcc" -shared "$src" -o "$dll" -cudart=hybrid -Xcompiler "/MD" -arch=sm_75 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_86,code=sm_86 -gencode arch=compute_89,code=sm_89 -gencode arch=compute_90,code=sm_90
 "@
 
 Write-Host 'Building gpudemod CUDA DLL...' -ForegroundColor Cyan
