@@ -13,23 +13,11 @@ import (
 func (r *BatchRunner) shiftFilterDecimateBatchImpl(iq []complex64) ([][]complex64, []int, error) {
 	outs := make([][]complex64, len(r.slots))
 	rates := make([]int, len(r.slots))
-	streams := make([]streamHandle, len(r.slots))
-	for i := range streams {
-		s, _ := bridgeStreamCreate()
-		streams[i] = s
-	}
-	defer func() {
-		for _, s := range streams {
-			if s != nil {
-				_ = bridgeStreamDestroy(s)
-			}
-		}
-	}()
 	for i := range r.slots {
 		if !r.slots[i].active {
 			continue
 		}
-		out, rate, err := r.shiftFilterDecimateSlot(iq, r.slots[i].job, streams[i])
+		out, rate, err := r.shiftFilterDecimateSlot(iq, r.slots[i].job, nil)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -53,14 +41,19 @@ func (r *BatchRunner) shiftFilterDecimateSlot(iq []complex64, job ExtractJob, st
 	if cutoff < 200 {
 		cutoff = 200
 	}
-	taps := e.firTaps
+	base64 := dsp.LowpassFIR(cutoff, e.sampleRate, 101)
+	taps := make([]float32, len(base64))
+	for i, v := range base64 {
+		taps[i] = float32(v)
+	}
 	if len(taps) == 0 {
-		base64 := dsp.LowpassFIR(cutoff, e.sampleRate, 101)
-		taps = make([]float32, len(base64))
-		for i, v := range base64 {
-			taps[i] = float32(v)
+		return nil, 0, errors.New("no FIR taps configured")
+	}
+	e.SetFIR(taps)
+	if stream == nil {
+		if bridgeDeviceSync() != 0 {
+			return nil, 0, errors.New("cudaDeviceSynchronize failed")
 		}
-		e.SetFIR(taps)
 	}
 	decim := int(math.Round(float64(e.sampleRate) / float64(job.OutRate)))
 	if decim < 1 {
@@ -76,7 +69,8 @@ func (r *BatchRunner) shiftFilterDecimateSlot(iq []complex64, job ExtractJob, st
 		return nil, 0, errors.New("cudaMemcpy H2D failed")
 	}
 	phaseInc := -2.0 * math.Pi * job.OffsetHz / float64(e.sampleRate)
-	if bridgeLaunchFreqShiftStream(e.dIQIn, e.dShifted, n, phaseInc, e.phase, stream) != 0 {
+	phaseStart := e.phase
+	if bridgeLaunchFreqShiftStream(e.dIQIn, e.dShifted, n, phaseInc, phaseStart, stream) != 0 {
 		return nil, 0, errors.New("gpu freq shift failed")
 	}
 	if bridgeLaunchFIRStream(e.dShifted, e.dFiltered, n, len(taps), stream) != 0 {
@@ -85,13 +79,20 @@ func (r *BatchRunner) shiftFilterDecimateSlot(iq []complex64, job ExtractJob, st
 	if bridgeLaunchDecimateStream(e.dFiltered, e.dDecimated, nOut, decim, stream) != 0 {
 		return nil, 0, errors.New("gpu decimate failed")
 	}
-	if bridgeStreamSync(stream) != 0 {
-		return nil, 0, errors.New("cuda stream sync failed")
+	if stream != nil {
+		if bridgeStreamSync(stream) != 0 {
+			return nil, 0, errors.New("cuda stream sync failed")
+		}
+	} else {
+		if bridgeDeviceSync() != 0 {
+			return nil, 0, errors.New("cudaDeviceSynchronize failed")
+		}
 	}
 	out := make([]complex64, nOut)
 	outBytes := uintptr(nOut) * unsafe.Sizeof(complex64(0))
 	if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dDecimated), outBytes) != 0 {
 		return nil, 0, errors.New("cudaMemcpy D2H failed")
 	}
+	e.phase = phaseStart + phaseInc*float64(n)
 	return out, e.sampleRate / decim, nil
 }
