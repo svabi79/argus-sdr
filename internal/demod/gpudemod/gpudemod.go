@@ -323,6 +323,10 @@ func (e *Engine) tryCUDASSBProduct(shifted []complex64, bfoHz float64) ([]float3
 	return out, true
 }
 
+func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode DemodType) ([]float32, int, error) {
+	return e.Demod(iq, offsetHz, bw, mode)
+}
+
 func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodType) ([]float32, int, error) {
 	if e == nil {
 		return nil, 0, errors.New("nil CUDA demod engine")

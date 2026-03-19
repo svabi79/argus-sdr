@@ -391,6 +391,135 @@ func (e *Engine) tryCUDASSBProduct(shifted []complex64, bfoHz float64) ([]float3
 	return out, true
 }
 
+func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode DemodType) ([]float32, int, error) {
+	if e == nil {
+		return nil, 0, errors.New("nil CUDA demod engine")
+	}
+	if !e.cudaReady {
+		return nil, 0, errors.New("cuda demod engine is not initialized")
+	}
+	if len(iq) == 0 {
+		return nil, 0, nil
+	}
+	if len(iq) > e.maxSamples {
+		return nil, 0, errors.New("sample count exceeds engine capacity")
+	}
+
+	var outRate int
+	switch mode {
+	case DemodNFM, DemodAM, DemodUSB, DemodLSB, DemodCW:
+		outRate = 48000
+	case DemodWFM:
+		outRate = 192000
+	default:
+		return nil, 0, errors.New("unsupported demod type")
+	}
+
+	cutoff := bw / 2
+	if cutoff < 200 {
+		cutoff = 200
+	}
+	taps := e.firTaps
+	if len(taps) == 0 {
+		base64 := dsp.LowpassFIR(cutoff, e.sampleRate, 101)
+		taps = make([]float32, len(base64))
+		for i, v := range base64 {
+			taps[i] = float32(v)
+		}
+		e.SetFIR(taps)
+	}
+	if len(taps) == 0 {
+		return nil, 0, errors.New("no FIR taps configured")
+	}
+
+	decim := int(math.Round(float64(e.sampleRate) / float64(outRate)))
+	if decim < 1 {
+		decim = 1
+	}
+	n := len(iq)
+	nOut := n / decim
+	if nOut <= 1 {
+		return nil, 0, errors.New("not enough output samples after decimation")
+	}
+
+	bytesIn := C.size_t(n) * C.size_t(unsafe.Sizeof(complex64(0)))
+	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dIQIn), unsafe.Pointer(&iq[0]), bytesIn) != C.cudaSuccess {
+		return nil, 0, errors.New("cudaMemcpy H2D failed")
+	}
+
+	phaseInc := -2.0 * math.Pi * offsetHz / float64(e.sampleRate)
+	if C.gpud_launch_freq_shift(e.dIQIn, e.dShifted, C.int(n), C.double(phaseInc), C.double(e.phase)) != 0 {
+		return nil, 0, errors.New("gpu freq shift failed")
+	}
+	if C.gpud_launch_fir(e.dShifted, e.dFiltered, C.int(n), C.int(len(taps))) != 0 {
+		return nil, 0, errors.New("gpu FIR failed")
+	}
+	if C.gpud_launch_decimate(e.dFiltered, e.dDecimated, C.int(nOut), C.int(decim)) != 0 {
+		return nil, 0, errors.New("gpu decimate failed")
+	}
+
+	e.lastShiftUsedGPU = true
+	e.lastFIRUsedGPU = true
+	e.lastDecimUsedGPU = true
+	e.lastDemodUsedGPU = false
+
+	switch mode {
+	case DemodNFM, DemodWFM:
+		if C.gpud_launch_fm_discrim(e.dDecimated, e.dAudio, C.int(nOut)) != 0 {
+			return nil, 0, errors.New("gpu FM discrim failed")
+		}
+		out := make([]float32, nOut-1)
+		outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
+		if C.gpud_device_sync() != C.cudaSuccess {
+			return nil, 0, errors.New("cudaDeviceSynchronize failed")
+		}
+		if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+			return nil, 0, errors.New("cudaMemcpy D2H failed")
+		}
+		e.phase += phaseInc * float64(n)
+		e.lastDemodUsedGPU = true
+		return out, e.sampleRate / decim, nil
+	case DemodAM:
+		if C.gpud_launch_am_envelope(e.dDecimated, e.dAudio, C.int(nOut)) != 0 {
+			return nil, 0, errors.New("gpu AM envelope failed")
+		}
+		out := make([]float32, nOut)
+		outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
+		if C.gpud_device_sync() != C.cudaSuccess {
+			return nil, 0, errors.New("cudaDeviceSynchronize failed")
+		}
+		if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+			return nil, 0, errors.New("cudaMemcpy D2H failed")
+		}
+		e.phase += phaseInc * float64(n)
+		e.lastDemodUsedGPU = true
+		return out, e.sampleRate / decim, nil
+	case DemodUSB, DemodLSB, DemodCW:
+		bfoHz := 700.0
+		if mode == DemodLSB {
+			bfoHz = -700.0
+		}
+		phaseBFO := 2.0 * math.Pi * bfoHz / float64(e.sampleRate)
+		if C.gpud_launch_ssb_product(e.dDecimated, e.dAudio, C.int(nOut), C.double(phaseBFO), C.double(e.bfoPhase)) != 0 {
+			return nil, 0, errors.New("gpu SSB product failed")
+		}
+		out := make([]float32, nOut)
+		outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
+		if C.gpud_device_sync() != C.cudaSuccess {
+			return nil, 0, errors.New("cudaDeviceSynchronize failed")
+		}
+		if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+			return nil, 0, errors.New("cudaMemcpy D2H failed")
+		}
+		e.phase += phaseInc * float64(n)
+		e.bfoPhase += phaseBFO * float64(nOut)
+		e.lastDemodUsedGPU = true
+		return out, e.sampleRate / decim, nil
+	default:
+		return nil, 0, errors.New("unsupported demod type")
+	}
+}
+
 func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodType) ([]float32, int, error) {
 	if e == nil {
 		return nil, 0, errors.New("nil CUDA demod engine")
@@ -462,8 +591,17 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 		decim = 1
 	}
 	dec, ok := e.tryCUDADecimate(filtered, decim)
-	e.lastDecimUsedGPU = ok && ValidateDecimate(filtered, decim, dec, 1e-3)
-	if !e.lastDecimUsedGPU {
+	if ok {
+		if validationEnabled() {
+			e.lastDecimUsedGPU = ValidateDecimate(filtered, decim, dec, 1e-3)
+			if !e.lastDecimUsedGPU {
+				dec = dsp.Decimate(filtered, decim)
+			}
+		} else {
+			e.lastDecimUsedGPU = true
+		}
+	}
+	if dec == nil {
 		dec = dsp.Decimate(filtered, decim)
 	}
 	inputRate := e.sampleRate / decim

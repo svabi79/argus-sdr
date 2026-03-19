@@ -48,12 +48,15 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 			gpuMode, useGPU = gpudemod.DemodCW, true
 		}
 		if useGPU {
-			if gpuAudio, gpuRate, err := m.gpuDemod.Demod(iq, offset, bw, gpuMode); err == nil {
+			if gpuAudio, gpuRate, err := m.gpuDemod.DemodFused(iq, offset, bw, gpuMode); err == nil {
 				audio = gpuAudio
 				inputRate = gpuRate
-				if m.gpuDemod.LastShiftUsedGPU() {
-					log.Printf("gpudemod: validated GPU freq-shift used for event %d (%s)", ev.ID, name)
+				if m.gpuDemod.LastDemodUsedGPU() {
+					log.Printf("gpudemod: fused GPU demod used for event %d (%s)", ev.ID, name)
 				}
+			} else if gpuAudio, gpuRate, err := m.gpuDemod.Demod(iq, offset, bw, gpuMode); err == nil {
+				audio = gpuAudio
+				inputRate = gpuRate
 				if m.gpuDemod.LastDemodUsedGPU() {
 					log.Printf("gpudemod: GPU demod stage used for event %d (%s)", ev.ID, name)
 				}

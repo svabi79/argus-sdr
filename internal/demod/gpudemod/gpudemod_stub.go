@@ -36,4 +36,8 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	return nil, 0, errors.New("CUDA demod not available: cufft build tag not enabled")
 }
 
+func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode DemodType) ([]float32, int, error) {
+	return e.Demod(iq, offsetHz, bw, mode)
+}
+
 func (e *Engine) Close() {}
