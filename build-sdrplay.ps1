@@ -57,4 +57,22 @@ if ($dllSrc) {
   Write-Host 'WARNING: gpudemod_kernels.dll not found; build succeeded but runtime GPU demod will not load.' -ForegroundColor Yellow
 }
 
+$cudartCandidates = @(
+  (Join-Path $cudaBin 'cudart64_13.dll'),
+  'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin\cudart64_13.dll',
+  'C:\CUDA\bin\cudart64_13.dll'
+)
+$cudartSrc = $cudartCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if ($cudartSrc) {
+  $cudartDst = Join-Path $exeDir 'cudart64_13.dll'
+  try {
+    Copy-Item $cudartSrc $cudartDst -Force
+    Write-Host "CUDA runtime copied to $cudartDst" -ForegroundColor Green
+  } catch {
+    Write-Host "WARNING: could not copy CUDA runtime DLL to $cudartDst ($($_.Exception.Message))" -ForegroundColor Yellow
+  }
+} else {
+  Write-Host 'WARNING: cudart64_13.dll not found; shared CUDA runtime may fail to load at runtime.' -ForegroundColor Yellow
+}
+
 Write-Host 'Done.' -ForegroundColor Green
