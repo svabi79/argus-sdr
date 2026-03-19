@@ -39,7 +39,7 @@ $dllCandidates = @(
   (Join-Path $PSScriptRoot 'gpudemod_kernels.dll')
 )
 $dllDst = Join-Path $exeDir 'gpudemod_kernels.dll'
-$dllSrc = $dllCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+$dllSrc = $dllCandidates | Where-Object { Test-Path $_ } | Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending | Select-Object -First 1
 if ($dllSrc) {
   $resolvedSrc = (Resolve-Path $dllSrc).Path
   $resolvedDst = $dllDst
