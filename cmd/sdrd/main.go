@@ -854,8 +854,10 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				_ = enc.Encode(ev)
 			}
 			eventMu.Unlock()
-			if rec != nil {
-				go rec.OnEvents(finished)
+			if rec != nil && len(finished) > 0 {
+				evCopy := make([]detector.Event, len(finished))
+				copy(evCopy, finished)
+				go rec.OnEvents(evCopy)
 			}
 			h.broadcast(SpectrumFrame{
 				Timestamp: now.UnixMilli(),

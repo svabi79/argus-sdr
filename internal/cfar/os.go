@@ -55,6 +55,15 @@ func (o *orderedStat) Thresholds(spectrum []float64) []float64 {
 	sort.Float64s(win)
 	out[0] = win[o.rank] + o.scaleDb
 
+	rebuildWindow := func(bin int) {
+		win = win[:0]
+		for k := 1; k <= train; k++ {
+			win = append(win, at(bin-guard-k))
+			win = append(win, at(bin+guard+k))
+		}
+		sort.Float64s(win)
+	}
+
 	for i := 1; i < n; i++ {
 		removeFromSorted(&win, at(i-1-guard-train))
 		removeFromSorted(&win, at(i-1+guard+1))
@@ -62,6 +71,9 @@ func (o *orderedStat) Thresholds(spectrum []float64) []float64 {
 		insertSorted(&win, at(i-guard-1))
 		insertSorted(&win, at(i+guard+train))
 
+		if len(win) != 2*train {
+			rebuildWindow(i)
+		}
 		out[i] = win[o.rank] + o.scaleDb
 	}
 	return out

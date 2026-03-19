@@ -1,6 +1,9 @@
 package cfar
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func makeSpectrum(n int, noiseDb float64, signals [][2]int, sigDb float64) []float64 {
 	s := make([]float64, n)
@@ -56,6 +59,37 @@ func TestGOSCAMaskingProtection(t *testing.T) {
 	midBin := 520
 	if thG[midBin] < thC[midBin] {
 		t.Logf("GOSCA=%f CA=%f at bin %d — GOSCA correctly higher", thG[midBin], thC[midBin], midBin)
+	}
+}
+
+func TestCellAveragingUsesLinearPower(t *testing.T) {
+	spec := []float64{-100, -100, -100, -80, -100, -90, -100, -100, -100}
+	cfg := Config{GuardCells: 0, TrainCells: 2, ScaleDb: 0, WrapAround: false}
+
+	ca := New(Config{Mode: ModeCA, GuardCells: cfg.GuardCells, TrainCells: cfg.TrainCells, ScaleDb: cfg.ScaleDb, WrapAround: cfg.WrapAround})
+	gosca := New(Config{Mode: ModeGOSCA, GuardCells: cfg.GuardCells, TrainCells: cfg.TrainCells, ScaleDb: cfg.ScaleDb, WrapAround: cfg.WrapAround})
+	caso := New(Config{Mode: ModeCASO, GuardCells: cfg.GuardCells, TrainCells: cfg.TrainCells, ScaleDb: cfg.ScaleDb, WrapAround: cfg.WrapAround})
+
+	mid := 5
+	caTh := ca.Thresholds(spec)[mid]
+	goscaTh := gosca.Thresholds(spec)[mid]
+	casoTh := caso.Thresholds(spec)[mid]
+
+	dbApproxCA := (-80.0 + -90.0 + -100.0 + -100.0) / 4.0
+	dbApproxGOSCA := -85.0
+	dbApproxCASO := -100.0
+
+	if math.Abs(caTh-dbApproxCA) < 1.0 {
+		t.Fatalf("CA threshold still looks like dB averaging: got %v approx %v", caTh, dbApproxCA)
+	}
+	if math.Abs(goscaTh-dbApproxGOSCA) < 1.0 {
+		t.Fatalf("GOSCA threshold still looks like dB averaging: got %v approx %v", goscaTh, dbApproxGOSCA)
+	}
+	if math.Abs(casoTh-dbApproxCASO) < 1.0 {
+		t.Fatalf("CASO threshold still looks like dB averaging: got %v approx %v", casoTh, dbApproxCASO)
+	}
+	if !(goscaTh > caTh && caTh > casoTh) {
+		t.Fatalf("unexpected ordering: GOSCA=%v CA=%v CASO=%v", goscaTh, caTh, casoTh)
 	}
 }
 

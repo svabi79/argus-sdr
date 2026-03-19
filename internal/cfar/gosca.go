@@ -1,5 +1,7 @@
 package cfar
 
+import "math"
+
 // gosca implements Greatest-Of Selection with Cell Averaging.
 type gosca struct {
 	guard      int
@@ -40,10 +42,14 @@ func (g *gosca) Thresholds(spectrum []float64) []float64 {
 		return spectrum[i]
 	}
 
+	toLinear := func(db float64) float64 {
+		return math.Pow(10, db/10.0)
+	}
+
 	var leftSum, rightSum float64
 	for k := 1; k <= train; k++ {
-		leftSum += at(0 - guard - k)
-		rightSum += at(0 + guard + k)
+		leftSum += toLinear(at(0 - guard - k))
+		rightSum += toLinear(at(0 + guard + k))
 	}
 
 	leftMean := leftSum * inv
@@ -52,13 +58,13 @@ func (g *gosca) Thresholds(spectrum []float64) []float64 {
 	if rightMean > noise {
 		noise = rightMean
 	}
-	out[0] = noise + g.scaleDb
+	out[0] = 10*math.Log10(noise) + g.scaleDb
 
 	for i := 1; i < n; i++ {
-		leftSum -= at(i - 1 - guard - train)
-		leftSum += at(i - guard - 1)
-		rightSum -= at(i - 1 + guard + 1)
-		rightSum += at(i + guard + train)
+		leftSum -= toLinear(at(i - 1 - guard - train))
+		leftSum += toLinear(at(i - guard - 1))
+		rightSum -= toLinear(at(i - 1 + guard + 1))
+		rightSum += toLinear(at(i + guard + train))
 
 		leftMean = leftSum * inv
 		rightMean = rightSum * inv
@@ -66,7 +72,7 @@ func (g *gosca) Thresholds(spectrum []float64) []float64 {
 		if rightMean > noise {
 			noise = rightMean
 		}
-		out[i] = noise + g.scaleDb
+		out[i] = 10*math.Log10(noise) + g.scaleDb
 	}
 	return out
 }
