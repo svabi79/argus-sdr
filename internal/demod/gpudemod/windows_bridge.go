@@ -20,6 +20,7 @@ typedef int (__stdcall *gpud_launch_freq_shift_stream_fn)(const gpud_float2* in,
 typedef int (__stdcall *gpud_launch_freq_shift_fn)(const gpud_float2* in, gpud_float2* out, int n, double phase_inc, double phase_start);
 typedef int (__stdcall *gpud_launch_fm_discrim_fn)(const gpud_float2* in, float* out, int n);
 typedef int (__stdcall *gpud_launch_fir_stream_fn)(const gpud_float2* in, gpud_float2* out, int n, int num_taps, gpud_stream_handle stream);
+typedef int (__stdcall *gpud_launch_fir_v2_stream_fn)(const gpud_float2* in, gpud_float2* out, const float* taps, int n, int num_taps, gpud_stream_handle stream);
 typedef int (__stdcall *gpud_launch_fir_fn)(const gpud_float2* in, gpud_float2* out, int n, int num_taps);
 typedef int (__stdcall *gpud_launch_decimate_stream_fn)(const gpud_float2* in, gpud_float2* out, int n_out, int factor, gpud_stream_handle stream);
 typedef int (__stdcall *gpud_launch_decimate_fn)(const gpud_float2* in, gpud_float2* out, int n_out, int factor);
@@ -35,6 +36,7 @@ static gpud_launch_freq_shift_stream_fn gpud_p_launch_freq_shift_stream = NULL;
 static gpud_launch_freq_shift_fn gpud_p_launch_freq_shift = NULL;
 static gpud_launch_fm_discrim_fn gpud_p_launch_fm_discrim = NULL;
 static gpud_launch_fir_stream_fn gpud_p_launch_fir_stream = NULL;
+static gpud_launch_fir_v2_stream_fn gpud_p_launch_fir_v2_stream = NULL;
 static gpud_launch_fir_fn gpud_p_launch_fir = NULL;
 static gpud_launch_decimate_stream_fn gpud_p_launch_decimate_stream = NULL;
 static gpud_launch_decimate_fn gpud_p_launch_decimate = NULL;
@@ -59,6 +61,7 @@ static int gpud_load_library(const char* path) {
 	gpud_p_launch_freq_shift = (gpud_launch_freq_shift_fn)GetProcAddress(gpud_mod, "gpud_launch_freq_shift_cuda");
 	gpud_p_launch_fm_discrim = (gpud_launch_fm_discrim_fn)GetProcAddress(gpud_mod, "gpud_launch_fm_discrim_cuda");
 	gpud_p_launch_fir_stream = (gpud_launch_fir_stream_fn)GetProcAddress(gpud_mod, "gpud_launch_fir_stream_cuda");
+	gpud_p_launch_fir_v2_stream = (gpud_launch_fir_v2_stream_fn)GetProcAddress(gpud_mod, "gpud_launch_fir_v2_stream_cuda");
 	gpud_p_launch_fir = (gpud_launch_fir_fn)GetProcAddress(gpud_mod, "gpud_launch_fir_cuda");
 	gpud_p_launch_decimate_stream = (gpud_launch_decimate_stream_fn)GetProcAddress(gpud_mod, "gpud_launch_decimate_stream_cuda");
 	gpud_p_launch_decimate = (gpud_launch_decimate_fn)GetProcAddress(gpud_mod, "gpud_launch_decimate_cuda");
@@ -80,6 +83,7 @@ static int gpud_launch_freq_shift_stream(gpud_float2 *in, gpud_float2 *out, int 
 static int gpud_launch_freq_shift(gpud_float2 *in, gpud_float2 *out, int n, double phase_inc, double phase_start) { if (!gpud_p_launch_freq_shift) return -1; return gpud_p_launch_freq_shift(in, out, n, phase_inc, phase_start); }
 static int gpud_launch_fm_discrim(gpud_float2 *in, float *out, int n) { if (!gpud_p_launch_fm_discrim) return -1; return gpud_p_launch_fm_discrim(in, out, n); }
 static int gpud_launch_fir_stream(gpud_float2 *in, gpud_float2 *out, int n, int num_taps, gpud_stream_handle stream) { if (!gpud_p_launch_fir_stream) return -1; return gpud_p_launch_fir_stream(in, out, n, num_taps, stream); }
+static int gpud_launch_fir_v2_stream(gpud_float2 *in, gpud_float2 *out, const float *taps, int n, int num_taps, gpud_stream_handle stream) { if (!gpud_p_launch_fir_v2_stream) return -1; return gpud_p_launch_fir_v2_stream(in, out, taps, n, num_taps, stream); }
 static int gpud_launch_fir(gpud_float2 *in, gpud_float2 *out, int n, int num_taps) { if (!gpud_p_launch_fir) return -1; return gpud_p_launch_fir(in, out, n, num_taps); }
 static int gpud_launch_decimate_stream(gpud_float2 *in, gpud_float2 *out, int n_out, int factor, gpud_stream_handle stream) { if (!gpud_p_launch_decimate_stream) return -1; return gpud_p_launch_decimate_stream(in, out, n_out, factor, stream); }
 static int gpud_launch_decimate(gpud_float2 *in, gpud_float2 *out, int n_out, int factor) { if (!gpud_p_launch_decimate) return -1; return gpud_p_launch_decimate(in, out, n_out, factor); }
@@ -114,6 +118,9 @@ func bridgeLaunchFreqShiftStream(in *C.gpud_float2, out *C.gpud_float2, n int, p
 func bridgeLaunchFIR(in *C.gpud_float2, out *C.gpud_float2, n int, numTaps int) int { return int(C.gpud_launch_fir(in, out, C.int(n), C.int(numTaps))) }
 func bridgeLaunchFIRStream(in *C.gpud_float2, out *C.gpud_float2, n int, numTaps int, stream streamHandle) int {
 	return int(C.gpud_launch_fir_stream(in, out, C.int(n), C.int(numTaps), C.gpud_stream_handle(stream)))
+}
+func bridgeLaunchFIRv2Stream(in *C.gpud_float2, out *C.gpud_float2, taps *C.float, n int, numTaps int, stream streamHandle) int {
+	return int(C.gpud_launch_fir_v2_stream(in, out, taps, C.int(n), C.int(numTaps), C.gpud_stream_handle(stream)))
 }
 func bridgeLaunchDecimate(in *C.gpud_float2, out *C.gpud_float2, nOut int, factor int) int { return int(C.gpud_launch_decimate(in, out, C.int(nOut), C.int(factor))) }
 func bridgeLaunchDecimateStream(in *C.gpud_float2, out *C.gpud_float2, nOut int, factor int, stream streamHandle) int {

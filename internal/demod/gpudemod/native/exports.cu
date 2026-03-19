@@ -170,6 +170,54 @@ GPUD_API int GPUD_CALL gpud_launch_fir_cuda(
     return (int)cudaGetLastError();
 }
 
+__global__ void gpud_fir_kernel_v2(
+    const float2* __restrict__ in,
+    float2* __restrict__ out,
+    const float* __restrict__ taps,
+    int n,
+    int num_taps
+) {
+    extern __shared__ float2 s_data[];
+    int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    int lid = threadIdx.x;
+    int halo = num_taps - 1;
+
+    if (gid < n) s_data[lid + halo] = in[gid];
+    else s_data[lid + halo] = make_float2(0.0f, 0.0f);
+
+    if (lid < halo) {
+        int src = gid - halo;
+        s_data[lid] = (src >= 0) ? in[src] : make_float2(0.0f, 0.0f);
+    }
+    __syncthreads();
+    if (gid >= n) return;
+
+    float acc_r = 0.0f, acc_i = 0.0f;
+    for (int k = 0; k < num_taps; ++k) {
+        float2 v = s_data[lid + halo - k];
+        float t = taps[k];
+        acc_r += v.x * t;
+        acc_i += v.y * t;
+    }
+    out[gid] = make_float2(acc_r, acc_i);
+}
+
+GPUD_API int GPUD_CALL gpud_launch_fir_v2_stream_cuda(
+    const float2* in,
+    float2* out,
+    const float* taps,
+    int n,
+    int num_taps,
+    gpud_stream_handle stream
+) {
+    if (n <= 0 || num_taps <= 0 || num_taps > 256) return 0;
+    const int block = 256;
+    const int grid = (n + block - 1) / block;
+    size_t sharedBytes = (size_t)(block + num_taps - 1) * sizeof(float2);
+    gpud_fir_kernel_v2<<<grid, block, sharedBytes, (cudaStream_t)stream>>>(in, out, taps, n, num_taps);
+    return (int)cudaGetLastError();
+}
+
 GPUD_API int GPUD_CALL gpud_launch_decimate_cuda(
     const float2* in,
     float2* out,
