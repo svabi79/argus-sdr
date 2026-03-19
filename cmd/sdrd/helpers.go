@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"sort"
 	"strconv"
 	"time"
@@ -89,10 +90,13 @@ func extractSignalIQBatch(iq []complex64, sampleRate int, centerHz float64, sign
 			jobs[i] = gpudemod.ExtractJob{OffsetHz: sig.CenterHz - centerHz, BW: sig.BWHz, OutRate: decimTarget}
 		}
 		if gpuOuts, _, err := runner.ShiftFilterDecimateBatch(iq, jobs); err == nil && len(gpuOuts) == len(signals) {
+			log.Printf("gpudemod: batch extraction used for %d signals", len(signals))
 			for i := range gpuOuts {
 				out[i] = gpuOuts[i]
 			}
 			return out
+		} else if err != nil {
+			log.Printf("gpudemod: batch extraction failed for %d signals: %v", len(signals), err)
 		}
 	}
 
