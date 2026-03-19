@@ -127,3 +127,56 @@ extern "C" int gpud_launch_decimate_cuda(
     gpud_decimate_kernel<<<grid, block>>>(in, out, n_out, factor);
     return (int)cudaGetLastError();
 }
+
+extern "C" __global__ void gpud_am_envelope_kernel(
+    const float2* __restrict__ in,
+    float* __restrict__ out,
+    int n
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    float2 v = in[idx];
+    out[idx] = sqrtf(v.x * v.x + v.y * v.y);
+}
+
+extern "C" int gpud_launch_am_envelope_cuda(
+    const float2* in,
+    float* out,
+    int n
+) {
+    if (n <= 0) return 0;
+    const int block = 256;
+    const int grid = (n + block - 1) / block;
+    gpud_am_envelope_kernel<<<grid, block>>>(in, out, n);
+    return (int)cudaGetLastError();
+}
+
+extern "C" __global__ void gpud_ssb_product_kernel(
+    const float2* __restrict__ in,
+    float* __restrict__ out,
+    int n,
+    double phase_inc,
+    double phase_start
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    double phase = phase_start + phase_inc * (double)idx;
+    float si, co;
+    sincosf((float)phase, &si, &co);
+    float2 v = in[idx];
+    out[idx] = v.x * co - v.y * si;
+}
+
+extern "C" int gpud_launch_ssb_product_cuda(
+    const float2* in,
+    float* out,
+    int n,
+    double phase_inc,
+    double phase_start
+) {
+    if (n <= 0) return 0;
+    const int block = 256;
+    const int grid = (n + block - 1) / block;
+    gpud_ssb_product_kernel<<<grid, block>>>(in, out, n, phase_inc, phase_start);
+    return (int)cudaGetLastError();
+}

@@ -190,6 +190,52 @@ func (e *Engine) tryCUDAFMDiscrim(shifted []complex64) ([]float32, bool) {
 	return out, true
 }
 
+func (e *Engine) tryCUDAAMEnvelope(shifted []complex64) ([]float32, bool) {
+	if e == nil || !e.cudaReady || len(shifted) == 0 || e.dShifted == nil || e.dAudio == nil {
+		return nil, false
+	}
+	iqBytes := C.size_t(len(shifted)) * C.size_t(unsafe.Sizeof(complex64(0)))
+	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dShifted), unsafe.Pointer(&shifted[0]), iqBytes) != C.cudaSuccess {
+		return nil, false
+	}
+	if C.gpud_launch_am_envelope(e.dShifted, e.dAudio, C.int(len(shifted))) != 0 {
+		return nil, false
+	}
+	if C.gpud_device_sync() != C.cudaSuccess {
+		return nil, false
+	}
+	out := make([]float32, len(shifted))
+	outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
+	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+		return nil, false
+	}
+	return out, true
+}
+
+func (e *Engine) tryCUDASSBProduct(shifted []complex64, bfoHz float64) ([]float32, bool) {
+	if e == nil || !e.cudaReady || len(shifted) == 0 || e.dShifted == nil || e.dAudio == nil {
+		return nil, false
+	}
+	iqBytes := C.size_t(len(shifted)) * C.size_t(unsafe.Sizeof(complex64(0)))
+	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dShifted), unsafe.Pointer(&shifted[0]), iqBytes) != C.cudaSuccess {
+		return nil, false
+	}
+	phaseInc := 2.0 * math.Pi * bfoHz / float64(e.sampleRate)
+	if C.gpud_launch_ssb_product(e.dShifted, e.dAudio, C.int(len(shifted)), C.double(phaseInc), C.double(e.bfoPhase)) != 0 {
+		return nil, false
+	}
+	if C.gpud_device_sync() != C.cudaSuccess {
+		return nil, false
+	}
+	out := make([]float32, len(shifted))
+	outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
+	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+		return nil, false
+	}
+	e.bfoPhase += phaseInc * float64(len(shifted))
+	return out, true
+}
+
 func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodType) ([]float32, int, error) {
 	if e == nil {
 		return nil, 0, errors.New("nil CUDA demod engine")
@@ -240,6 +286,7 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 		decim = 1
 	}
 	dec := dsp.Decimate(filtered, decim)
+	e.lastDecimUsedGPU = false
 	inputRate := e.sampleRate / decim
 
 	switch mode {

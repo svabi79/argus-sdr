@@ -54,6 +54,9 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 				if m.gpuDemod.LastShiftUsedGPU() {
 					log.Printf("gpudemod: validated GPU freq-shift used for event %d (%s)", ev.ID, name)
 				}
+				if m.gpuDemod.LastDemodUsedGPU() {
+					log.Printf("gpudemod: GPU demod stage used for event %d (%s)", ev.ID, name)
+				}
 			}
 		}
 	}
