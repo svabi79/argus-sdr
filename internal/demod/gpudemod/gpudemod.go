@@ -181,7 +181,7 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	// by actual kernels, we fall back to the existing CPU DSP path below.
 	_ = fmt.Sprintf("%s:%0.3f", phaseStatus(), offsetHz)
 	shifted, ok := e.tryCUDAFreqShift(iq, offsetHz)
-	if !ok {
+	if !ok || !ValidateFreqShift(iq, e.sampleRate, offsetHz, shifted, 1e-3) {
 		shifted = dsp.FreqShift(iq, e.sampleRate, offsetHz)
 	}
 	cutoff := bw / 2
