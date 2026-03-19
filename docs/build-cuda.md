@@ -43,4 +43,5 @@ Prefer a GCC/NVCC-oriented build path:
 - `go test ./...` passes
 - `go test -tags cufft ./internal/demod/gpudemod` passes with NVCC/MSVC setup
 - `build-sdrplay.ps1` has progressed past the original invalid `#cgo LDFLAGS` issue
-- Remaining Windows blocker is now a toolchain mismatch between MSVC-built CUDA artifacts and MinGW final linking
+- Remaining Windows blocker in the default path is a toolchain mismatch between MSVC-built CUDA artifacts and MinGW final linking
+- Experimental full-MSVC CGO path (`build-windows-cuda-app.ps1`) also currently blocks because Go's CGO runtime emits GCC-style flags (`-Wall`, `-Werror`, `-fno-stack-protector`) that `cl.exe` rejects in this environment

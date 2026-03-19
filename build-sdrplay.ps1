@@ -44,6 +44,7 @@ if (Test-Path $cudaMingw) {
 Write-Host "Building with SDRplay + cuFFT support..." -ForegroundColor Cyan
 Write-Host "WARNING: this path still performs final Go linking through MinGW GCC." -ForegroundColor Yellow
 Write-Host "If CUDA kernel artifacts are MSVC-built, final link may fail due to mixed toolchains." -ForegroundColor Yellow
+Write-Host "Use build-cuda-windows.ps1 for CUDA artifact prep; use this script for the current MinGW-oriented app build path." -ForegroundColor Yellow
 
 $gccHost = Join-Path $gcc 'g++.exe'
 if (!(Test-Path $gccHost)) {
