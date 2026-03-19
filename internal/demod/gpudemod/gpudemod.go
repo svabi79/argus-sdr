@@ -175,9 +175,10 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	// Real CUDA boundary is now present. If the launch wrappers are not yet backed
 	// by actual kernels, we fall back to the existing CPU DSP path below.
 	_ = fmt.Sprintf("%s:%0.3f", phaseStatus(), offsetHz)
-	_ = e.tryCUDAFreqShift(iq, offsetHz)
-
-	shifted := dsp.FreqShift(iq, e.sampleRate, offsetHz)
+	shifted, ok := e.tryCUDAFreqShift(iq, offsetHz)
+	if !ok {
+		shifted = dsp.FreqShift(iq, e.sampleRate, offsetHz)
+	}
 	cutoff := bw / 2
 	if cutoff < 200 {
 		cutoff = 200
