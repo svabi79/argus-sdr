@@ -114,15 +114,27 @@ func top2(scores map[SignalClass]float64) (SignalClass, float64, SignalClass, fl
 	var best, second SignalClass
 	bestScore := 0.0
 	secondScore := 0.0
+	better := func(k SignalClass, v float64, cur SignalClass, curV float64) bool {
+		if v > curV {
+			return true
+		}
+		if v < curV {
+			return false
+		}
+		if cur == "" {
+			return true
+		}
+		return string(k) < string(cur)
+	}
 	for k, v := range scores {
-		if v > bestScore {
+		if better(k, v, best, bestScore) {
 			second = best
 			secondScore = bestScore
 			best = k
 			bestScore = v
 			continue
 		}
-		if v > secondScore {
+		if k != best && better(k, v, second, secondScore) {
 			second = k
 			secondScore = v
 		}

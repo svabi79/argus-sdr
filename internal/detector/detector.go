@@ -7,6 +7,7 @@ import (
 
 	"sdr-visual-suite/internal/cfar"
 	"sdr-visual-suite/internal/classifier"
+	"sdr-visual-suite/internal/config"
 )
 
 type Event struct {
@@ -68,7 +69,21 @@ type Signal struct {
 	Class    *classifier.Classification `json:"class,omitempty"`
 }
 
-func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration, emaAlpha, hysteresis float64, minStable int, gapTolerance time.Duration, cfarMode string, cfarGuard, cfarTrain, cfarRank int, cfarScaleDb float64, cfarWrap bool) *Detector {
+func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
+	minDur := time.Duration(detCfg.MinDurationMs) * time.Millisecond
+	hold := time.Duration(detCfg.HoldMs) * time.Millisecond
+	gapTolerance := time.Duration(detCfg.GapToleranceMs) * time.Millisecond
+	emaAlpha := detCfg.EmaAlpha
+	hysteresis := detCfg.HysteresisDb
+	minStable := detCfg.MinStableFrames
+	cfarMode := detCfg.CFARMode
+	cfarGuard := detCfg.CFARGuardCells
+	cfarTrain := detCfg.CFARTrainCells
+	cfarRank := detCfg.CFARRank
+	cfarScaleDb := detCfg.CFARScaleDb
+	cfarWrap := detCfg.CFARWrapAround
+	thresholdDb := detCfg.ThresholdDb
+
 	if minDur <= 0 {
 		minDur = 250 * time.Millisecond
 	}

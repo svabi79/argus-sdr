@@ -314,19 +314,7 @@ func main() {
 	defer eventFile.Close()
 	eventMu := &sync.RWMutex{}
 
-	det := detector.New(cfg.Detector.ThresholdDb, cfg.SampleRate, cfg.FFTSize,
-		time.Duration(cfg.Detector.MinDurationMs)*time.Millisecond,
-		time.Duration(cfg.Detector.HoldMs)*time.Millisecond,
-		cfg.Detector.EmaAlpha,
-		cfg.Detector.HysteresisDb,
-		cfg.Detector.MinStableFrames,
-		time.Duration(cfg.Detector.GapToleranceMs)*time.Millisecond,
-		cfg.Detector.CFARMode,
-		cfg.Detector.CFARGuardCells,
-		cfg.Detector.CFARTrainCells,
-		cfg.Detector.CFARRank,
-		cfg.Detector.CFARScaleDb,
-		cfg.Detector.CFARWrapAround)
+	det := detector.New(cfg.Detector, cfg.SampleRate, cfg.FFTSize)
 
 	window := fftutil.Hann(cfg.FFTSize)
 	h := newHub()
@@ -458,19 +446,7 @@ func main() {
 			var newDet *detector.Detector
 			var newWindow []float64
 			if detChanged {
-				newDet = detector.New(next.Detector.ThresholdDb, next.SampleRate, next.FFTSize,
-					time.Duration(next.Detector.MinDurationMs)*time.Millisecond,
-					time.Duration(next.Detector.HoldMs)*time.Millisecond,
-					next.Detector.EmaAlpha,
-					next.Detector.HysteresisDb,
-					next.Detector.MinStableFrames,
-					time.Duration(next.Detector.GapToleranceMs)*time.Millisecond,
-					next.Detector.CFARMode,
-					next.Detector.CFARGuardCells,
-					next.Detector.CFARTrainCells,
-					next.Detector.CFARRank,
-					next.Detector.CFARScaleDb,
-					next.Detector.CFARWrapAround)
+				newDet = detector.New(next.Detector, next.SampleRate, next.FFTSize)
 			}
 			if windowChanged {
 				newWindow = fftutil.Hann(next.FFTSize)

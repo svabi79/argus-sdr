@@ -3,10 +3,26 @@ package detector
 import (
 	"testing"
 	"time"
+
+	"sdr-visual-suite/internal/config"
 )
 
 func TestDetectorCreatesEvent(t *testing.T) {
-	d := New(-10, 1000, 10, 1*time.Millisecond, 10*time.Millisecond, 0.2, 3, 1, 10*time.Millisecond, "OFF", 2, 16, 24, 6, true)
+	d := New(config.DetectorConfig{
+		ThresholdDb:     -10,
+		MinDurationMs:   1,
+		HoldMs:          10,
+		EmaAlpha:        0.2,
+		HysteresisDb:    3,
+		MinStableFrames: 1,
+		GapToleranceMs:  10,
+		CFARMode:        "OFF",
+		CFARGuardCells:  2,
+		CFARTrainCells:  16,
+		CFARRank:        24,
+		CFARScaleDb:     6,
+		CFARWrapAround:  true,
+	}, 1000, 10)
 	center := 0.0
 	spectrum := []float64{-30, -30, -30, -5, -5, -30, -30, -30, -30, -30}
 	now := time.Now()
