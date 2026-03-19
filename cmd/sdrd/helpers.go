@@ -83,14 +83,21 @@ func extractSignalIQBatch(iq []complex64, sampleRate int, centerHz float64, sign
 		}
 	}
 
+	if eng != nil {
+		jobs := make([]gpudemod.ExtractJob, len(signals))
+		for i, sig := range signals {
+			jobs[i] = gpudemod.ExtractJob{OffsetHz: sig.CenterHz - centerHz, BW: sig.BWHz, OutRate: decimTarget}
+		}
+		if gpuOuts, _, err := eng.ShiftFilterDecimateBatch(iq, jobs); err == nil && len(gpuOuts) == len(signals) {
+			for i := range gpuOuts {
+				out[i] = gpuOuts[i]
+			}
+			return out
+		}
+	}
+
 	for i, sig := range signals {
 		offset := sig.CenterHz - centerHz
-		if eng != nil {
-			if gpuOut, _, err := eng.ShiftFilterDecimate(iq, offset, sig.BWHz, decimTarget); err == nil && len(gpuOut) > 0 {
-				out[i] = gpuOut
-				continue
-			}
-		}
 		shifted := dsp.FreqShift(iq, sampleRate, offset)
 		cutoff := sig.BWHz / 2
 		if cutoff < 200 {
