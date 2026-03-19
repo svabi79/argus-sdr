@@ -47,8 +47,9 @@ This path uses:
 - runtime DLL loading for the Windows `gpudemod` path
 
 Important:
-- `gpudemod_kernels.dll` must be present next to `sdrd.exe` or in `internal/demod/gpudemod/build/`
+- `gpudemod_kernels.dll` is copied next to `sdrd.exe` by `build-sdrplay.ps1`
 - `build-sdrplay.ps1` prepares the runtime DLL placement and PATH setup for SDRplay + CUDA DLLs
+- the gpudemod DLL is built with `-cudart=hybrid`
 - GPU validation is disabled by default for performance; enable it with `SDR_GPU_VALIDATE=1` when debugging
 - older experimental Windows build scripts were removed to avoid confusion
 
