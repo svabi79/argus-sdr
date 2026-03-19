@@ -88,11 +88,21 @@ func wfmStereo(iq []complex64, sampleRate int) []float32 {
 	return out
 }
 
+type RDSBasebandResult struct {
+	Samples    []float32
+	SampleRate int
+}
+
 // RDSBaseband returns a rough 57k baseband (not decoded).
 func RDSBaseband(iq []complex64, sampleRate int) []float32 {
+	return RDSBasebandDecimated(iq, sampleRate).Samples
+}
+
+// RDSBasebandDecimated returns the 57 kHz RDS baseband mixed to near-DC and decimated.
+func RDSBasebandDecimated(iq []complex64, sampleRate int) RDSBasebandResult {
 	base := wfmMonoBase(iq)
-	if len(base) == 0 {
-		return nil
+	if len(base) == 0 || sampleRate <= 0 {
+		return RDSBasebandResult{}
 	}
 	bpHi := dsp.LowpassFIR(60000, sampleRate, 101)
 	bpLo := dsp.LowpassFIR(54000, sampleRate, 101)
@@ -104,13 +114,24 @@ func RDSBaseband(iq []complex64, sampleRate int) []float32 {
 	}
 	phase := 0.0
 	inc := 2 * math.Pi * 57000 / float64(sampleRate)
-	out := make([]float32, len(base))
+	mixed := make([]float32, len(base))
 	for i := range bpf {
 		phase += inc
-		out[i] = bpf[i] * float32(math.Cos(phase))
+		mixed[i] = bpf[i] * float32(math.Cos(phase))
 	}
 	lp := dsp.LowpassFIR(2400, sampleRate, 101)
-	return dsp.ApplyFIRReal(out, lp)
+	filtered := dsp.ApplyFIRReal(mixed, lp)
+	targetRate := 4800
+	decim := sampleRate / targetRate
+	if decim < 1 {
+		decim = 1
+	}
+	actualRate := sampleRate / decim
+	out := make([]float32, 0, len(filtered)/decim+1)
+	for i := 0; i < len(filtered); i += decim {
+		out = append(out, filtered[i])
+	}
+	return RDSBasebandResult{Samples: out, SampleRate: actualRate}
 }
 
 func deemphasis(x []float32, sampleRate int, tau float64) []float32 {

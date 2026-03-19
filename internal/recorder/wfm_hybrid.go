@@ -12,12 +12,12 @@ type wfmHybridResult struct {
 
 func demodWFMStereoHybrid(iq []complex64, sampleRate int, offset float64, bw float64) wfmHybridResult {
 	audio, rate := demodAudioCPU(demod.Get("WFM_STEREO"), iq, sampleRate, offset, bw)
-	rds := demod.RDSBaseband(iq, sampleRate)
+	rds := demod.RDSBasebandDecimated(iq, sampleRate)
 	return wfmHybridResult{
 		Audio:     audio,
 		AudioRate: rate,
 		Channels:  2,
-		RDS:       rds,
-		RDSRate:   sampleRate,
+		RDS:       rds.Samples,
+		RDSRate:   rds.SampleRate,
 	}
 }
