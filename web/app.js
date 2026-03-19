@@ -6,6 +6,7 @@ const waterfallCanvas = qs('waterfall');
 const occupancyCanvas = qs('occupancy');
 const timelineCanvas = qs('timeline');
 const detailSpectrogram = qs('detailSpectrogram');
+const signalPopover = qs('signalPopover');
 
 const wsBadge = qs('wsBadge');
 const metaLine = qs('metaLine');
@@ -88,6 +89,7 @@ const decodeModeSelect = qs('decodeMode');
 const recordingMetaEl = qs('recordingMeta');
 const decodeResultEl = qs('decodeResult');
 const classifierScoresEl = qs('classifierScores');
+const classifierScoreBarsEl = qs('classifierScoreBars');
 const recordingMetaLink = qs('recordingMetaLink');
 const recordingIQLink = qs('recordingIQLink');
 const recordingAudioLink = qs('recordingAudioLink');
@@ -153,7 +155,6 @@ let recordings = [];
 let recordingsFetchInFlight = false;
 let showDebugOverlay = localStorage.getItem('spectre.debugOverlay') !== '0';
 let hoveredSignal = null;
-let showDebugOverlay = true;
 
 const GAIN_MAX = 60;
 const timelineWindowMs = 5 * 60 * 1000;
@@ -1647,6 +1648,4 @@ setInterval(() => fetchEvents(false), 2000);
 setInterval(fetchRecordings, 5000);
 setInterval(loadSignals, 1500);
 setInterval(loadDecoders, 10000);
-
-coders, 10000);
 
