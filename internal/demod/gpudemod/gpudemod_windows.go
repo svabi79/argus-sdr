@@ -435,8 +435,21 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 		e.SetFIR(taps)
 	}
 	filtered, ok := e.tryCUDAFIR(shifted, len(taps))
-	e.lastFIRUsedGPU = ok && ValidateFIR(shifted, taps, filtered, 1e-3)
-	if !e.lastFIRUsedGPU {
+	if ok {
+		if validationEnabled() {
+			e.lastFIRUsedGPU = ValidateFIR(shifted, taps, filtered, 1e-3)
+			if !e.lastFIRUsedGPU {
+				ftaps := make([]float64, len(taps))
+				for i, v := range taps {
+					ftaps[i] = float64(v)
+				}
+				filtered = dsp.ApplyFIR(shifted, ftaps)
+			}
+		} else {
+			e.lastFIRUsedGPU = true
+		}
+	}
+	if filtered == nil {
 		ftaps := make([]float64, len(taps))
 		for i, v := range taps {
 			ftaps[i] = float64(v)
