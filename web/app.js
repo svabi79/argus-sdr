@@ -1064,7 +1064,17 @@ function openDrawer(ev) {
         .join(' · ');
       classifierScoresEl.textContent = rows ? `Classifier scores: ${rows}` : 'Classifier scores: -';
     } else {
-      classifierScoresEl.textContent = 'Classifier scores: -';
+      const liveScores = (latest?.debug?.scores || []).find((s) => Math.abs((s.center_hz || 0) - (ev.center_hz || 0)) < Math.max(500, (ev.bandwidth_hz || 0)));
+      if (liveScores?.scores) {
+        const rows = Object.entries(liveScores.scores)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(([k, v]) => `${k}:${Number(v).toFixed(2)}`)
+          .join(' · ');
+        classifierScoresEl.textContent = rows ? `Classifier scores: ${rows}` : 'Classifier scores: -';
+      } else {
+        classifierScoresEl.textContent = 'Classifier scores: -';
+      }
     }
   }
   if (recordingMetaEl) {

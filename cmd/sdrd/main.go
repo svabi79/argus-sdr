@@ -34,15 +34,20 @@ import (
 	"sdr-visual-suite/internal/sdrplay"
 )
 
+type SpectrumDebug struct {
+	Thresholds []float64                 `json:"thresholds,omitempty"`
+	NoiseFloor float64                   `json:"noise_floor,omitempty"`
+	Scores     []map[string]any          `json:"scores,omitempty"`
+}
+
 type SpectrumFrame struct {
-	Timestamp  int64             `json:"ts"`
-	CenterHz   float64           `json:"center_hz"`
-	SampleHz   int               `json:"sample_rate"`
-	FFTSize    int               `json:"fft_size"`
-	Spectrum   []float64         `json:"spectrum_db"`
-	Thresholds []float64         `json:"thresholds,omitempty"`
-	NoiseFloor float64           `json:"noise_floor,omitempty"`
-	Signals    []detector.Signal `json:"signals"`
+	Timestamp int64             `json:"ts"`
+	CenterHz  float64           `json:"center_hz"`
+	SampleHz  int               `json:"sample_rate"`
+	FFTSize   int               `json:"fft_size"`
+	Spectrum  []float64         `json:"spectrum_db"`
+	Signals   []detector.Signal `json:"signals"`
+	Debug     *SpectrumDebug    `json:"debug,omitempty"`
 }
 
 type client struct {
@@ -839,15 +844,43 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				copy(evCopy, finished)
 				go rec.OnEvents(evCopy)
 			}
+			var debugInfo *SpectrumDebug
+			if len(thresholds) > 0 || len(signals) > 0 || noiseFloor != 0 {
+				scoreDebug := make([]map[string]any, 0, len(signals))
+				for _, s := range signals {
+					if s.Class == nil || len(s.Class.Scores) == 0 {
+						scoreDebug = append(scoreDebug, map[string]any{
+							"center_hz": s.CenterHz,
+							"class":     nil,
+						})
+						continue
+					}
+					scores := make(map[string]float64, len(s.Class.Scores))
+					for k, v := range s.Class.Scores {
+						scores[string(k)] = v
+					}
+					scoreDebug = append(scoreDebug, map[string]any{
+						"center_hz":   s.CenterHz,
+						"mod_type":    s.Class.ModType,
+						"confidence":  s.Class.Confidence,
+						"second_best": s.Class.SecondBest,
+						"scores":      scores,
+					})
+				}
+				debugInfo = &SpectrumDebug{
+					Thresholds: thresholds,
+					NoiseFloor: noiseFloor,
+					Scores:     scoreDebug,
+				}
+			}
 			h.broadcast(SpectrumFrame{
-				Timestamp:  now.UnixMilli(),
-				CenterHz:   cfg.CenterHz,
-				SampleHz:   cfg.SampleRate,
-				FFTSize:    cfg.FFTSize,
-				Spectrum:   spectrum,
-				Thresholds: thresholds,
-				NoiseFloor: noiseFloor,
-				Signals:    signals,
+				Timestamp: now.UnixMilli(),
+				CenterHz:  cfg.CenterHz,
+				SampleHz:  cfg.SampleRate,
+				FFTSize:   cfg.FFTSize,
+				Spectrum:  spectrum,
+				Signals:   signals,
+				Debug:     debugInfo,
 			})
 		}
 	}
