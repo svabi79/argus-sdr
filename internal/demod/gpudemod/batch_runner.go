@@ -45,20 +45,5 @@ func (r *BatchRunner) ShiftFilterDecimateBatch(iq []complex64, jobs []ExtractJob
 		return nil, nil, ErrUnavailable
 	}
 	r.prepare(jobs)
-	outs := make([][]complex64, len(jobs))
-	rates := make([]int, len(jobs))
-	for i := range r.slots {
-		if !r.slots[i].active {
-			continue
-		}
-		out, rate, err := r.eng.ShiftFilterDecimate(iq, r.slots[i].job.OffsetHz, r.slots[i].job.BW, r.slots[i].job.OutRate)
-		if err != nil {
-			return nil, nil, err
-		}
-		r.slots[i].out = out
-		r.slots[i].rate = rate
-		outs[i] = out
-		rates[i] = rate
-	}
-	return outs, rates, nil
+	return r.shiftFilterDecimateBatchImpl(iq)
 }
