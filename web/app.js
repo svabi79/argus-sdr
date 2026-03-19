@@ -155,6 +155,7 @@ let recordings = [];
 let recordingsFetchInFlight = false;
 let showDebugOverlay = localStorage.getItem('spectre.debugOverlay') !== '0';
 let hoveredSignal = null;
+let popoverHideTimer = null;
 
 const GAIN_MAX = 60;
 const timelineWindowMs = 5 * 60 * 1000;
@@ -1293,7 +1294,7 @@ window.addEventListener('mousemove', (ev) => {
     hoveredSignal = hoverHit.signal;
     renderSignalPopover(hoverHit, hoverHit.signal);
   } else {
-    hideSignalPopover();
+    scheduleHideSignalPopover();
   }
   if (isDraggingSpectrum) {
     const dx = ev.clientX - dragStartX;
