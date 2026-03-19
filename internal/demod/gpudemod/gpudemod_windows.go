@@ -10,7 +10,11 @@ package gpudemod
 #include <cuda_runtime.h>
 
 typedef struct { float x; float y; } gpud_float2;
+typedef void* gpud_stream_handle;
 
+typedef int (__stdcall *gpud_stream_create_fn)(gpud_stream_handle* out);
+typedef int (__stdcall *gpud_stream_destroy_fn)(gpud_stream_handle stream);
+typedef int (__stdcall *gpud_stream_sync_fn)(gpud_stream_handle stream);
 typedef int (__stdcall *gpud_upload_fir_taps_fn)(const float* taps, int n);
 typedef int (__stdcall *gpud_launch_freq_shift_fn)(const gpud_float2* in, gpud_float2* out, int n, double phase_inc, double phase_start);
 typedef int (__stdcall *gpud_launch_fm_discrim_fn)(const gpud_float2* in, float* out, int n);

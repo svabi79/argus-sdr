@@ -9,6 +9,27 @@
 #define GPUD_CALL
 #endif
 
+typedef void* gpud_stream_handle;
+
+GPUD_API int GPUD_CALL gpud_stream_create(gpud_stream_handle* out) {
+    if (!out) return -1;
+    cudaStream_t stream;
+    cudaError_t err = cudaStreamCreate(&stream);
+    if (err != cudaSuccess) return (int)err;
+    *out = (gpud_stream_handle)stream;
+    return 0;
+}
+
+GPUD_API int GPUD_CALL gpud_stream_destroy(gpud_stream_handle stream) {
+    if (!stream) return 0;
+    return (int)cudaStreamDestroy((cudaStream_t)stream);
+}
+
+GPUD_API int GPUD_CALL gpud_stream_sync(gpud_stream_handle stream) {
+    if (!stream) return (int)cudaDeviceSynchronize();
+    return (int)cudaStreamSynchronize((cudaStream_t)stream);
+}
+
 __global__ void gpud_freq_shift_kernel(
     const float2* __restrict__ in,
     float2* __restrict__ out,
