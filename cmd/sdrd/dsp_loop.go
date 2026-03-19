@@ -20,7 +20,7 @@ import (
 	"sdr-visual-suite/internal/recorder"
 )
 
-func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot) {
+func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot, extractMgr *extractionManager) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("FATAL: runDSP goroutine panic: %v\n%s", r, debug.Stack())
@@ -177,7 +177,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			thresholds := det.LastThresholds()
 			noiseFloor := det.LastNoiseFloor()
 			if len(iq) > 0 {
-				snips := extractSignalIQBatch(iq, cfg.SampleRate, cfg.CenterHz, signals)
+				snips := extractSignalIQBatch(extractMgr, iq, cfg.SampleRate, cfg.CenterHz, signals)
 				for i := range signals {
 					var snip []complex64
 					if i < len(snips) {

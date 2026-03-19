@@ -55,18 +55,47 @@ func decoderKeys(cfg config.Config) []string {
 	return keys
 }
 
+func (m *extractionManager) reset() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.runner != nil {
+		m.runner.Close()
+		m.runner = nil
+	}
+}
+
+func (m *extractionManager) get(sampleCount int, sampleRate int) *gpudemod.BatchRunner {
+	if m == nil || sampleCount <= 0 || sampleRate <= 0 || !gpudemod.Available() {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.runner == nil {
+		if r, err := gpudemod.NewBatchRunner(sampleCount, sampleRate); err == nil {
+			m.runner = r
+		} else {
+			log.Printf("gpudemod: batch runner init failed: %v", err)
+		}
+		return m.runner
+	}
+	return m.runner
+}
+
 func extractSignalIQ(iq []complex64, sampleRate int, centerHz float64, sigHz float64, bwHz float64) []complex64 {
 	if len(iq) == 0 || sampleRate <= 0 {
 		return nil
 	}
-	results := extractSignalIQBatch(iq, sampleRate, centerHz, []detector.Signal{{CenterHz: sigHz, BWHz: bwHz}})
+	results := extractSignalIQBatch(nil, iq, sampleRate, centerHz, []detector.Signal{{CenterHz: sigHz, BWHz: bwHz}})
 	if len(results) == 0 {
 		return nil
 	}
 	return results[0]
 }
 
-func extractSignalIQBatch(iq []complex64, sampleRate int, centerHz float64, signals []detector.Signal) [][]complex64 {
+func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleRate int, centerHz float64, signals []detector.Signal) [][]complex64 {
 	out := make([][]complex64, len(signals))
 	if len(iq) == 0 || sampleRate <= 0 || len(signals) == 0 {
 		return out
@@ -76,14 +105,7 @@ func extractSignalIQBatch(iq []complex64, sampleRate int, centerHz float64, sign
 		decimTarget = sampleRate
 	}
 
-	var runner *gpudemod.BatchRunner
-	if gpudemod.Available() {
-		if gpuRunner, err := gpudemod.NewBatchRunner(len(iq), sampleRate); err == nil {
-			runner = gpuRunner
-			defer runner.Close()
-		}
-	}
-
+	runner := extractMgr.get(len(iq), sampleRate)
 	if runner != nil {
 		jobs := make([]gpudemod.ExtractJob, len(signals))
 		for i, sig := range signals {
@@ -100,6 +122,7 @@ func extractSignalIQBatch(iq []complex64, sampleRate int, centerHz float64, sign
 		}
 	}
 
+	log.Printf("gpudemod: CPU extraction fallback used for %d signals", len(signals))
 	for i, sig := range signals {
 		offset := sig.CenterHz - centerHz
 		shifted := dsp.FreqShift(iq, sampleRate, offset)

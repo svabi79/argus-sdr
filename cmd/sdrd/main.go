@@ -105,8 +105,10 @@ func main() {
 	defer recMgr.Close()
 
 	sigSnap := &signalSnapshot{}
+	extractMgr := &extractionManager{}
+	defer extractMgr.reset()
 
-	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr, sigSnap)
+	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr, sigSnap, extractMgr)
 
 	server := newHTTPServer(cfg.WebAddr, cfg.WebRoot, h, cfgPath, cfgManager, srcMgr, dspUpdates, gpuState, recMgr, sigSnap, eventMu)
 	go func() {

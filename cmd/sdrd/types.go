@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"sdr-visual-suite/internal/config"
+	"sdr-visual-suite/internal/demod/gpudemod"
 	"sdr-visual-suite/internal/detector"
 	"sdr-visual-suite/internal/sdr"
 )
@@ -57,6 +58,11 @@ type sourceManager struct {
 	mu        sync.RWMutex
 	src       sdr.Source
 	newSource func(cfg config.Config) (sdr.Source, error)
+}
+
+type extractionManager struct {
+	mu     sync.Mutex
+	runner *gpudemod.BatchRunner
 }
 
 type dspUpdate struct {
