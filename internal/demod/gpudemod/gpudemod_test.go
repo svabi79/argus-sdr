@@ -1,3 +1,5 @@
+//go:build !cufft
+
 package gpudemod
 
 import "testing"
