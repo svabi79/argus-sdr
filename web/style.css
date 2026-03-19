@@ -413,6 +413,12 @@ input[type="range"]::-moz-range-thumb {
 
 .insp-viz { height: 200px; }
 .insp-note { font-size: 0.72rem; color: var(--text-mute); }
+.score-bars { display: grid; gap: 6px; }
+.score-bar { display: grid; grid-template-columns: 52px 1fr 44px; gap: 8px; align-items: center; font-family: var(--mono); font-size: 0.68rem; }
+.score-bar-label { color: var(--text-dim); }
+.score-bar-track { position: relative; height: 8px; border-radius: 999px; background: rgba(148, 163, 184, 0.14); overflow: hidden; }
+.score-bar-fill { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, rgba(0,255,200,0.72), rgba(0,144,255,0.8)); border-radius: 999px; }
+.score-bar-value { color: var(--text-mute); text-align: right; }
 
 /* ═══════════ KEYBOARD OVERLAY ═══════════ */
 .kb-overlay {

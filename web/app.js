@@ -95,6 +95,7 @@ const recordingAudioLink = qs('recordingAudioLink');
 const followBtn = qs('followBtn');
 const fitBtn = qs('fitBtn');
 const resetMaxBtn = qs('resetMaxBtn');
+const debugOverlayToggle = qs('debugOverlayToggle');
 const timelineFollowBtn = qs('timelineFollowBtn');
 const timelineFreezeBtn = qs('timelineFreezeBtn');
 
@@ -150,6 +151,8 @@ let timelineRects = [];
 let liveSignalRects = [];
 let recordings = [];
 let recordingsFetchInFlight = false;
+let showDebugOverlay = true;
+let showDebugOverlay = true;
 
 const GAIN_MAX = 60;
 const timelineWindowMs = 5 * 60 * 1000;
@@ -179,6 +182,27 @@ function fmtHz(hz) {
 function fmtMs(ms) {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
   return `${(ms / 1000).toFixed(2)} s`;
+}
+
+function renderScoreBars(scores) {
+  if (!classifierScoreBarsEl) return;
+  if (!scores || typeof scores !== 'object') {
+    classifierScoreBarsEl.innerHTML = '';
+    return;
+  }
+  const entries = Object.entries(scores)
+    .filter(([, v]) => Number.isFinite(Number(v)))
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 6);
+  if (!entries.length) {
+    classifierScoreBarsEl.innerHTML = '';
+    return;
+  }
+  const maxVal = Math.max(...entries.map(([, v]) => Number(v)), 1e-6);
+  classifierScoreBarsEl.innerHTML = entries.map(([label, value]) => {
+    const width = Math.max(4, (Number(value) / maxVal) * 100);
+    return `<div class="score-bar"><span class="score-bar-label">${label}</span><span class="score-bar-track"><span class="score-bar-fill" style="width:${width}%"></span></span><span class="score-bar-value">${Number(value).toFixed(2)}</span></div>`;
+  }).join('');
 }
 
 function colorMap(v) {
@@ -225,14 +249,16 @@ function sampleOverlayAtX(overlay, x, width, centerHz, sampleRate) {
 }
 
 function drawThresholdOverlay(ctx, w, h, minDb, maxDb) {
-  if (!latest?.thresholds?.length) return;
+  if (!showDebugOverlay) return;
+  const thresholds = latest?.debug?.thresholds;
+  if (!Array.isArray(thresholds) || thresholds.length === 0) return;
   ctx.save();
   ctx.strokeStyle = 'rgba(255, 196, 92, 0.9)';
   ctx.lineWidth = 1.25;
   if (ctx.setLineDash) ctx.setLineDash([6, 4]);
   ctx.beginPath();
   for (let x = 0; x < w; x++) {
-    const v = sampleOverlayAtX(latest.thresholds, x, w, latest.center_hz, latest.sample_rate);
+    const v = sampleOverlayAtX(thresholds, x, w, latest.center_hz, latest.sample_rate);
     if (v == null || Number.isNaN(v)) continue;
     const y = h - ((v - minDb) / (maxDb - minDb)) * (h - 18) - 6;
     if (x === 0) ctx.moveTo(x, y);
@@ -1063,6 +1089,7 @@ function openDrawer(ev) {
         .map(([k, v]) => `${k}:${v.toFixed(2)}`)
         .join(' · ');
       classifierScoresEl.textContent = rows ? `Classifier scores: ${rows}` : 'Classifier scores: -';
+      renderScoreBars(scores);
     } else {
       const liveScores = (latest?.debug?.scores || []).find((s) => Math.abs((s.center_hz || 0) - (ev.center_hz || 0)) < Math.max(500, (ev.bandwidth_hz || 0)));
       if (liveScores?.scores) {
@@ -1072,8 +1099,10 @@ function openDrawer(ev) {
           .map(([k, v]) => `${k}:${Number(v).toFixed(2)}`)
           .join(' · ');
         classifierScoresEl.textContent = rows ? `Classifier scores: ${rows}` : 'Classifier scores: -';
+        renderScoreBars(liveScores.scores);
       } else {
         classifierScoresEl.textContent = 'Classifier scores: -';
+        renderScoreBars(null);
       }
     }
   }
@@ -1363,6 +1392,11 @@ maxHoldToggle.addEventListener('change', () => {
   maxSpectrum = null;
   markSpectrumDirty();
 });
+if (debugOverlayToggle) debugOverlayToggle.addEventListener('change', () => {
+  showDebugOverlay = debugOverlayToggle.checked;
+  markSpectrumDirty();
+  updateHeroMetrics();
+});
 resetMaxBtn.addEventListener('click', () => {
   maxSpectrum = null;
   markSpectrumDirty();
@@ -1520,6 +1554,8 @@ if (recordingList) {
     } catch {}
   });
 }
+
+if (debugOverlayToggle) debugOverlayToggle.checked = showDebugOverlay;
 
 window.addEventListener('keydown', (ev) => {
   if (ev.target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ev.target.tagName)) return;
