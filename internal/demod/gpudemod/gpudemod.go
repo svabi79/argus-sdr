@@ -340,7 +340,6 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 		return nil, 0, errors.New("sample count exceeds engine capacity")
 	}
 
-	_ = fmt.Sprintf("%s:%0.3f", phaseStatus(), offsetHz)
 	shifted, ok := e.tryCUDAFreqShift(iq, offsetHz)
 	e.lastShiftUsedGPU = ok && ValidateFreqShift(iq, e.sampleRate, offsetHz, shifted, 1e-3)
 	if !e.lastShiftUsedGPU {
