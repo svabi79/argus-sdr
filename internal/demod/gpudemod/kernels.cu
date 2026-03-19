@@ -60,3 +60,27 @@ extern "C" int gpud_launch_fm_discrim_cuda(
     gpud_fm_discrim_kernel<<<grid, block>>>(in, out, n);
     return (int)cudaGetLastError();
 }
+
+extern "C" __global__ void gpud_decimate_kernel(
+    const float2* __restrict__ in,
+    float2* __restrict__ out,
+    int n_out,
+    int factor
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n_out) return;
+    out[idx] = in[idx * factor];
+}
+
+extern "C" int gpud_launch_decimate_cuda(
+    const float2* in,
+    float2* out,
+    int n_out,
+    int factor
+) {
+    if (n_out <= 0 || factor <= 0) return 0;
+    const int block = 256;
+    const int grid = (n_out + block - 1) / block;
+    gpud_decimate_kernel<<<grid, block>>>(in, out, n_out, factor);
+    return (int)cudaGetLastError();
+}

@@ -274,6 +274,10 @@ func (e *Engine) Close() {
 		_ = C.gpud_cuda_free(unsafe.Pointer(e.dShifted))
 		e.dShifted = nil
 	}
+	if e.dDecimated != nil {
+		_ = C.gpud_cuda_free(unsafe.Pointer(e.dDecimated))
+		e.dDecimated = nil
+	}
 	if e.dAudio != nil {
 		_ = C.gpud_cuda_free(unsafe.Pointer(e.dAudio))
 		e.dAudio = nil
