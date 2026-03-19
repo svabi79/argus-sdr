@@ -120,6 +120,12 @@ func (m *Manager) initGPUDemod(sampleRate int, blockSize int) {
 	m.initGPUDemodLocked(sampleRate, blockSize)
 }
 
+func (m *Manager) gpuEngine() *gpudemod.Engine {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.gpuDemod
+}
+
 func (m *Manager) initGPUDemodLocked(sampleRate int, blockSize int) {
 	if m.gpuDemod != nil {
 		m.gpuDemod.Close()

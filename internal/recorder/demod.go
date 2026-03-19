@@ -29,7 +29,8 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	offset := ev.CenterHz - m.centerHz
 	var audio []float32
 	var inputRate int
-	if m.gpuDemod != nil {
+	gpu := m.gpuEngine()
+	if gpu != nil {
 		var gpuMode gpudemod.DemodType
 		var useGPU bool
 		switch name {
@@ -47,18 +48,18 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 			gpuMode, useGPU = gpudemod.DemodCW, true
 		}
 		if useGPU {
-			if gpuAudio, gpuRate, err := m.gpuDemod.DemodFused(iq, offset, bw, gpuMode); err == nil {
+			if gpuAudio, gpuRate, err := gpu.DemodFused(iq, offset, bw, gpuMode); err == nil {
 				audio = gpuAudio
 				inputRate = gpuRate
-				if m.gpuDemod.LastDemodUsedGPU() {
+				if gpu.LastDemodUsedGPU() {
 					log.Printf("gpudemod: fused GPU demod used for event %d (%s)", ev.ID, name)
 				}
 			} else {
 				log.Printf("gpudemod: fused GPU demod failed for event %d (%s): %v", ev.ID, name, err)
-				if gpuAudio, gpuRate, err := m.gpuDemod.Demod(iq, offset, bw, gpuMode); err == nil {
+				if gpuAudio, gpuRate, err := gpu.Demod(iq, offset, bw, gpuMode); err == nil {
 					audio = gpuAudio
 					inputRate = gpuRate
-					if m.gpuDemod.LastDemodUsedGPU() {
+					if gpu.LastDemodUsedGPU() {
 						log.Printf("gpudemod: legacy GPU demod used for event %d (%s)", ev.ID, name)
 					}
 				} else {
