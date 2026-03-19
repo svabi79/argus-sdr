@@ -32,14 +32,16 @@ type Detector struct {
 	MinStableFrames int
 	GapTolerance    time.Duration
 	CFARScaleDb     float64
+	EdgeMarginDb    float64
+	MaxSignalBwHz   float64
 	binWidth        float64
 	nbins           int
 	sampleRate      int
 
-	ema           []float64
-	active        map[int64]*activeEvent
-	nextID        int64
-	cfarEngine    cfar.CFAR
+	ema            []float64
+	active         map[int64]*activeEvent
+	nextID         int64
+	cfarEngine     cfar.CFAR
 	lastThresholds []float64
 	lastNoiseFloor float64
 }
@@ -83,6 +85,8 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	cfarScaleDb := detCfg.CFARScaleDb
 	cfarWrap := detCfg.CFARWrapAround
 	thresholdDb := detCfg.ThresholdDb
+	edgeMarginDb := detCfg.EdgeMarginDb
+	maxSignalBwHz := detCfg.MaxSignalBwHz
 
 	if minDur <= 0 {
 		minDur = 250 * time.Millisecond
@@ -111,6 +115,12 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	if cfarScaleDb <= 0 {
 		cfarScaleDb = 6
 	}
+	if edgeMarginDb <= 0 {
+		edgeMarginDb = 3.0
+	}
+	if maxSignalBwHz <= 0 {
+		maxSignalBwHz = 150000
+	}
 	if cfarRank <= 0 || cfarRank > 2*cfarTrain {
 		cfarRank = int(math.Round(0.75 * float64(2*cfarTrain)))
 		if cfarRank <= 0 {
@@ -137,6 +147,8 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 		MinStableFrames: minStable,
 		GapTolerance:    gapTolerance,
 		CFARScaleDb:     cfarScaleDb,
+		EdgeMarginDb:    edgeMarginDb,
+		MaxSignalBwHz:   maxSignalBwHz,
 		binWidth:        float64(sampleRate) / float64(fftSize),
 		nbins:           fftSize,
 		sampleRate:      sampleRate,
@@ -164,7 +176,6 @@ func (d *Detector) LastNoiseFloor() float64 {
 	return d.lastNoiseFloor
 }
 
-// UpdateClasses refreshes active event classes from current signals.
 func (d *Detector) UpdateClasses(signals []Signal) {
 	for _, s := range signals {
 		for _, ev := range d.active {
@@ -230,7 +241,174 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 		}
 		signals = append(signals, d.makeSignal(start, n-1, peak, peakBin, noise, centerHz, smooth))
 	}
+	signals = d.expandSignalEdges(signals, smooth, noiseGlobal, centerHz)
+	for i := range signals {
+		centerBin := float64(signals[i].FirstBin+signals[i].LastBin) / 2.0
+		signals[i].CenterHz = d.centerFreqForBin(centerBin, centerHz)
+		signals[i].BWHz = float64(signals[i].LastBin-signals[i].FirstBin+1) * d.binWidth
+	}
 	return signals
+}
+
+func (d *Detector) expandSignalEdges(signals []Signal, smooth []float64, noiseFloor float64, centerHz float64) []Signal {
+	n := len(smooth)
+	if n == 0 || len(signals) == 0 {
+		return signals
+	}
+	margin := d.EdgeMarginDb
+	if margin <= 0 {
+		margin = 3.0
+	}
+	maxExpansionBins := int(d.MaxSignalBwHz / d.binWidth)
+	if maxExpansionBins < 10 {
+		maxExpansionBins = 10
+	}
+	for i := range signals {
+		seed := signals[i]
+		peakDb := seed.PeakDb
+		localNoise := noiseFloor
+		leftProbe := seed.FirstBin - 50
+		rightProbe := seed.LastBin + 50
+		if leftProbe >= 0 && rightProbe < n {
+			leftNoise := minInRange(smooth, maxInt(0, leftProbe), maxInt(0, seed.FirstBin-5))
+			rightNoise := minInRange(smooth, minInt(n-1, seed.LastBin+5), minInt(n-1, rightProbe))
+			localNoise = math.Min(leftNoise, rightNoise)
+		}
+		edgeThreshold := localNoise + margin
+		newFirst := seed.FirstBin
+		prevVal := smooth[newFirst]
+		for j := 0; j < maxExpansionBins; j++ {
+			next := newFirst - 1
+			if next < 0 {
+				break
+			}
+			val := smooth[next]
+			if val <= edgeThreshold {
+				break
+			}
+			if val > prevVal+1.0 && val < peakDb-6.0 {
+				break
+			}
+			prevVal = val
+			newFirst = next
+		}
+		newLast := seed.LastBin
+		prevVal = smooth[newLast]
+		for j := 0; j < maxExpansionBins; j++ {
+			next := newLast + 1
+			if next >= n {
+				break
+			}
+			val := smooth[next]
+			if val <= edgeThreshold {
+				break
+			}
+			if val > prevVal+1.0 && val < peakDb-6.0 {
+				break
+			}
+			prevVal = val
+			newLast = next
+		}
+		signals[i].FirstBin = newFirst
+		signals[i].LastBin = newLast
+		centerBin := float64(newFirst+newLast) / 2.0
+		signals[i].CenterHz = d.centerFreqForBin(centerBin, centerHz)
+		signals[i].BWHz = float64(newLast-newFirst+1) * d.binWidth
+	}
+	signals = d.mergeOverlapping(signals, centerHz)
+	return signals
+}
+
+func (d *Detector) mergeOverlapping(signals []Signal, centerHz float64) []Signal {
+	if len(signals) <= 1 {
+		return signals
+	}
+	sort.Slice(signals, func(i, j int) bool {
+		return signals[i].FirstBin < signals[j].FirstBin
+	})
+	merged := []Signal{signals[0]}
+	for i := 1; i < len(signals); i++ {
+		last := &merged[len(merged)-1]
+		cur := signals[i]
+		if cur.FirstBin <= last.LastBin+1 {
+			if cur.LastBin > last.LastBin {
+				last.LastBin = cur.LastBin
+			}
+			if cur.PeakDb > last.PeakDb {
+				last.PeakDb = cur.PeakDb
+			}
+			if cur.SNRDb > last.SNRDb {
+				last.SNRDb = cur.SNRDb
+			}
+			centerBin := float64(last.FirstBin+last.LastBin) / 2.0
+			last.BWHz = float64(last.LastBin-last.FirstBin+1) * d.binWidth
+			last.CenterHz = d.centerFreqForBin(centerBin, centerHz)
+		} else {
+			merged = append(merged, cur)
+		}
+	}
+	return merged
+}
+
+func (d *Detector) centerFreqForBin(bin float64, centerHz float64) float64 {
+	return centerHz + (bin-float64(d.nbins)/2.0)*d.binWidth
+}
+
+func minInRange(s []float64, from, to int) float64 {
+	if len(s) == 0 {
+		return 0
+	}
+	if from < 0 {
+		from = 0
+	}
+	if to >= len(s) {
+		to = len(s) - 1
+	}
+	if from > to {
+		return s[minInt(maxInt(from, 0), len(s)-1)]
+	}
+	m := s[from]
+	for i := from + 1; i <= to; i++ {
+		if s[i] < m {
+			m = s[i]
+		}
+	}
+	return m
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func overlapHz(center1, bw1, center2, bw2 float64) bool {
+	left1 := center1 - bw1/2
+	right1 := center1 + bw1/2
+	left2 := center2 - bw2/2
+	right2 := center2 + bw2/2
+	return left1 <= right2 && left2 <= right1
+}
+
+func median(vals []float64) float64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	cp := append([]float64(nil), vals...)
+	sort.Float64s(cp)
+	mid := len(cp) / 2
+	if len(cp)%2 == 0 {
+		return (cp[mid-1] + cp[mid]) / 2
+	}
+	return cp[mid]
 }
 
 func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise float64, centerHz float64, spectrum []float64) Signal {
@@ -260,7 +438,6 @@ func (d *Detector) smoothSpectrum(spectrum []float64) []float64 {
 		v := spectrum[i]
 		d.ema[i] = alpha*v + (1-alpha)*d.ema[i]
 	}
-	// IMPORTANT: caller must not modify returned slice
 	return d.ema
 }
 
@@ -356,25 +533,4 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 		delete(d.active, id)
 	}
 	return finished
-}
-
-func overlapHz(c1, b1, c2, b2 float64) bool {
-	l1 := c1 - b1/2.0
-	r1 := c1 + b1/2.0
-	l2 := c2 - b2/2.0
-	r2 := c2 + b2/2.0
-	return l1 <= r2 && l2 <= r1
-}
-
-func median(vals []float64) float64 {
-	if len(vals) == 0 {
-		return 0
-	}
-	cpy := append([]float64(nil), vals...)
-	sort.Float64s(cpy)
-	mid := len(cpy) / 2
-	if len(cpy)%2 == 0 {
-		return (cpy[mid-1] + cpy[mid]) / 2.0
-	}
-	return cpy[mid]
 }
