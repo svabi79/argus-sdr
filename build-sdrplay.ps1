@@ -12,8 +12,11 @@ $env:CC = 'gcc'
 $env:CXX = 'g++'
 
 # SDRplay
-$env:CGO_CFLAGS = '-IC:\PROGRA~1\SDRplay\API\inc'
-$env:CGO_LDFLAGS = '-LC:\PROGRA~1\SDRplay\API\x64 -lsdrplay_api'
+$sdrplayInc = 'C:\PROGRA~1\SDRplay\API\inc'
+$sdrplayBin = 'C:\PROGRA~1\SDRplay\API\x64'
+$env:CGO_CFLAGS = "-I$sdrplayInc"
+$env:CGO_LDFLAGS = "-L$sdrplayBin -lsdrplay_api"
+if (Test-Path $sdrplayBin) { $env:PATH = "$sdrplayBin;" + $env:PATH }
 
 # CUDA runtime / cuFFT
 $cudaInc = 'C:\CUDA\include'
@@ -29,11 +32,17 @@ Write-Host 'Building SDRplay + cuFFT app (Windows DLL path)...' -ForegroundColor
 go build -tags "sdrplay,cufft" ./cmd/sdrd
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 
-$dllSrc = Join-Path $PSScriptRoot 'internal\demod\gpudemod\build\gpudemod_kernels.dll'
+$dllCandidates = @(
+  (Join-Path $PSScriptRoot 'internal\demod\gpudemod\build\gpudemod_kernels.dll'),
+  (Join-Path $PSScriptRoot 'gpudemod_kernels.dll')
+)
 $dllDst = Join-Path $PSScriptRoot 'gpudemod_kernels.dll'
-if (Test-Path $dllSrc) {
-  Copy-Item $dllSrc $dllDst -Force
-  Write-Host "Copied DLL to $dllDst" -ForegroundColor Green
+$dllSrc = $dllCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($dllSrc) {
+  if ((Resolve-Path $dllSrc).Path -ne (Resolve-Path (Split-Path $dllDst -Parent)).Path + '\gpudemod_kernels.dll') {
+    Copy-Item $dllSrc $dllDst -Force
+  }
+  Write-Host "CUDA DLL ready at $dllDst" -ForegroundColor Green
 } else {
   Write-Host 'WARNING: gpudemod_kernels.dll not found; build succeeded but runtime GPU demod will not load.' -ForegroundColor Yellow
 }

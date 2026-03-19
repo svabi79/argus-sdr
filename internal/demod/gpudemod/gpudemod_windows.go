@@ -136,13 +136,16 @@ func ensureDLLLoaded() error {
 				C.free(unsafe.Pointer(cp))
 				if res == 0 {
 					loadErr = nil
+					fmt.Fprintf(os.Stderr, "gpudemod: loaded DLL %s\n", p)
 					return
 				}
 				loadErr = fmt.Errorf("failed to load gpudemod DLL: %s (code %d)", p, int(res))
+				fmt.Fprintf(os.Stderr, "gpudemod: DLL load failed for %s (code %d)\n", p, int(res))
 			}
 		}
 		if loadErr == nil {
 			loadErr = errors.New("gpudemod_kernels.dll not found")
+			fmt.Fprintln(os.Stderr, "gpudemod: gpudemod_kernels.dll not found in search paths")
 		}
 	})
 	return loadErr
