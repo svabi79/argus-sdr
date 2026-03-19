@@ -30,12 +30,30 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	offset := ev.CenterHz - m.centerHz
 	var audio []float32
 	var inputRate int
-	if m.gpuDemod != nil && name == "NFM" {
-		if gpuAudio, gpuRate, err := m.gpuDemod.Demod(iq, offset, bw, gpudemod.DemodNFM); err == nil {
-			audio = gpuAudio
-			inputRate = gpuRate
-			if m.gpuDemod.LastShiftUsedGPU() {
-				log.Printf("gpudemod: validated GPU freq-shift used for event %d", ev.ID)
+	if m.gpuDemod != nil {
+		var gpuMode gpudemod.DemodType
+		var useGPU bool
+		switch name {
+		case "NFM":
+			gpuMode, useGPU = gpudemod.DemodNFM, true
+		case "WFM":
+			gpuMode, useGPU = gpudemod.DemodWFM, true
+		case "AM":
+			gpuMode, useGPU = gpudemod.DemodAM, true
+		case "USB":
+			gpuMode, useGPU = gpudemod.DemodUSB, true
+		case "LSB":
+			gpuMode, useGPU = gpudemod.DemodLSB, true
+		case "CW":
+			gpuMode, useGPU = gpudemod.DemodCW, true
+		}
+		if useGPU {
+			if gpuAudio, gpuRate, err := m.gpuDemod.Demod(iq, offset, bw, gpuMode); err == nil {
+				audio = gpuAudio
+				inputRate = gpuRate
+				if m.gpuDemod.LastShiftUsedGPU() {
+					log.Printf("gpudemod: validated GPU freq-shift used for event %d (%s)", ev.ID, name)
+				}
 			}
 		}
 	}

@@ -203,17 +203,24 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	if len(iq) > e.maxSamples {
 		return nil, 0, errors.New("sample count exceeds engine capacity")
 	}
-	if mode != DemodNFM {
-		return nil, 0, errors.New("CUDA demod phase 1 currently supports NFM only")
-	}
 
-	// Real CUDA boundary is now present. If the launch wrappers are not yet backed
-	// by actual kernels, we fall back to the existing CPU DSP path below.
 	_ = fmt.Sprintf("%s:%0.3f", phaseStatus(), offsetHz)
 	shifted, ok := e.tryCUDAFreqShift(iq, offsetHz)
-	if !ok || !ValidateFreqShift(iq, e.sampleRate, offsetHz, shifted, 1e-3) {
+	e.lastShiftUsedGPU = ok && ValidateFreqShift(iq, e.sampleRate, offsetHz, shifted, 1e-3)
+	if !e.lastShiftUsedGPU {
 		shifted = dsp.FreqShift(iq, e.sampleRate, offsetHz)
 	}
+
+	var outRate int
+	switch mode {
+	case DemodNFM, DemodAM, DemodUSB, DemodLSB, DemodCW:
+		outRate = 48000
+	case DemodWFM:
+		outRate = 192000
+	default:
+		return nil, 0, errors.New("unsupported demod type")
+	}
+
 	cutoff := bw / 2
 	if cutoff < 200 {
 		cutoff = 200
@@ -224,15 +231,35 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 		taps = append(make([]float32, 0, len(base)), base...)
 	}
 	filtered := dsp.ApplyFIR(shifted, taps)
-	outRate := demod.NFM{}.OutputSampleRate()
 	decim := int(math.Round(float64(e.sampleRate) / float64(outRate)))
 	if decim < 1 {
 		decim = 1
 	}
 	dec := dsp.Decimate(filtered, decim)
 	inputRate := e.sampleRate / decim
-	audio := demod.NFM{}.Demod(dec, inputRate)
-	return audio, inputRate, nil
+
+	switch mode {
+	case DemodNFM:
+		if gpuAudio, ok := e.tryCUDAFMDiscrim(dec); ok {
+			return gpuAudio, inputRate, nil
+		}
+		return demod.NFM{}.Demod(dec, inputRate), inputRate, nil
+	case DemodWFM:
+		if gpuAudio, ok := e.tryCUDAFMDiscrim(dec); ok {
+			return gpuAudio, inputRate, nil
+		}
+		return demod.WFM{}.Demod(dec, inputRate), inputRate, nil
+	case DemodAM:
+		return demod.AM{}.Demod(dec, inputRate), inputRate, nil
+	case DemodUSB:
+		return demod.USB{}.Demod(dec, inputRate), inputRate, nil
+	case DemodLSB:
+		return demod.LSB{}.Demod(dec, inputRate), inputRate, nil
+	case DemodCW:
+		return demod.CW{}.Demod(dec, inputRate), inputRate, nil
+	default:
+		return nil, 0, errors.New("unsupported demod type")
+	}
 }
 
 func (e *Engine) Close() {
@@ -253,6 +280,4 @@ func (e *Engine) Close() {
 	}
 	e.firTaps = nil
 	e.cudaReady = false
-}
-aReady = false
 }
