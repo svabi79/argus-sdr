@@ -322,6 +322,33 @@ func (e *Engine) tryCUDASSBProduct(shifted []complex64, bfoHz float64) ([]float3
 	return out, true
 }
 
+func (e *Engine) ShiftFilterDecimate(iq []complex64, offsetHz float64, bw float64, outRate int) ([]complex64, int, error) {
+	if e == nil {
+		return nil, 0, errors.New("nil CUDA demod engine")
+	}
+	if len(iq) == 0 {
+		return nil, 0, nil
+	}
+	if outRate <= 0 {
+		return nil, 0, errors.New("invalid output sample rate")
+	}
+	shifted := dsp.FreqShift(iq, e.sampleRate, offsetHz)
+	cutoff := bw / 2
+	if cutoff < 200 {
+		cutoff = 200
+	}
+	if cutoff > float64(e.sampleRate)/2-1 {
+		cutoff = float64(e.sampleRate)/2 - 1
+	}
+	ftaps := dsp.LowpassFIR(cutoff, e.sampleRate, 101)
+	filtered := dsp.ApplyFIR(shifted, ftaps)
+	decim := int(math.Round(float64(e.sampleRate) / float64(outRate)))
+	if decim < 1 {
+		decim = 1
+	}
+	return dsp.Decimate(filtered, decim), e.sampleRate / decim, nil
+}
+
 func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode DemodType) ([]float32, int, error) {
 	return e.Demod(iq, offsetHz, bw, mode)
 }

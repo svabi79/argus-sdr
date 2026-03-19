@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"sdr-visual-suite/internal/config"
+	"sdr-visual-suite/internal/demod/gpudemod"
 	"sdr-visual-suite/internal/dsp"
 )
 
@@ -57,6 +58,18 @@ func extractSignalIQ(iq []complex64, sampleRate int, centerHz float64, sigHz flo
 		return nil
 	}
 	offset := sigHz - centerHz
+	decimTarget := 200000
+	if decimTarget <= 0 {
+		decimTarget = sampleRate
+	}
+	if gpudemod.Available() {
+		if eng, err := gpudemod.New(len(iq), sampleRate); err == nil {
+			defer eng.Close()
+			if out, _, err := eng.ShiftFilterDecimate(iq, offset, bwHz, decimTarget); err == nil && len(out) > 0 {
+				return out
+			}
+		}
+	}
 	shifted := dsp.FreqShift(iq, sampleRate, offset)
 	cutoff := bwHz / 2
 	if cutoff < 200 {
@@ -67,7 +80,7 @@ func extractSignalIQ(iq []complex64, sampleRate int, centerHz float64, sigHz flo
 	}
 	taps := dsp.LowpassFIR(cutoff, sampleRate, 101)
 	filtered := dsp.ApplyFIR(shifted, taps)
-	decim := sampleRate / 200000
+	decim := sampleRate / decimTarget
 	if decim < 1 {
 		decim = 1
 	}
@@ -89,4 +102,3 @@ func parseSince(raw string) (time.Time, error) {
 	}
 	return time.Parse(time.RFC3339, raw)
 }
-
