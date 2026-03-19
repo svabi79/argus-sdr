@@ -70,10 +70,12 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 		return nil, 0, errors.New("CUDA demod phase 1 currently supports NFM only")
 	}
 
-	// Phase 1 conservative scaffold:
-	// Keep build/tag/CUDA-specific package boundaries now, but use the existing
-	// CPU DSP implementation as the processing backend until the actual CUDA
-	// kernels are introduced in later phases.
+	// Phase 1b note:
+	// This package now performs real CUDA availability gating and keeps the
+	// runtime/CGO boundary in place, but still intentionally falls back to the
+	// existing CPU DSP math for signal processing. The next phase should replace
+	// the FreqShift + FM discriminator sections below with actual kernel launches.
+	_ = fmt.Sprintf("%s:%0.3f", phaseStatus(), offsetHz)
 	shifted := dsp.FreqShift(iq, e.sampleRate, offsetHz)
 	cutoff := bw / 2
 	if cutoff < 200 {
