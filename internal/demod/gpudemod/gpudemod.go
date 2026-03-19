@@ -168,6 +168,28 @@ func (e *Engine) tryCUDAFreqShift(iq []complex64, offsetHz float64) ([]complex64
 	return out, true
 }
 
+func (e *Engine) tryCUDAFMDiscrim(shifted []complex64) ([]float32, bool) {
+	if e == nil || !e.cudaReady || len(shifted) < 2 || e.dShifted == nil || e.dAudio == nil {
+		return nil, false
+	}
+	iqBytes := C.size_t(len(shifted)) * C.size_t(unsafe.Sizeof(complex64(0)))
+	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dShifted), unsafe.Pointer(&shifted[0]), iqBytes) != C.cudaSuccess {
+		return nil, false
+	}
+	if C.gpud_launch_fm_discrim(e.dShifted, e.dAudio, C.int(len(shifted))) != 0 {
+		return nil, false
+	}
+	if C.gpud_device_sync() != C.cudaSuccess {
+		return nil, false
+	}
+	out := make([]float32, len(shifted)-1)
+	outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
+	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+		return nil, false
+	}
+	return out, true
+}
+
 func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodType) ([]float32, int, error) {
 	if e == nil {
 		return nil, 0, errors.New("nil CUDA demod engine")
