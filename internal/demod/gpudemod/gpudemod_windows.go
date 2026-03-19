@@ -249,7 +249,6 @@ func (e *Engine) SetFIR(taps []float32) {
 	}
 }
 
-func phaseStatus() string { return "phase1c-validated-shift" }
 func (e *Engine) LastShiftUsedGPU() bool { return e != nil && e.lastShiftUsedGPU }
 func (e *Engine) LastDemodUsedGPU() bool { return e != nil && e.lastDemodUsedGPU }
 
