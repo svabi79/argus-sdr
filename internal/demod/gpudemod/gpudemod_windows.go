@@ -400,6 +400,10 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 	if len(iq) == 0 {
 		return nil, 0, nil
 	}
+	e.lastShiftUsedGPU = false
+	e.lastFIRUsedGPU = false
+	e.lastDecimUsedGPU = false
+	e.lastDemodUsedGPU = false
 	if len(iq) > e.maxSamples {
 		return nil, 0, errors.New("sample count exceeds engine capacity")
 	}
