@@ -124,6 +124,9 @@ func ensureDLLLoaded() error {
 				filepath.Join(wd, "internal", "demod", "gpudemod", "build", "gpudemod_kernels.dll"),
 			)
 		}
+		if env := os.Getenv("GPUMOD_DLL"); env != "" {
+			candidates = append([]string{env}, candidates...)
+		}
 		seen := map[string]bool{}
 		for _, p := range candidates {
 			if p == "" || seen[p] {

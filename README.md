@@ -51,6 +51,8 @@ Important:
 - `build-sdrplay.ps1` prepares the runtime DLL placement and PATH setup for SDRplay + CUDA DLLs
 - the gpudemod DLL is built with `-cudart=hybrid`
 - GPU validation is disabled by default for performance; enable it with `SDR_GPU_VALIDATE=1` when debugging
+- you can override DLL lookup with `GPUMOD_DLL=C:\path\to\gpudemod_kernels.dll`
+- Windows builds may still show a harmless `__cdecl redefined` warning from CUDA headers
 - older experimental Windows build scripts were removed to avoid confusion
 
 ### Linux
