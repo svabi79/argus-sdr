@@ -15,36 +15,27 @@ $env:CXX = 'g++'
 $env:CGO_CFLAGS = '-IC:\PROGRA~1\SDRplay\API\inc'
 $env:CGO_LDFLAGS = '-LC:\PROGRA~1\SDRplay\API\x64 -lsdrplay_api'
 
-# CUDA (cuFFT)
+# CUDA runtime / cuFFT
 $cudaInc = 'C:\CUDA\include'
 $cudaBin = 'C:\CUDA\bin'
-if (-not (Test-Path $cudaInc)) {
-  $cudaInc = 'C:\PROGRA~1\NVIDIA GPU Computing Toolkit\CUDA\v13.2\include'
-  $cudaBin = 'C:\PROGRA~1\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin'
-}
-if (Test-Path $cudaInc) {
-  $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I$cudaInc"
-}
-if (Test-Path $cudaBin) {
-  $env:PATH = "$cudaBin;" + $env:PATH
-}
-
+if (-not (Test-Path $cudaInc)) { $cudaInc = 'C:\PROGRA~1\NVIDIA~2\CUDA\v13.2\include' }
+if (-not (Test-Path $cudaBin)) { $cudaBin = 'C:\PROGRA~1\NVIDIA~2\CUDA\v13.2\bin' }
 $cudaMingw = Join-Path $PSScriptRoot 'cuda-mingw'
-$gpuDemodBuild = Join-Path $PSScriptRoot 'internal\demod\gpudemod\build'
-if (Test-Path $cudaMingw) {
-  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaMingw"
-}
-if (Test-Path $gpuDemodBuild) {
-  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$gpuDemodBuild"
-}
-$env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -lgpudemod_kernels -lcufft64_12 -lcudart64_13 -lstdc++"
+if (Test-Path $cudaInc) { $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I$cudaInc" }
+if (Test-Path $cudaBin) { $env:PATH = "$cudaBin;" + $env:PATH }
+if (Test-Path $cudaMingw) { $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaMingw -lcudart64_13 -lcufft64_12 -lkernel32" }
 
-Write-Host 'Building with SDRplay + cuFFT support (MinGW-host CUDA path)...' -ForegroundColor Cyan
-Write-Host 'Preparing GNU-compatible CUDA kernel artifacts...' -ForegroundColor Cyan
-powershell -ExecutionPolicy Bypass -File tools\build-gpudemod-kernel.ps1
-if ($LASTEXITCODE -ne 0) { throw 'kernel build failed' }
-
+Write-Host 'Building SDRplay + cuFFT app (Windows DLL path)...' -ForegroundColor Cyan
 go build -tags "sdrplay,cufft" ./cmd/sdrd
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }
+
+$dllSrc = Join-Path $PSScriptRoot 'internal\demod\gpudemod\build\gpudemod_kernels.dll'
+$dllDst = Join-Path $PSScriptRoot 'gpudemod_kernels.dll'
+if (Test-Path $dllSrc) {
+  Copy-Item $dllSrc $dllDst -Force
+  Write-Host "Copied DLL to $dllDst" -ForegroundColor Green
+} else {
+  Write-Host 'WARNING: gpudemod_kernels.dll not found; build succeeded but runtime GPU demod will not load.' -ForegroundColor Yellow
+}
 
 Write-Host 'Done.' -ForegroundColor Green

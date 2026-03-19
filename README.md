@@ -42,15 +42,14 @@ powershell -ExecutionPolicy Bypass -File .\build-sdrplay.ps1
 ```
 
 This path uses:
-- MinGW GCC/G++ for the Go/CGO toolchain
-- `nvcc` with MinGW `g++` as the host compiler for `gpudemod` kernels
-- MinGW-compatible CUDA import libs from `cuda-mingw/`
+- `nvcc` + MSVC to build `gpudemod_kernels.dll`
+- MinGW GCC/G++ for the Go/CGO application build
+- runtime DLL loading for the Windows `gpudemod` path
 
 Important:
-- the kernel archive is generated as `internal/demod/gpudemod/build/libgpudemod_kernels.a`
-- `-lstdc++` is linked explicitly for CUDA host-side C++ runtime references
-- CUDA 13.x no longer supports older targets like `sm_50`/`sm_60`, so the script builds for `sm_75+`
-- if `nvcc` is missing, CUDA kernel preparation will fail
+- `gpudemod_kernels.dll` must be present next to `sdrd.exe` or in `internal/demod/gpudemod/build/`
+- `build-sdrplay.ps1` copies the DLL to the repo root after a successful app build when available
+- this avoids directly linking MSVC CUDA kernel objects into the MinGW-linked Go binary
 
 ### Linux
 ```bash

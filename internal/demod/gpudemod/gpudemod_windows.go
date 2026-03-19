@@ -1,69 +1,85 @@
-//go:build cufft && !windows
+//go:build cufft && windows
 
 package gpudemod
 
 /*
-#cgo windows LDFLAGS: -L${SRCDIR}/../../../cuda-mingw -L${SRCDIR}/build -lgpudemod_kernels -lcufft64_12 -lcudart64_13 -lstdc++
 #cgo windows CFLAGS: -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/include"
+#cgo windows LDFLAGS: -lcudart64_13 -lkernel32
+#include <windows.h>
+#include <stdlib.h>
 #include <cuda_runtime.h>
-#include <cufft.h>
 
 typedef struct { float x; float y; } gpud_float2;
 
-static int gpud_cuda_malloc(void **ptr, size_t bytes) {
-	return (int)cudaMalloc(ptr, bytes);
-}
+typedef int (__stdcall *gpud_upload_fir_taps_fn)(const float* taps, int n);
+typedef int (__stdcall *gpud_launch_freq_shift_fn)(const gpud_float2* in, gpud_float2* out, int n, double phase_inc, double phase_start);
+typedef int (__stdcall *gpud_launch_fm_discrim_fn)(const gpud_float2* in, float* out, int n);
+typedef int (__stdcall *gpud_launch_fir_fn)(const gpud_float2* in, gpud_float2* out, int n, int num_taps);
+typedef int (__stdcall *gpud_launch_decimate_fn)(const gpud_float2* in, gpud_float2* out, int n_out, int factor);
+typedef int (__stdcall *gpud_launch_am_envelope_fn)(const gpud_float2* in, float* out, int n);
+typedef int (__stdcall *gpud_launch_ssb_product_fn)(const gpud_float2* in, float* out, int n, double phase_inc, double phase_start);
 
-static int gpud_cuda_free(void *ptr) {
-	return (int)cudaFree(ptr);
-}
+static HMODULE gpud_mod = NULL;
+static gpud_upload_fir_taps_fn gpud_p_upload_fir_taps = NULL;
+static gpud_launch_freq_shift_fn gpud_p_launch_freq_shift = NULL;
+static gpud_launch_fm_discrim_fn gpud_p_launch_fm_discrim = NULL;
+static gpud_launch_fir_fn gpud_p_launch_fir = NULL;
+static gpud_launch_decimate_fn gpud_p_launch_decimate = NULL;
+static gpud_launch_am_envelope_fn gpud_p_launch_am_envelope = NULL;
+static gpud_launch_ssb_product_fn gpud_p_launch_ssb_product = NULL;
 
-static int gpud_memcpy_h2d(void *dst, const void *src, size_t bytes) {
-	return (int)cudaMemcpy(dst, src, bytes, cudaMemcpyHostToDevice);
-}
+static int gpud_cuda_malloc(void **ptr, size_t bytes) { return (int)cudaMalloc(ptr, bytes); }
+static int gpud_cuda_free(void *ptr) { return (int)cudaFree(ptr); }
+static int gpud_memcpy_h2d(void *dst, const void *src, size_t bytes) { return (int)cudaMemcpy(dst, src, bytes, cudaMemcpyHostToDevice); }
+static int gpud_memcpy_d2h(void *dst, const void *src, size_t bytes) { return (int)cudaMemcpy(dst, src, bytes, cudaMemcpyDeviceToHost); }
+static int gpud_device_sync() { return (int)cudaDeviceSynchronize(); }
 
-static int gpud_memcpy_d2h(void *dst, const void *src, size_t bytes) {
-	return (int)cudaMemcpy(dst, src, bytes, cudaMemcpyDeviceToHost);
-}
-
-static int gpud_device_sync() {
-	return (int)cudaDeviceSynchronize();
-}
-
-extern int gpud_launch_freq_shift_cuda(const gpud_float2* in, gpud_float2* out, int n, double phase_inc, double phase_start);
-extern int gpud_launch_fm_discrim_cuda(const gpud_float2* in, float* out, int n);
-extern int gpud_upload_fir_taps_cuda(const float* taps, int n);
-extern int gpud_launch_fir_cuda(const gpud_float2* in, gpud_float2* out, int n, int num_taps);
-extern int gpud_launch_decimate_cuda(const gpud_float2* in, gpud_float2* out, int n_out, int factor);
-extern int gpud_launch_am_envelope_cuda(const gpud_float2* in, float* out, int n);
-extern int gpud_launch_ssb_product_cuda(const gpud_float2* in, float* out, int n, double phase_inc, double phase_start);
-
-static int gpud_launch_freq_shift(gpud_float2 *in, gpud_float2 *out, int n, double phase_inc, double phase_start) {
-	return gpud_launch_freq_shift_cuda(in, out, n, phase_inc, phase_start);
-}
-
-static int gpud_launch_fm_discrim(gpud_float2 *in, float *out, int n) {
-	return gpud_launch_fm_discrim_cuda(in, out, n);
+static int gpud_load_library(const char* path) {
+	if (gpud_mod != NULL) return 0;
+	gpud_mod = LoadLibraryA(path);
+	if (gpud_mod == NULL) return -1;
+	gpud_p_upload_fir_taps = (gpud_upload_fir_taps_fn)GetProcAddress(gpud_mod, "gpud_upload_fir_taps_cuda");
+	gpud_p_launch_freq_shift = (gpud_launch_freq_shift_fn)GetProcAddress(gpud_mod, "gpud_launch_freq_shift_cuda");
+	gpud_p_launch_fm_discrim = (gpud_launch_fm_discrim_fn)GetProcAddress(gpud_mod, "gpud_launch_fm_discrim_cuda");
+	gpud_p_launch_fir = (gpud_launch_fir_fn)GetProcAddress(gpud_mod, "gpud_launch_fir_cuda");
+	gpud_p_launch_decimate = (gpud_launch_decimate_fn)GetProcAddress(gpud_mod, "gpud_launch_decimate_cuda");
+	gpud_p_launch_am_envelope = (gpud_launch_am_envelope_fn)GetProcAddress(gpud_mod, "gpud_launch_am_envelope_cuda");
+	gpud_p_launch_ssb_product = (gpud_launch_ssb_product_fn)GetProcAddress(gpud_mod, "gpud_launch_ssb_product_cuda");
+	if (!gpud_p_upload_fir_taps || !gpud_p_launch_freq_shift || !gpud_p_launch_fm_discrim || !gpud_p_launch_fir || !gpud_p_launch_decimate || !gpud_p_launch_am_envelope || !gpud_p_launch_ssb_product) {
+		FreeLibrary(gpud_mod);
+		gpud_mod = NULL;
+		return -2;
+	}
+	return 0;
 }
 
 static int gpud_upload_fir_taps(const float* taps, int n) {
-	return gpud_upload_fir_taps_cuda(taps, n);
+	if (!gpud_p_upload_fir_taps) return -1;
+	return gpud_p_upload_fir_taps(taps, n);
 }
-
+static int gpud_launch_freq_shift(gpud_float2 *in, gpud_float2 *out, int n, double phase_inc, double phase_start) {
+	if (!gpud_p_launch_freq_shift) return -1;
+	return gpud_p_launch_freq_shift(in, out, n, phase_inc, phase_start);
+}
+static int gpud_launch_fm_discrim(gpud_float2 *in, float *out, int n) {
+	if (!gpud_p_launch_fm_discrim) return -1;
+	return gpud_p_launch_fm_discrim(in, out, n);
+}
 static int gpud_launch_fir(gpud_float2 *in, gpud_float2 *out, int n, int num_taps) {
-	return gpud_launch_fir_cuda(in, out, n, num_taps);
+	if (!gpud_p_launch_fir) return -1;
+	return gpud_p_launch_fir(in, out, n, num_taps);
 }
-
 static int gpud_launch_decimate(gpud_float2 *in, gpud_float2 *out, int n_out, int factor) {
-	return gpud_launch_decimate_cuda(in, out, n_out, factor);
+	if (!gpud_p_launch_decimate) return -1;
+	return gpud_p_launch_decimate(in, out, n_out, factor);
 }
-
 static int gpud_launch_am_envelope(gpud_float2 *in, float *out, int n) {
-	return gpud_launch_am_envelope_cuda(in, out, n);
+	if (!gpud_p_launch_am_envelope) return -1;
+	return gpud_p_launch_am_envelope(in, out, n);
 }
-
 static int gpud_launch_ssb_product(gpud_float2 *in, float *out, int n, double phase_inc, double phase_start) {
-	return gpud_launch_ssb_product_cuda(in, out, n, phase_inc, phase_start);
+	if (!gpud_p_launch_ssb_product) return -1;
+	return gpud_p_launch_ssb_product(in, out, n, phase_inc, phase_start);
 }
 */
 import "C"
@@ -72,6 +88,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
+	"sync"
 	"unsafe"
 
 	"sdr-visual-suite/internal/demod"
@@ -88,6 +107,46 @@ const (
 	DemodLSB
 	DemodCW
 )
+
+var loadOnce sync.Once
+var loadErr error
+
+func ensureDLLLoaded() error {
+	loadOnce.Do(func() {
+		candidates := []string{}
+		if exe, err := os.Executable(); err == nil {
+			dir := filepath.Dir(exe)
+			candidates = append(candidates, filepath.Join(dir, "gpudemod_kernels.dll"))
+		}
+		if wd, err := os.Getwd(); err == nil {
+			candidates = append(candidates,
+				filepath.Join(wd, "gpudemod_kernels.dll"),
+				filepath.Join(wd, "internal", "demod", "gpudemod", "build", "gpudemod_kernels.dll"),
+			)
+		}
+		seen := map[string]bool{}
+		for _, p := range candidates {
+			if p == "" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			if _, err := os.Stat(p); err == nil {
+				cp := C.CString(p)
+				res := C.gpud_load_library(cp)
+				C.free(unsafe.Pointer(cp))
+				if res == 0 {
+					loadErr = nil
+					return
+				}
+				loadErr = fmt.Errorf("failed to load gpudemod DLL: %s (code %d)", p, int(res))
+			}
+		}
+		if loadErr == nil {
+			loadErr = errors.New("gpudemod_kernels.dll not found")
+		}
+	})
+	return loadErr
+}
 
 type Engine struct {
 	maxSamples        int
@@ -110,6 +169,9 @@ type Engine struct {
 }
 
 func Available() bool {
+	if ensureDLLLoaded() != nil {
+		return false
+	}
 	var count C.int
 	if C.cudaGetDeviceCount(&count) != C.cudaSuccess {
 		return false
@@ -123,6 +185,9 @@ func New(maxSamples int, sampleRate int) (*Engine, error) {
 	}
 	if sampleRate <= 0 {
 		return nil, errors.New("invalid sampleRate")
+	}
+	if err := ensureDLLLoaded(); err != nil {
+		return nil, err
 	}
 	if !Available() {
 		return nil, errors.New("cuda device not available")
