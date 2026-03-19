@@ -289,24 +289,43 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	e.lastDecimUsedGPU = false
 	inputRate := e.sampleRate / decim
 
+	e.lastDemodUsedGPU = false
 	switch mode {
 	case DemodNFM:
 		if gpuAudio, ok := e.tryCUDAFMDiscrim(dec); ok {
+			e.lastDemodUsedGPU = true
 			return gpuAudio, inputRate, nil
 		}
 		return demod.NFM{}.Demod(dec, inputRate), inputRate, nil
 	case DemodWFM:
 		if gpuAudio, ok := e.tryCUDAFMDiscrim(dec); ok {
+			e.lastDemodUsedGPU = true
 			return gpuAudio, inputRate, nil
 		}
 		return demod.WFM{}.Demod(dec, inputRate), inputRate, nil
 	case DemodAM:
+		if gpuAudio, ok := e.tryCUDAAMEnvelope(dec); ok {
+			e.lastDemodUsedGPU = true
+			return gpuAudio, inputRate, nil
+		}
 		return demod.AM{}.Demod(dec, inputRate), inputRate, nil
 	case DemodUSB:
+		if gpuAudio, ok := e.tryCUDASSBProduct(dec, 700.0); ok {
+			e.lastDemodUsedGPU = true
+			return gpuAudio, inputRate, nil
+		}
 		return demod.USB{}.Demod(dec, inputRate), inputRate, nil
 	case DemodLSB:
+		if gpuAudio, ok := e.tryCUDASSBProduct(dec, -700.0); ok {
+			e.lastDemodUsedGPU = true
+			return gpuAudio, inputRate, nil
+		}
 		return demod.LSB{}.Demod(dec, inputRate), inputRate, nil
 	case DemodCW:
+		if gpuAudio, ok := e.tryCUDASSBProduct(dec, 700.0); ok {
+			e.lastDemodUsedGPU = true
+			return gpuAudio, inputRate, nil
+		}
 		return demod.CW{}.Demod(dec, inputRate), inputRate, nil
 	default:
 		return nil, 0, errors.New("unsupported demod type")
