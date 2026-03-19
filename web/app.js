@@ -211,6 +211,41 @@ function maxInBinRange(spectrum, b0, b1) {
   return max;
 }
 
+function sampleOverlayAtX(overlay, x, width, centerHz, sampleRate) {
+  if (!Array.isArray(overlay) || overlay.length === 0 || width <= 0) return null;
+  const n = overlay.length;
+  const span = sampleRate / zoom;
+  const startHz = centerHz - span / 2 + pan * span;
+  const endHz = centerHz + span / 2 + pan * span;
+  const f1 = startHz + (x / width) * (endHz - startHz);
+  const f2 = startHz + ((x + 1) / width) * (endHz - startHz);
+  const b0 = binForFreq(f1, centerHz, sampleRate, n);
+  const b1 = binForFreq(f2, centerHz, sampleRate, n);
+  return maxInBinRange(overlay, b0, b1);
+}
+
+function drawThresholdOverlay(ctx, w, h, minDb, maxDb) {
+  if (!latest?.thresholds?.length) return;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 196, 92, 0.9)';
+  ctx.lineWidth = 1.25;
+  if (ctx.setLineDash) ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  for (let x = 0; x < w; x++) {
+    const v = sampleOverlayAtX(latest.thresholds, x, w, latest.center_hz, latest.sample_rate);
+    if (v == null || Number.isNaN(v)) continue;
+    const y = h - ((v - minDb) / (maxDb - minDb)) * (h - 18) - 6;
+    if (x === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  if (ctx.setLineDash) ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255, 196, 92, 0.95)';
+  ctx.font = '11px Inter, sans-serif';
+  ctx.fillText('CFAR', 8, 14);
+  ctx.restore();
+}
+
 function markSpectrumDirty() {
   processingDirty = true;
 }
@@ -645,6 +680,7 @@ function renderSpectrum() {
     else ctx.lineTo(x, y);
   }
   ctx.stroke();
+  drawThresholdOverlay(ctx, w, h, minDb, maxDb);
 
   if (Array.isArray(latest.signals)) {
     latest.signals.forEach((s, index) => {

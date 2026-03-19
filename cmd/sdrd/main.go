@@ -35,12 +35,14 @@ import (
 )
 
 type SpectrumFrame struct {
-	Timestamp int64             `json:"ts"`
-	CenterHz  float64           `json:"center_hz"`
-	SampleHz  int               `json:"sample_rate"`
-	FFTSize   int               `json:"fft_size"`
-	Spectrum  []float64         `json:"spectrum_db"`
-	Signals   []detector.Signal `json:"signals"`
+	Timestamp  int64             `json:"ts"`
+	CenterHz   float64           `json:"center_hz"`
+	SampleHz   int               `json:"sample_rate"`
+	FFTSize    int               `json:"fft_size"`
+	Spectrum   []float64         `json:"spectrum_db"`
+	Thresholds []float64         `json:"thresholds,omitempty"`
+	NoiseFloor float64           `json:"noise_floor,omitempty"`
+	Signals    []detector.Signal `json:"signals"`
 }
 
 type client struct {
@@ -837,6 +839,8 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			now := time.Now()
 			finished, signals := det.Process(now, spectrum, cfg.CenterHz)
+			thresholds := det.LastThresholds()
+			noiseFloor := det.LastNoiseFloor()
 			// enrich classification with temporal IQ features on per-signal snippet
 			if len(iq) > 0 {
 				for i := range signals {
@@ -860,12 +864,14 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				go rec.OnEvents(evCopy)
 			}
 			h.broadcast(SpectrumFrame{
-				Timestamp: now.UnixMilli(),
-				CenterHz:  cfg.CenterHz,
-				SampleHz:  cfg.SampleRate,
-				FFTSize:   cfg.FFTSize,
-				Spectrum:  spectrum,
-				Signals:   signals,
+				Timestamp:  now.UnixMilli(),
+				CenterHz:   cfg.CenterHz,
+				SampleHz:   cfg.SampleRate,
+				FFTSize:    cfg.FFTSize,
+				Spectrum:   spectrum,
+				Thresholds: thresholds,
+				NoiseFloor: noiseFloor,
+				Signals:    signals,
 			})
 		}
 	}

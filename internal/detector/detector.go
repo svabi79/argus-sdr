@@ -31,14 +31,16 @@ type Detector struct {
 	MinStableFrames int
 	GapTolerance    time.Duration
 	CFARScaleDb     float64
-	binWidth   float64
-	nbins      int
-	sampleRate int
+	binWidth        float64
+	nbins           int
+	sampleRate      int
 
-	ema        []float64
-	active     map[int64]*activeEvent
-	nextID     int64
-	cfarEngine cfar.CFAR
+	ema           []float64
+	active        map[int64]*activeEvent
+	nextID        int64
+	cfarEngine    cfar.CFAR
+	lastThresholds []float64
+	lastNoiseFloor float64
 }
 
 type activeEvent struct {
@@ -62,6 +64,7 @@ type Signal struct {
 	BWHz     float64                    `json:"bw_hz"`
 	PeakDb   float64                    `json:"peak_db"`
 	SNRDb    float64                    `json:"snr_db"`
+	NoiseDb  float64                    `json:"noise_db,omitempty"`
 	Class    *classifier.Classification `json:"class,omitempty"`
 }
 
@@ -135,6 +138,17 @@ func (d *Detector) Process(now time.Time, spectrum []float64, centerHz float64) 
 	return finished, signals
 }
 
+func (d *Detector) LastThresholds() []float64 {
+	if len(d.lastThresholds) == 0 {
+		return nil
+	}
+	return append([]float64(nil), d.lastThresholds...)
+}
+
+func (d *Detector) LastNoiseFloor() float64 {
+	return d.lastNoiseFloor
+}
+
 // UpdateClasses refreshes active event classes from current signals.
 func (d *Detector) UpdateClasses(signals []Signal) {
 	for _, s := range signals {
@@ -160,7 +174,9 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 	if d.cfarEngine != nil {
 		thresholds = d.cfarEngine.Thresholds(smooth)
 	}
+	d.lastThresholds = append(d.lastThresholds[:0], thresholds...)
 	noiseGlobal := median(smooth)
+	d.lastNoiseFloor = noiseGlobal
 	var signals []Signal
 	in := false
 	start := 0
@@ -214,6 +230,7 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 		BWHz:     bw,
 		PeakDb:   peak,
 		SNRDb:    snr,
+		NoiseDb:  noise,
 	}
 }
 
