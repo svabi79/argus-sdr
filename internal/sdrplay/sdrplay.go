@@ -400,33 +400,59 @@ func goStreamCallback(xi *C.short, xq *C.short, numSamples C.uint, reset C.uint,
 	if atomic.LoadUint32(&src.stopping) != 0 {
 		return
 	}
-	if reset != 0 {
-		src.mu.Lock()
-		src.head = 0
-		src.size = 0
-		src.resets++
-		src.mu.Unlock()
-		if src.cond != nil {
-			src.cond.Broadcast()
-		}
-	}
 	n := int(numSamples)
 	if n <= 0 {
 		return
 	}
-	iq := make([]complex64, n)
+
+	src.mu.Lock()
+	defer src.mu.Unlock()
+
+	if reset != 0 {
+		src.head = 0
+		src.size = 0
+		src.resets++
+	}
+
 	xiSlice := unsafe.Slice((*int16)(unsafe.Pointer(xi)), n)
 	xqSlice := unsafe.Slice((*int16)(unsafe.Pointer(xq)), n)
 	const scale = 1.0 / 32768.0
-	for i := 0; i < n; i++ {
+
+	incoming := n
+	if incoming > src.capSamples {
+		offset := incoming - src.capSamples
+		xiSlice = xiSlice[offset:]
+		xqSlice = xqSlice[offset:]
+		incoming = src.capSamples
+		src.dropped += uint64(offset)
+	}
+
+	over := src.size + incoming - src.capSamples
+	if over > 0 {
+		src.head = (src.head + over) % src.capSamples
+		src.size -= over
+		src.dropped += uint64(over)
+	}
+
+	start := (src.head + src.size) % src.capSamples
+	first := min(incoming, src.capSamples-start)
+	for i := 0; i < first; i++ {
 		re := float32(float64(xiSlice[i]) * scale)
 		im := float32(float64(xqSlice[i]) * scale)
-		iq[i] = complex(re, im)
+		src.buf[start+i] = complex(re, im)
 	}
-	src.mu.Lock()
+	if first < incoming {
+		for i := first; i < incoming; i++ {
+			re := float32(float64(xiSlice[i]) * scale)
+			im := float32(float64(xqSlice[i]) * scale)
+			src.buf[i-first] = complex(re, im)
+		}
+	}
+	src.size += incoming
 	src.lastSample = time.Now()
-	src.appendRing(iq)
-	src.mu.Unlock()
+	if src.cond != nil {
+		src.cond.Broadcast()
+	}
 }
 
 func cErr(err C.sdrplay_api_ErrT) error {
