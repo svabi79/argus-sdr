@@ -195,7 +195,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			if rec != nil && len(finished) > 0 {
 				evCopy := make([]detector.Event, len(finished))
 				copy(evCopy, finished)
-				go rec.OnEvents(evCopy)
+				rec.OnEvents(evCopy)
 			}
 			var debugInfo *SpectrumDebug
 			if len(thresholds) > 0 || len(signals) > 0 || noiseFloor != 0 {

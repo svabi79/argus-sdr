@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"sdr-visual-suite/internal/demod/gpudemod"
@@ -29,6 +30,7 @@ type Policy struct {
 }
 
 type Manager struct {
+	mu             sync.RWMutex
 	policy         Policy
 	ring           *Ring
 	sampleRate     int
@@ -53,12 +55,14 @@ func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeC
 }
 
 func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeCommands map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.policy = policy
 	m.sampleRate = sampleRate
 	m.blockSize = blockSize
 	m.centerHz = centerHz
 	m.decodeCommands = decodeCommands
-	m.initGPUDemod(sampleRate, blockSize)
+	m.initGPUDemodLocked(sampleRate, blockSize)
 	if m.ring == nil {
 		m.ring = NewRing(sampleRate, blockSize, policy.RingSeconds)
 		return
@@ -67,14 +71,26 @@ func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz 
 }
 
 func (m *Manager) Ingest(t0 time.Time, samples []complex64) {
-	if m == nil || m.ring == nil {
+	if m == nil {
 		return
 	}
-	m.ring.Push(t0, samples)
+	m.mu.RLock()
+	ring := m.ring
+	m.mu.RUnlock()
+	if ring == nil {
+		return
+	}
+	ring.Push(t0, samples)
 }
 
 func (m *Manager) OnEvents(events []detector.Event) {
-	if m == nil || !m.policy.Enabled || len(events) == 0 {
+	if m == nil || len(events) == 0 {
+		return
+	}
+	m.mu.RLock()
+	enabled := m.policy.Enabled
+	m.mu.RUnlock()
+	if !enabled {
 		return
 	}
 	for _, ev := range events {
@@ -93,6 +109,12 @@ func (m *Manager) worker() {
 }
 
 func (m *Manager) initGPUDemod(sampleRate int, blockSize int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.initGPUDemodLocked(sampleRate, blockSize)
+}
+
+func (m *Manager) initGPUDemodLocked(sampleRate int, blockSize int) {
 	if m.gpuDemod != nil {
 		m.gpuDemod.Close()
 		m.gpuDemod = nil
@@ -108,22 +130,29 @@ func (m *Manager) initGPUDemod(sampleRate int, blockSize int) {
 }
 
 func (m *Manager) recordEvent(ev detector.Event) error {
-	if !m.policy.Enabled {
+	m.mu.RLock()
+	policy := m.policy
+	ring := m.ring
+	sampleRate := m.sampleRate
+	centerHz := m.centerHz
+	m.mu.RUnlock()
+
+	if !policy.Enabled {
 		return nil
 	}
-	if ev.SNRDb < m.policy.MinSNRDb {
+	if ev.SNRDb < policy.MinSNRDb {
 		return nil
 	}
 	dur := ev.End.Sub(ev.Start)
-	if m.policy.MinDuration > 0 && dur < m.policy.MinDuration {
+	if policy.MinDuration > 0 && dur < policy.MinDuration {
 		return nil
 	}
-	if m.policy.MaxDuration > 0 && dur > m.policy.MaxDuration {
+	if policy.MaxDuration > 0 && dur > policy.MaxDuration {
 		return nil
 	}
-	if len(m.policy.ClassFilter) > 0 && ev.Class != nil {
+	if len(policy.ClassFilter) > 0 && ev.Class != nil {
 		match := false
-		for _, c := range m.policy.ClassFilter {
+		for _, c := range policy.ClassFilter {
 			if strings.EqualFold(c, string(ev.Class.ModType)) {
 				match = true
 				break
@@ -133,46 +162,49 @@ func (m *Manager) recordEvent(ev detector.Event) error {
 			return nil
 		}
 	}
-	if !m.policy.RecordIQ && !m.policy.RecordAudio {
+	if !policy.RecordIQ && !policy.RecordAudio {
 		return nil
 	}
 
-	start := ev.Start.Add(-time.Duration(m.policy.PrerollMs) * time.Millisecond)
+	start := ev.Start.Add(-time.Duration(policy.PrerollMs) * time.Millisecond)
 	end := ev.End
 	if start.After(end) {
 		return errors.New("invalid event window")
 	}
+	if ring == nil {
+		return errors.New("no ring buffer")
+	}
 
-	segment := m.ring.Slice(start, end)
+	segment := ring.Slice(start, end)
 	if len(segment) == 0 {
 		return errors.New("no iq in ring")
 	}
 
-	dir := filepath.Join(m.policy.OutputDir, fmt.Sprintf("%s_%0.fHz_evt%d", ev.Start.Format("2006-01-02T15-04-05"), ev.CenterHz, ev.ID))
+	dir := filepath.Join(policy.OutputDir, fmt.Sprintf("%s_%0.fHz_evt%d", ev.Start.Format("2006-01-02T15-04-05"), ev.CenterHz, ev.ID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	files := map[string]any{}
 	var iqPath string
-	if m.policy.RecordIQ {
+	if policy.RecordIQ {
 		iqPath = filepath.Join(dir, "signal.cf32")
 		if err := writeCF32(iqPath, segment); err != nil {
 			return err
 		}
 		files["iq"] = "signal.cf32"
 		files["iq_format"] = "cf32"
-		files["iq_sample_rate"] = m.sampleRate
+		files["iq_sample_rate"] = sampleRate
 	}
 
-	// Optional demod + audio
-	if m.policy.RecordAudio && m.policy.AutoDemod && ev.Class != nil {
+	if policy.RecordAudio && policy.AutoDemod && ev.Class != nil {
 		if err := m.demodAndWrite(dir, ev, segment, files); err != nil {
 			return err
 		}
 	}
-	if m.policy.AutoDecode && iqPath != "" && ev.Class != nil {
-		m.runDecodeIfConfigured(string(ev.Class.ModType), iqPath, m.sampleRate, files, dir)
+	if policy.AutoDecode && iqPath != "" && ev.Class != nil {
+		m.runDecodeIfConfigured(string(ev.Class.ModType), iqPath, sampleRate, files, dir)
 	}
 
-	return writeMeta(dir, ev, m.sampleRate, files)
+	_ = centerHz
+	return writeMeta(dir, ev, sampleRate, files)
 }

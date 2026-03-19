@@ -40,7 +40,11 @@ $dllDst = Join-Path $PSScriptRoot 'gpudemod_kernels.dll'
 $dllSrc = $dllCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($dllSrc) {
   if ((Resolve-Path $dllSrc).Path -ne (Resolve-Path (Split-Path $dllDst -Parent)).Path + '\gpudemod_kernels.dll') {
-    Copy-Item $dllSrc $dllDst -Force
+    try {
+      Copy-Item $dllSrc $dllDst -Force
+    } catch {
+      Write-Host "WARNING: could not refresh runtime DLL at $dllDst ($($_.Exception.Message))" -ForegroundColor Yellow
+    }
   }
   Write-Host "CUDA DLL ready at $dllDst" -ForegroundColor Green
 } else {
