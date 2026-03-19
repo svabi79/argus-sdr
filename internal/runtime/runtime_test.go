@@ -15,7 +15,8 @@ func TestApplyConfigUpdate(t *testing.T) {
 	fftSize := 4096
 	threshold := -35.0
 	bw := 1536
-	cfarEnabled := true
+	cfarMode := "OS"
+	cfarWrap := true
 	cfarGuard := 2
 	cfarTrain := 12
 	cfarRank := 18
@@ -28,7 +29,8 @@ func TestApplyConfigUpdate(t *testing.T) {
 		TunerBwKHz: &bw,
 		Detector: &DetectorUpdate{
 			ThresholdDb:    &threshold,
-			CFAREnabled:    &cfarEnabled,
+			CFARMode:       &cfarMode,
+			CFARWrapAround: &cfarWrap,
 			CFARGuardCells: &cfarGuard,
 			CFARTrainCells: &cfarTrain,
 			CFARRank:       &cfarRank,
@@ -50,8 +52,11 @@ func TestApplyConfigUpdate(t *testing.T) {
 	if updated.Detector.ThresholdDb != threshold {
 		t.Fatalf("threshold: %v", updated.Detector.ThresholdDb)
 	}
-	if updated.Detector.CFAREnabled != cfarEnabled {
-		t.Fatalf("cfar enabled: %v", updated.Detector.CFAREnabled)
+	if updated.Detector.CFARMode != cfarMode {
+		t.Fatalf("cfar mode: %v", updated.Detector.CFARMode)
+	}
+	if updated.Detector.CFARWrapAround != cfarWrap {
+		t.Fatalf("cfar wrap: %v", updated.Detector.CFARWrapAround)
 	}
 	if updated.Detector.CFARGuardCells != cfarGuard {
 		t.Fatalf("cfar guard: %v", updated.Detector.CFARGuardCells)

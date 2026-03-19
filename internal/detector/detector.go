@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"sdr-visual-suite/internal/cfar"
 	"sdr-visual-suite/internal/classifier"
 )
 
@@ -29,19 +30,15 @@ type Detector struct {
 	HysteresisDb    float64
 	MinStableFrames int
 	GapTolerance    time.Duration
-	CFAREnabled     bool
-	CFARGuardCells  int
-	CFARTrainCells  int
-	CFARRank        int
 	CFARScaleDb     float64
-
 	binWidth   float64
 	nbins      int
 	sampleRate int
 
-	ema    []float64
-	active map[int64]*activeEvent
-	nextID int64
+	ema        []float64
+	active     map[int64]*activeEvent
+	nextID     int64
+	cfarEngine cfar.CFAR
 }
 
 type activeEvent struct {
@@ -68,7 +65,7 @@ type Signal struct {
 	Class    *classifier.Classification `json:"class,omitempty"`
 }
 
-func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration, emaAlpha, hysteresis float64, minStable int, gapTolerance time.Duration, cfarEnabled bool, cfarGuard, cfarTrain, cfarRank int, cfarScaleDb float64) *Detector {
+func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Duration, emaAlpha, hysteresis float64, minStable int, gapTolerance time.Duration, cfarMode string, cfarGuard, cfarTrain, cfarRank int, cfarScaleDb float64, cfarWrap bool) *Detector {
 	if minDur <= 0 {
 		minDur = 250 * time.Millisecond
 	}
@@ -102,6 +99,17 @@ func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Dur
 			cfarRank = 1
 		}
 	}
+	var cfarEngine cfar.CFAR
+	if cfarMode != "" && cfarMode != "OFF" {
+		cfarEngine = cfar.New(cfar.Config{
+			Mode:       cfar.Mode(cfarMode),
+			GuardCells: cfarGuard,
+			TrainCells: cfarTrain,
+			Rank:       cfarRank,
+			ScaleDb:    cfarScaleDb,
+			WrapAround: cfarWrap,
+		})
+	}
 	return &Detector{
 		ThresholdDb:     thresholdDb,
 		MinDuration:     minDur,
@@ -110,10 +118,6 @@ func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Dur
 		HysteresisDb:    hysteresis,
 		MinStableFrames: minStable,
 		GapTolerance:    gapTolerance,
-		CFAREnabled:     cfarEnabled,
-		CFARGuardCells:  cfarGuard,
-		CFARTrainCells:  cfarTrain,
-		CFARRank:        cfarRank,
 		CFARScaleDb:     cfarScaleDb,
 		binWidth:        float64(sampleRate) / float64(fftSize),
 		nbins:           fftSize,
@@ -121,6 +125,7 @@ func New(thresholdDb float64, sampleRate int, fftSize int, minDur, hold time.Dur
 		ema:             make([]float64, fftSize),
 		active:          map[int64]*activeEvent{},
 		nextID:          1,
+		cfarEngine:      cfarEngine,
 	}
 }
 
@@ -151,7 +156,10 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 		return nil
 	}
 	smooth := d.smoothSpectrum(spectrum)
-	thresholds := d.cfarThresholds(smooth)
+	var thresholds []float64
+	if d.cfarEngine != nil {
+		thresholds = d.cfarEngine.Thresholds(smooth)
+	}
 	noiseGlobal := median(smooth)
 	var signals []Signal
 	in := false
@@ -207,95 +215,6 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 		PeakDb:   peak,
 		SNRDb:    snr,
 	}
-}
-
-func (d *Detector) cfarThresholds(spectrum []float64) []float64 {
-	if !d.CFAREnabled || d.CFARTrainCells <= 0 {
-		return nil
-	}
-	n := len(spectrum)
-	train := d.CFARTrainCells
-	guard := d.CFARGuardCells
-	totalTrain := 2 * train
-	if totalTrain <= 0 {
-		return nil
-	}
-	rank := d.CFARRank
-	if rank <= 0 || rank > totalTrain {
-		rank = int(math.Round(0.75 * float64(totalTrain)))
-		if rank <= 0 {
-			rank = 1
-		}
-	}
-	rankIdx := rank - 1
-	thresholds := make([]float64, n)
-	buf := make([]float64, 0, totalTrain)
-	firstValid := guard + train
-	lastValid := n - guard - train - 1
-	for i := 0; i < n; i++ {
-		if i < firstValid || i > lastValid {
-			thresholds[i] = math.NaN()
-		}
-	}
-	if firstValid > lastValid {
-		return thresholds
-	}
-
-	// Build initial sorted window for first valid bin.
-	leftStart := firstValid - guard - train
-	buf = append(buf, spectrum[leftStart:leftStart+train]...)
-	buf = append(buf, spectrum[firstValid+guard+1:firstValid+guard+1+train]...)
-	sort.Float64s(buf)
-	thresholds[firstValid] = buf[rankIdx] + d.CFARScaleDb
-
-	// Slide window: remove outgoing bins and insert incoming bins (O(train) per step).
-	for i := firstValid + 1; i <= lastValid; i++ {
-		outLeft := spectrum[i-guard-train-1]
-		outRight := spectrum[i+guard]
-		inLeft := spectrum[i-guard-1]
-		inRight := spectrum[i+guard+train]
-		buf = removeValue(buf, outLeft)
-		buf = removeValue(buf, outRight)
-		buf = insertValue(buf, inLeft)
-		buf = insertValue(buf, inRight)
-		thresholds[i] = buf[rankIdx] + d.CFARScaleDb
-	}
-	return thresholds
-}
-
-func removeValue(sorted []float64, v float64) []float64 {
-	if len(sorted) == 0 {
-		return sorted
-	}
-	idx := sort.SearchFloat64s(sorted, v)
-	if idx < len(sorted) && sorted[idx] == v {
-		return append(sorted[:idx], sorted[idx+1:]...)
-	}
-	for i := idx - 1; i >= 0; i-- {
-		if sorted[i] == v {
-			return append(sorted[:i], sorted[i+1:]...)
-		}
-		if sorted[i] < v {
-			break
-		}
-	}
-	for i := idx + 1; i < len(sorted); i++ {
-		if sorted[i] == v {
-			return append(sorted[:i], sorted[i+1:]...)
-		}
-		if sorted[i] > v {
-			break
-		}
-	}
-	return sorted
-}
-
-func insertValue(sorted []float64, v float64) []float64 {
-	idx := sort.SearchFloat64s(sorted, v)
-	sorted = append(sorted, 0)
-	copy(sorted[idx+1:], sorted[idx:])
-	sorted[idx] = v
-	return sorted
 }
 
 func (d *Detector) smoothSpectrum(spectrum []float64) []float64 {

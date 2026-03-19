@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"math"
+	"strings"
 	"sync"
 
 	"sdr-visual-suite/internal/config"
@@ -27,11 +28,12 @@ type DetectorUpdate struct {
 	HysteresisDb    *float64 `json:"hysteresis_db"`
 	MinStableFrames *int     `json:"min_stable_frames"`
 	GapToleranceMs  *int     `json:"gap_tolerance_ms"`
-	CFAREnabled     *bool    `json:"cfar_enabled"`
+	CFARMode        *string  `json:"cfar_mode"`
 	CFARGuardCells  *int     `json:"cfar_guard_cells"`
 	CFARTrainCells  *int     `json:"cfar_train_cells"`
 	CFARRank        *int     `json:"cfar_rank"`
 	CFARScaleDb     *float64 `json:"cfar_scale_db"`
+	CFARWrapAround  *bool    `json:"cfar_wrap_around"`
 }
 
 type SettingsUpdate struct {
@@ -157,8 +159,17 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 			}
 			next.Detector.GapToleranceMs = *update.Detector.GapToleranceMs
 		}
-		if update.Detector.CFAREnabled != nil {
-			next.Detector.CFAREnabled = *update.Detector.CFAREnabled
+		if update.Detector.CFARMode != nil {
+			mode := strings.ToUpper(strings.TrimSpace(*update.Detector.CFARMode))
+			switch mode {
+			case "OFF", "CA", "OS", "GOSCA", "CASO":
+				next.Detector.CFARMode = mode
+			default:
+				return m.cfg, errors.New("cfar_mode must be OFF, CA, OS, GOSCA, or CASO")
+			}
+		}
+		if update.Detector.CFARWrapAround != nil {
+			next.Detector.CFARWrapAround = *update.Detector.CFARWrapAround
 		}
 		if update.Detector.CFARGuardCells != nil {
 			if *update.Detector.CFARGuardCells < 0 {
