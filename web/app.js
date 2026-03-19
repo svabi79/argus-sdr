@@ -558,9 +558,10 @@ function updateHeroMetrics() {
   metricSource.textContent = stats.last_sample_ago_ms >= 0 ? `${stats.last_sample_ago_ms} ms` : 'n/a';
 
   const gpuText = gpuInfo.active ? 'GPU active' : (gpuInfo.available ? 'GPU ready' : 'GPU n/a');
-  const thresholdInfo = Array.isArray(latest.thresholds) && latest.thresholds.length
-    ? `CFAR on · noise ${(Number.isFinite(latest.noise_floor) ? latest.noise_floor.toFixed(1) : 'n/a')} dB`
-    : `CFAR off · noise ${(Number.isFinite(latest.noise_floor) ? latest.noise_floor.toFixed(1) : 'n/a')} dB`;
+  const debug = latest.debug || {};
+  const thresholdInfo = Array.isArray(debug.thresholds) && debug.thresholds.length
+    ? `CFAR ${showDebugOverlay ? 'on' : 'hidden'} · noise ${(Number.isFinite(debug.noise_floor) ? debug.noise_floor.toFixed(1) : 'n/a')} dB`
+    : `CFAR off · noise ${(Number.isFinite(debug.noise_floor) ? debug.noise_floor.toFixed(1) : 'n/a')} dB`;
   metaLine.textContent = `${fmtMHz(latest.center_hz, 3)} · ${fmtHz(span)} span · ${thresholdInfo} · ${gpuText}`;
   heroSubtitle.textContent = `${latest.signals?.length || 0} live signals · ${events.length} recent events tracked`;
 
