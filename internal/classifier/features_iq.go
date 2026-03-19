@@ -19,13 +19,17 @@ func ExtractTemporalFeatures(iq []complex64) (envVar float64, zeroCross float64,
 	}
 	mean /= float64(len(iq))
 	rms = math.Sqrt(rms / float64(len(iq)))
-	// env variance
+	// normalized env variance (coefficient of variation squared)
 	var sumVar float64
 	for _, v := range env {
 		d := v - mean
 		sumVar += d * d
 	}
-	envVar = sumVar / float64(len(iq))
+	if mean > 1e-12 {
+		envVar = (sumVar / float64(len(iq))) / (mean * mean)
+	} else {
+		envVar = 0
+	}
 	if rms > 0 {
 		crest = maxFloat(env) / rms
 	}

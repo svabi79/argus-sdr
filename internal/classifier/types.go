@@ -52,4 +52,5 @@ type SignalInput struct {
 	FirstBin int
 	LastBin  int
 	SNRDb    float64
+	CenterHz float64
 }

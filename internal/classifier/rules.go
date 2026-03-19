@@ -2,7 +2,7 @@ package classifier
 
 import "math"
 
-func RuleClassify(feat Features) Classification {
+func RuleClassify(feat Features, centerHz float64, snrDb float64) Classification {
 	bw := feat.BW3dB
 	flat := feat.SpectralFlat
 	sym := feat.Symmetry
@@ -10,10 +10,13 @@ func RuleClassify(feat Features) Classification {
 
 	scores := map[SignalClass]float64{}
 	add := func(c SignalClass, w float64) {
-		if w <= 0 {
+		if w == 0 {
 			return
 		}
 		scores[c] += w
+		if scores[c] < 0 {
+			scores[c] = 0
+		}
 	}
 
 	switch {
@@ -23,7 +26,7 @@ func RuleClassify(feat Features) Classification {
 		add(ClassWFM, 1.4)
 		add(ClassNFM, 0.8)
 	case bw >= 6e3 && bw < 25e3:
-		add(ClassNFM, 2.0)
+		add(ClassNFM, 1.2)
 	case bw >= 3e3 && bw < 6e3:
 		add(ClassSSBUSB, 0.6)
 		add(ClassSSBLSB, 0.6)
@@ -48,10 +51,42 @@ func RuleClassify(feat Features) Classification {
 	} else if sym < -0.2 {
 		add(ClassSSBLSB, 1.2)
 	}
-	if feat.EnvVariance < 0.6 && feat.InstFreqStd < 0.7 && bw >= 2000 && bw < 3000 {
+
+	rollAvg := (feat.RolloffLeft + feat.RolloffRight) / 2.0
+	rollAsym := math.Abs(feat.RolloffLeft - feat.RolloffRight)
+	if rollAvg > 15 && rollAsym < 5 {
+		if bw >= 6000 {
+			add(ClassNFM, 0.4)
+		}
+		if bw >= 80000 {
+			add(ClassWFM, 0.4)
+		}
+		if bw >= 3000 && bw <= 10000 {
+			add(ClassAM, 0.3)
+		}
+	}
+	if rollAsym > 10 && bw >= 2000 && bw <= 4000 {
+		if feat.RolloffLeft > feat.RolloffRight {
+			add(ClassSSBLSB, 0.6)
+		} else {
+			add(ClassSSBUSB, 0.6)
+		}
+	}
+
+	if feat.EnvVariance < 0.08 && bw >= 10000 && bw <= 14000 && flat > 0.55 {
+		add(ClassDMR, 1.5)
+	}
+	if feat.EnvVariance < 0.08 && bw >= 5000 && bw <= 8000 && flat > 0.55 {
+		add(ClassDStar, 1.3)
+	}
+	if feat.EnvVariance < 0.03 && bw >= 5000 && bw <= 16000 {
+		add(ClassNFM, -0.5)
+	}
+
+	if feat.EnvVariance < 0.08 && feat.InstFreqStd < 0.7 && bw >= 2000 && bw < 3000 {
 		add(ClassFT8, 1.4)
 	}
-	if feat.EnvVariance < 0.4 && feat.InstFreqStd < 0.5 && bw >= 150 && bw < 500 {
+	if feat.EnvVariance < 0.05 && feat.InstFreqStd < 0.5 && bw >= 150 && bw < 500 {
 		add(ClassWSPR, 1.3)
 	}
 	if feat.InstFreqStd > 0.9 {
@@ -65,9 +100,11 @@ func RuleClassify(feat Features) Classification {
 	if flat > 0.85 && bw > 2e3 {
 		add(ClassNoise, 1.0)
 	}
-	if feat.InstFreqStd < 0.5 && feat.EnvVariance < 0.3 && bw >= 6e3 && bw < 25e3 {
+	if feat.EnvVariance < 0.08 && feat.InstFreqStd < 0.5 && bw >= 6e3 && bw < 25e3 {
 		add(ClassDMR, 0.7)
 	}
+
+	addFrequencyContext(add, centerHz, bw)
 
 	best, _, second, _ := top2(scores)
 	if best == "" {
@@ -79,10 +116,14 @@ func RuleClassify(feat Features) Classification {
 
 	conf := softmaxConfidence(scores, best)
 	if best == ClassNFM || best == ClassWFM {
-		conf = conf * (0.8 + 0.2*clamp01(1-flat))
+		conf *= 0.8 + 0.2*clamp01(1-flat)
 	}
 	if best == ClassAM {
-		conf = conf * (0.7 + 0.3*clamp01(p2a/6.0))
+		conf *= 0.7 + 0.3*clamp01(p2a/6.0)
+	}
+	if snrDb < 20 {
+		snrFactor := clamp01((snrDb - 3) / 17.0)
+		conf *= 0.3 + 0.7*snrFactor
 	}
 	if math.IsNaN(conf) || conf <= 0 {
 		conf = 0.1

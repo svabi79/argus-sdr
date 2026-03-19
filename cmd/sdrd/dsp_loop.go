@@ -183,7 +183,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					if i < len(snips) {
 						snip = snips[i]
 					}
-					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb}, spectrum, cfg.SampleRate, cfg.FFTSize, snip)
+					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb, CenterHz: signals[i].CenterHz}, spectrum, cfg.SampleRate, cfg.FFTSize, snip)
 					signals[i].Class = cls
 				}
 				det.UpdateClasses(signals)

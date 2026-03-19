@@ -13,6 +13,6 @@ func Classify(input SignalInput, spectrum []float64, sampleRate int, fftSize int
 		feat.InstFreqStd = instStd
 		feat.CrestFactor = crest
 	}
-	cls := RuleClassify(feat)
+	cls := RuleClassify(feat, input.CenterHz, input.SNRDb)
 	return &cls
 }
