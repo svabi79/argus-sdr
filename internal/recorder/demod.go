@@ -36,13 +36,18 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 			}
 		}
 	}
+	var stereoHybrid *wfmHybridResult
 	if audio == nil {
 		if name == "WFM_STEREO" {
 			log.Printf("gpudemod: WFM_STEREO using CPU stereo/RDS post-process for event %d", ev.ID)
+			res := demodWFMStereoHybrid(iq, m.sampleRate, offset, bw)
+			stereoHybrid = &res
+			audio = res.Audio
+			inputRate = res.AudioRate
 		} else {
 			log.Printf("gpudemod: CPU demod fallback used for event %d (%s)", ev.ID, name)
+			audio, inputRate = demodAudioCPU(d, iq, m.sampleRate, offset, bw)
 		}
-		audio, inputRate = demodAudioCPU(d, iq, m.sampleRate, offset, bw)
 	}
 	wav := filepath.Join(dir, "audio.wav")
 	if err := writeWAV(wav, audio, inputRate, d.Channels()); err != nil {
@@ -52,14 +57,14 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	files["audio_sample_rate"] = inputRate
 	files["audio_channels"] = d.Channels()
 	files["audio_demod"] = name
-	if name == "WFM_STEREO" {
-		if rds := demod.RDSBaseband(iq, m.sampleRate); len(rds) > 0 {
+	if name == "WFM_STEREO" && stereoHybrid != nil {
+		if len(stereoHybrid.RDS) > 0 {
 			rdsPath := filepath.Join(dir, "rds.wav")
-			_ = writeWAV(rdsPath, rds, 2400, 1)
+			_ = writeWAV(rdsPath, stereoHybrid.RDS, stereoHybrid.RDSRate, 1)
 			files["rds_baseband"] = "rds.wav"
-			files["rds_sample_rate"] = 2400
+			files["rds_sample_rate"] = stereoHybrid.RDSRate
 			dec := rdsdecoder{}
-			res := dec.Decode(rds, 2400)
+			res := dec.Decode(stereoHybrid.RDS, stereoHybrid.RDSRate)
 			if res.PI != 0 {
 				files["rds_pi"] = res.PI
 			}
