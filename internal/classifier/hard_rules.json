@@ -1,0 +1,52 @@
+{
+  "rules": [
+    {
+      "name": "fm_broadcast",
+      "match": {"min_mhz": 87.5, "max_mhz": 108.0, "min_bw_hz": 50000},
+      "result": {"mod_type": "WFM", "confidence": 0.99},
+      "note": "FM Broadcast: >50 kHz BW im UKW-Band ist immer WFM"
+    },
+    {
+      "name": "airband_am",
+      "match": {"min_mhz": 118.0, "max_mhz": 137.0, "min_bw_hz": 4000, "max_bw_hz": 12000},
+      "result": {"mod_type": "AM", "confidence": 0.95},
+      "note": "Airband ist ausschliesslich AM"
+    },
+    {
+      "name": "cw_any_band",
+      "match": {"min_bw_hz": 0, "max_bw_hz": 500},
+      "result": {"mod_type": "CW", "confidence": 0.90},
+      "note": "Unter 500 Hz BW ist CW, egal welches Band"
+    },
+    {
+      "name": "ft8_40m",
+      "match": {"min_mhz": 7.072, "max_mhz": 7.076, "min_bw_hz": 1500, "max_bw_hz": 3500},
+      "result": {"mod_type": "FT8", "confidence": 0.95},
+      "note": "FT8 Dial-Frequenz 40m"
+    },
+    {
+      "name": "ft8_20m",
+      "match": {"min_mhz": 14.072, "max_mhz": 14.076, "min_bw_hz": 1500, "max_bw_hz": 3500},
+      "result": {"mod_type": "FT8", "confidence": 0.95},
+      "note": "FT8 Dial-Frequenz 20m"
+    },
+    {
+      "name": "wspr_40m",
+      "match": {"min_mhz": 7.0384, "max_mhz": 7.0388, "min_bw_hz": 100, "max_bw_hz": 500},
+      "result": {"mod_type": "WSPR", "confidence": 0.95},
+      "note": "WSPR Dial-Frequenz 40m"
+    },
+    {
+      "name": "pmr446_nfm",
+      "match": {"min_mhz": 446.0, "max_mhz": 446.2, "min_bw_hz": 5000, "max_bw_hz": 15000},
+      "result": {"mod_type": "NFM", "confidence": 0.92},
+      "note": "PMR446 ist immer NFM"
+    },
+    {
+      "name": "wfm_wide_any",
+      "match": {"min_bw_hz": 100000},
+      "result": {"mod_type": "WFM", "confidence": 0.95},
+      "note": "Über 100 kHz BW ist fast immer WFM, unabhängig vom Band"
+    }
+  ]
+}

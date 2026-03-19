@@ -44,6 +44,7 @@ type Classification struct {
 	BW3dB        float64                 `json:"bw_3db_hz"`
 	Features     Features                `json:"features,omitempty"`
 	MathFeatures *MathFeatures           `json:"math_features,omitempty"`
+	PLL          *PLLResult              `json:"pll,omitempty"`
 	SecondBest   SignalClass             `json:"second_best,omitempty"`
 	Scores       map[SignalClass]float64 `json:"scores,omitempty"`
 }

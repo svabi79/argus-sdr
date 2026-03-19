@@ -185,6 +185,14 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					}
 					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb, CenterHz: signals[i].CenterHz}, spectrum, cfg.SampleRate, cfg.FFTSize, snip, classifier.ClassifierMode(cfg.ClassifierMode))
 					signals[i].Class = cls
+					if cls != nil && snip != nil && len(snip) > 256 {
+						pll := classifier.EstimateExactFrequency(snip, cfg.SampleRate, signals[i].CenterHz, cls.ModType)
+						cls.PLL = &pll
+						signals[i].PLL = &pll
+						if pll.Locked {
+							signals[i].CenterHz = pll.ExactHz
+						}
+					}
 				}
 				det.UpdateClasses(signals)
 			}

@@ -13,6 +13,10 @@ func Classify(input SignalInput, spectrum []float64, sampleRate int, fftSize int
 		return nil
 	}
 	feat := ExtractFeatures(input, spectrum, sampleRate, fftSize)
+	if hard := TryHardRule(input.CenterHz, feat.BW3dB); hard != nil {
+		hard.Features = feat
+		return hard
+	}
 	if len(iq) > 0 {
 		envVar, zc, instStd, crest := ExtractTemporalFeatures(iq)
 		feat.EnvVariance = envVar

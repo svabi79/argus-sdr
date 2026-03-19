@@ -74,6 +74,7 @@ type Signal struct {
 	SNRDb    float64                    `json:"snr_db"`
 	NoiseDb  float64                    `json:"noise_db,omitempty"`
 	Class    *classifier.Classification `json:"class,omitempty"`
+	PLL      *classifier.PLLResult      `json:"pll,omitempty"`
 }
 
 func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
