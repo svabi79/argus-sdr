@@ -24,12 +24,16 @@ func (NFM) Channels() int       { return 1 }
 func (WFM) Channels() int       { return 1 }
 func (WFMStereo) Channels() int { return 2 }
 
+func wfmMonoBase(iq []complex64) []float32 {
+	return fmDiscrim(iq)
+}
+
 func (NFM) Demod(iq []complex64, sampleRate int) []float32 {
 	return fmDiscrim(iq)
 }
 
 func (WFM) Demod(iq []complex64, sampleRate int) []float32 {
-	return fmDiscrim(iq)
+	return wfmMonoBase(iq)
 }
 
 func (WFMStereo) Demod(iq []complex64, sampleRate int) []float32 {
@@ -86,7 +90,7 @@ func wfmStereo(iq []complex64, sampleRate int) []float32 {
 
 // RDSBaseband returns a rough 57k baseband (not decoded).
 func RDSBaseband(iq []complex64, sampleRate int) []float32 {
-	base := fmDiscrim(iq)
+	base := wfmMonoBase(iq)
 	if len(base) == 0 {
 		return nil
 	}
