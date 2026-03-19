@@ -75,20 +75,20 @@ func extractSignalIQBatch(iq []complex64, sampleRate int, centerHz float64, sign
 		decimTarget = sampleRate
 	}
 
-	var eng *gpudemod.Engine
+	var runner *gpudemod.BatchRunner
 	if gpudemod.Available() {
-		if gpuEng, err := gpudemod.New(len(iq), sampleRate); err == nil {
-			eng = gpuEng
-			defer eng.Close()
+		if gpuRunner, err := gpudemod.NewBatchRunner(len(iq), sampleRate); err == nil {
+			runner = gpuRunner
+			defer runner.Close()
 		}
 	}
 
-	if eng != nil {
+	if runner != nil {
 		jobs := make([]gpudemod.ExtractJob, len(signals))
 		for i, sig := range signals {
 			jobs[i] = gpudemod.ExtractJob{OffsetHz: sig.CenterHz - centerHz, BW: sig.BWHz, OutRate: decimTarget}
 		}
-		if gpuOuts, _, err := eng.ShiftFilterDecimateBatch(iq, jobs); err == nil && len(gpuOuts) == len(signals) {
+		if gpuOuts, _, err := runner.ShiftFilterDecimateBatch(iq, jobs); err == nil && len(gpuOuts) == len(signals) {
 			for i := range gpuOuts {
 				out[i] = gpuOuts[i]
 			}
