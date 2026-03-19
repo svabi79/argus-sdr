@@ -213,6 +213,19 @@ button, input, select { font: inherit; }
 .viz-hint { font-family: var(--mono); font-size: 0.58rem; color: var(--text-mute); }
 
 canvas { display: block; width: 100%; height: 100%; border-radius: var(--r-sm); background: #030508; }
+.signal-popover {
+  position: absolute; z-index: 8; pointer-events: none; min-width: 180px;
+  padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-hi);
+  background: rgba(6, 10, 18, 0.94); box-shadow: 0 18px 50px rgba(0,0,0,0.38);
+  font-size: 0.72rem; color: var(--text); display: none;
+}
+.signal-popover.open { display: block; }
+.signal-popover__title { font-family: var(--mono); font-weight: 700; margin-bottom: 4px; color: var(--accent); }
+.signal-popover__meta { color: var(--text-mute); margin-bottom: 6px; }
+.signal-popover__scores { display: grid; gap: 4px; }
+.signal-popover__row { display: grid; grid-template-columns: 42px 1fr 36px; gap: 6px; align-items: center; font-family: var(--mono); font-size: 0.68rem; }
+.signal-popover__bar { height: 6px; border-radius: 999px; background: rgba(148,163,184,0.14); overflow: hidden; }
+.signal-popover__fill { height: 100%; background: linear-gradient(90deg, rgba(0,255,200,0.72), rgba(0,144,255,0.8)); }
 #spectrum, #waterfall { cursor: crosshair; }
 #spectrum:active { cursor: grabbing; }
 

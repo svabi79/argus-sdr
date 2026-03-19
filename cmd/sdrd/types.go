@@ -1,0 +1,69 @@
+package main
+
+import (
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+
+	"sdr-visual-suite/internal/config"
+	"sdr-visual-suite/internal/detector"
+	"sdr-visual-suite/internal/sdr"
+)
+
+type SpectrumDebug struct {
+	Thresholds []float64        `json:"thresholds,omitempty"`
+	NoiseFloor float64          `json:"noise_floor,omitempty"`
+	Scores     []map[string]any `json:"scores,omitempty"`
+}
+
+type SpectrumFrame struct {
+	Timestamp int64             `json:"ts"`
+	CenterHz  float64           `json:"center_hz"`
+	SampleHz  int               `json:"sample_rate"`
+	FFTSize   int               `json:"fft_size"`
+	Spectrum  []float64         `json:"spectrum_db"`
+	Signals   []detector.Signal `json:"signals"`
+	Debug     *SpectrumDebug    `json:"debug,omitempty"`
+}
+
+type client struct {
+	conn      *websocket.Conn
+	send      chan []byte
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+type hub struct {
+	mu        sync.Mutex
+	clients   map[*client]struct{}
+	frameCnt  int64
+	lastLogTs time.Time
+}
+
+type gpuStatus struct {
+	mu        sync.RWMutex
+	Available bool   `json:"available"`
+	Active    bool   `json:"active"`
+	Error     string `json:"error"`
+}
+
+type signalSnapshot struct {
+	mu      sync.RWMutex
+	signals []detector.Signal
+}
+
+type sourceManager struct {
+	mu        sync.RWMutex
+	src       sdr.Source
+	newSource func(cfg config.Config) (sdr.Source, error)
+}
+
+type dspUpdate struct {
+	cfg       config.Config
+	det       *detector.Detector
+	window    []float64
+	dcBlock   bool
+	iqBalance bool
+	useGPUFFT bool
+}

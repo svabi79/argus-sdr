@@ -151,7 +151,8 @@ let timelineRects = [];
 let liveSignalRects = [];
 let recordings = [];
 let recordingsFetchInFlight = false;
-let showDebugOverlay = true;
+let showDebugOverlay = localStorage.getItem('spectre.debugOverlay') !== '0';
+let hoveredSignal = null;
 let showDebugOverlay = true;
 
 const GAIN_MAX = 60;
@@ -184,16 +185,17 @@ function fmtMs(ms) {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
-function renderScoreBars(scores) {
-  if (!classifierScoreBarsEl) return;
-  if (!scores || typeof scores !== 'object') {
-    classifierScoreBarsEl.innerHTML = '';
-    return;
-  }
-  const entries = Object.entries(scores)
+function scoreEntries(scores, limit = 6) {
+  if (!scores || typeof scores !== 'object') return [];
+  return Object.entries(scores)
     .filter(([, v]) => Number.isFinite(Number(v)))
     .sort((a, b) => Number(b[1]) - Number(a[1]))
-    .slice(0, 6);
+    .slice(0, limit);
+}
+
+function renderScoreBars(scores) {
+  if (!classifierScoreBarsEl) return;
+  const entries = scoreEntries(scores);
   if (!entries.length) {
     classifierScoreBarsEl.innerHTML = '';
     return;
@@ -203,6 +205,28 @@ function renderScoreBars(scores) {
     const width = Math.max(4, (Number(value) / maxVal) * 100);
     return `<div class="score-bar"><span class="score-bar-label">${label}</span><span class="score-bar-track"><span class="score-bar-fill" style="width:${width}%"></span></span><span class="score-bar-value">${Number(value).toFixed(2)}</span></div>`;
   }).join('');
+}
+
+function hideSignalPopover() {
+  hoveredSignal = null;
+  if (!signalPopover) return;
+  signalPopover.classList.remove('open');
+  signalPopover.setAttribute('aria-hidden', 'true');
+}
+
+function renderSignalPopover(rect, signal) {
+  if (!signalPopover || !signal) return;
+  const entries = scoreEntries(signal.class?.scores || signal.debug_scores || {}, 4);
+  const maxVal = Math.max(...entries.map(([, v]) => Number(v)), 1e-6);
+  const rows = entries.map(([label, value]) => {
+    const width = Math.max(4, (Number(value) / maxVal) * 100);
+    return `<div class="signal-popover__row"><span>${label}</span><span class="signal-popover__bar"><span class="signal-popover__fill" style="width:${width}%"></span></span><span>${Number(value).toFixed(2)}</span></div>`;
+  }).join('');
+  signalPopover.innerHTML = `<div class="signal-popover__title">${signal.class?.mod_type || 'Signal'}</div><div class="signal-popover__meta">${fmtMHz(signal.center_hz, 5)} · ${fmtKHz(signal.bw_hz || 0)} · ${(signal.snr_db || 0).toFixed(1)} dB SNR</div><div class="signal-popover__scores">${rows || '<div class="signal-popover__meta">No classifier scores</div>'}</div>`;
+  signalPopover.style.left = `${Math.max(8, rect.x + rect.w + 8)}px`;
+  signalPopover.style.top = `${Math.max(8, rect.y + 8)}px`;
+  signalPopover.classList.add('open');
+  signalPopover.setAttribute('aria-hidden', 'false');
 }
 
 function colorMap(v) {
@@ -731,6 +755,10 @@ function renderSpectrum() {
       const label = `${(s.center_hz / 1e6).toFixed(4)} MHz`;
       ctx.fillText(label, Math.max(4, x1 + 4), 24 + (index % 3) * 16);
 
+      const debugMatch = (latest?.debug?.scores || []).find((d) => Math.abs((d.center_hz || 0) - (s.center_hz || 0)) < Math.max(500, s.bw_hz || 0));
+      if (debugMatch?.scores && (!s.class || !s.class.scores)) {
+        s.debug_scores = debugMatch.scores;
+      }
       liveSignalRects.push({
         x: x1,
         y: 10,
@@ -1242,7 +1270,25 @@ window.addEventListener('mouseup', () => {
   isDraggingSpectrum = false;
   navDrag = false;
 });
+spectrumCanvas.addEventListener('mouseleave', hideSignalPopover);
 window.addEventListener('mousemove', (ev) => {
+  const rect = spectrumCanvas.getBoundingClientRect();
+  const x = (ev.clientX - rect.left) * (spectrumCanvas.width / rect.width);
+  const y = (ev.clientY - rect.top) * (spectrumCanvas.height / rect.height);
+  let hoverHit = null;
+  for (let i = liveSignalRects.length - 1; i >= 0; i--) {
+    const r = liveSignalRects[i];
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+      hoverHit = r;
+      break;
+    }
+  }
+  if (hoverHit) {
+    hoveredSignal = hoverHit.signal;
+    renderSignalPopover(hoverHit, hoverHit.signal);
+  } else {
+    hideSignalPopover();
+  }
   if (isDraggingSpectrum) {
     const dx = ev.clientX - dragStartX;
     pan = Math.max(-0.5, Math.min(0.5, dragStartPan - dx / spectrumCanvas.clientWidth));
@@ -1394,6 +1440,7 @@ maxHoldToggle.addEventListener('change', () => {
 });
 if (debugOverlayToggle) debugOverlayToggle.addEventListener('change', () => {
   showDebugOverlay = debugOverlayToggle.checked;
+  localStorage.setItem('spectre.debugOverlay', showDebugOverlay ? '1' : '0');
   markSpectrumDirty();
   updateHeroMetrics();
 });
@@ -1600,4 +1647,6 @@ setInterval(() => fetchEvents(false), 2000);
 setInterval(fetchRecordings, 5000);
 setInterval(loadSignals, 1500);
 setInterval(loadDecoders, 10000);
+
+coders, 10000);
 
