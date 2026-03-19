@@ -82,7 +82,7 @@ GPUD_API __global__ void gpud_decimate_kernel(
 
 __device__ __constant__ float gpud_fir_taps[256];
 
-GPUD_API __global__ void gpud_fir_kernel(
+__global__ void gpud_fir_kernel(
     const float2* __restrict__ in,
     float2* __restrict__ out,
     int n,
