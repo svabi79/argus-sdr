@@ -16,6 +16,8 @@ if (!(Test-Path $nvcc)) {
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $outObj = Join-Path $OutDir 'kernels.obj'
 $outLib = Join-Path $OutDir 'gpudemod_kernels.lib'
+if (Test-Path $outObj) { Remove-Item $outObj -Force }
+if (Test-Path $outLib) { Remove-Item $outLib -Force }
 
 Write-Host "Using nvcc: $nvcc"
 Write-Host "Building $Source -> $outObj"

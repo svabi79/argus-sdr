@@ -8,7 +8,7 @@
 /bin/
 
 # runtime data
-data/events.jsonl
+data/
 config.autosave.yaml
 
 # local prompts
