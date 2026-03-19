@@ -82,7 +82,11 @@ func (m *Manager) DemodLive(centerHz float64, bw float64, mode string, seconds i
 		}
 	}
 	if audio == nil {
-		log.Printf("gpudemod: CPU live demod fallback used (%s)", name)
+		if name == "WFM_STEREO" {
+			log.Printf("gpudemod: WFM_STEREO live path using CPU stereo/RDS post-process")
+		} else {
+			log.Printf("gpudemod: CPU live demod fallback used (%s)", name)
+		}
 		shifted := dsp.FreqShift(segment, m.sampleRate, offset)
 		cutoff := bw / 2
 		if cutoff < 200 {

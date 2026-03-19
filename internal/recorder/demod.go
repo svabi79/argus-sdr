@@ -69,7 +69,11 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 		}
 	}
 	if audio == nil {
-		log.Printf("gpudemod: CPU demod fallback used for event %d (%s)", ev.ID, name)
+		if name == "WFM_STEREO" {
+			log.Printf("gpudemod: WFM_STEREO using CPU stereo/RDS post-process for event %d", ev.ID)
+		} else {
+			log.Printf("gpudemod: CPU demod fallback used for event %d (%s)", ev.ID, name)
+		}
 		shifted := dsp.FreqShift(iq, m.sampleRate, offset)
 		cutoff := bw / 2
 		if cutoff < 200 {
