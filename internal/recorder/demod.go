@@ -7,6 +7,7 @@ import (
 
 	"sdr-visual-suite/internal/classifier"
 	"sdr-visual-suite/internal/demod"
+	"sdr-visual-suite/internal/demod/gpudemod"
 	"sdr-visual-suite/internal/detector"
 	"sdr-visual-suite/internal/dsp"
 )
@@ -26,20 +27,30 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	// band-extract around signal
 	bw := ev.Bandwidth
 	offset := ev.CenterHz - m.centerHz
-	shifted := dsp.FreqShift(iq, m.sampleRate, offset)
-	cutoff := bw / 2
-	if cutoff < 200 {
-		cutoff = 200
+	var audio []float32
+	var inputRate int
+	if m.gpuDemod != nil && name == "NFM" {
+		if gpuAudio, gpuRate, err := m.gpuDemod.Demod(iq, offset, bw, gpudemod.DemodNFM); err == nil {
+			audio = gpuAudio
+			inputRate = gpuRate
+		}
 	}
-	taps := dsp.LowpassFIR(cutoff, m.sampleRate, 101)
-	filtered := dsp.ApplyFIR(shifted, taps)
-	decim := int(math.Round(float64(m.sampleRate) / float64(d.OutputSampleRate())))
-	if decim < 1 {
-		decim = 1
+	if audio == nil {
+		shifted := dsp.FreqShift(iq, m.sampleRate, offset)
+		cutoff := bw / 2
+		if cutoff < 200 {
+			cutoff = 200
+		}
+		taps := dsp.LowpassFIR(cutoff, m.sampleRate, 101)
+		filtered := dsp.ApplyFIR(shifted, taps)
+		decim := int(math.Round(float64(m.sampleRate) / float64(d.OutputSampleRate())))
+		if decim < 1 {
+			decim = 1
+		}
+		dec := dsp.Decimate(filtered, decim)
+		inputRate = m.sampleRate / decim
+		audio = d.Demod(dec, inputRate)
 	}
-	dec := dsp.Decimate(filtered, decim)
-	inputRate := m.sampleRate / decim
-	audio := d.Demod(dec, inputRate)
 	wav := filepath.Join(dir, "audio.wav")
 	if err := writeWAV(wav, audio, inputRate, d.Channels()); err != nil {
 		return err

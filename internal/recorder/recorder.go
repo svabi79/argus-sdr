@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"sdr-visual-suite/internal/demod/gpudemod"
 	"sdr-visual-suite/internal/detector"
 )
 
@@ -35,6 +36,7 @@ type Manager struct {
 	centerHz       float64
 	decodeCommands map[string]string
 	queue          chan detector.Event
+	gpuDemod       *gpudemod.Engine
 }
 
 func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeCommands map[string]string) *Manager {
@@ -45,6 +47,7 @@ func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeC
 		policy.RingSeconds = 8
 	}
 	m := &Manager{policy: policy, ring: NewRing(sampleRate, blockSize, policy.RingSeconds), sampleRate: sampleRate, blockSize: blockSize, centerHz: centerHz, decodeCommands: decodeCommands, queue: make(chan detector.Event, 64)}
+	m.initGPUDemod(sampleRate, blockSize)
 	go m.worker()
 	return m
 }
@@ -55,6 +58,7 @@ func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz 
 	m.blockSize = blockSize
 	m.centerHz = centerHz
 	m.decodeCommands = decodeCommands
+	m.initGPUDemod(sampleRate, blockSize)
 	if m.ring == nil {
 		m.ring = NewRing(sampleRate, blockSize, policy.RingSeconds)
 		return
@@ -86,6 +90,21 @@ func (m *Manager) worker() {
 	for ev := range m.queue {
 		_ = m.recordEvent(ev)
 	}
+}
+
+func (m *Manager) initGPUDemod(sampleRate int, blockSize int) {
+	if m.gpuDemod != nil {
+		m.gpuDemod.Close()
+		m.gpuDemod = nil
+	}
+	if !gpudemod.Available() {
+		return
+	}
+	eng, err := gpudemod.New(blockSize, sampleRate)
+	if err != nil {
+		return
+	}
+	m.gpuDemod = eng
 }
 
 func (m *Manager) recordEvent(ev detector.Event) error {
