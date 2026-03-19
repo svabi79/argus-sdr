@@ -43,6 +43,7 @@ const hysteresisInput = qs('hysteresisInput');
 const stableFramesInput = qs('stableFramesInput');
 const gapToleranceInput = qs('gapToleranceInput');
 const edgeMarginInput = qs('edgeMarginInput');
+const mergeGapInput = qs('mergeGapInput');
 const agcToggle = qs('agcToggle');
 const dcToggle = qs('dcToggle');
 const iqToggle = qs('iqToggle');
@@ -420,6 +421,7 @@ function applyConfigToUI(cfg) {
   if (stableFramesInput) stableFramesInput.value = cfg.detector.min_stable_frames ?? 3;
   if (gapToleranceInput) gapToleranceInput.value = cfg.detector.gap_tolerance_ms ?? cfg.detector.hold_ms;
   if (edgeMarginInput) edgeMarginInput.value = cfg.detector.edge_margin_db ?? 3.0;
+  if (mergeGapInput) mergeGapInput.value = cfg.detector.merge_gap_hz ?? 5000;
   agcToggle.checked = !!cfg.agc;
   dcToggle.checked = !!cfg.dc_block;
   iqToggle.checked = !!cfg.iq_balance;
@@ -1421,6 +1423,10 @@ if (gapToleranceInput) gapToleranceInput.addEventListener('change', () => {
 if (edgeMarginInput) edgeMarginInput.addEventListener('change', () => {
   const v = parseFloat(edgeMarginInput.value);
   if (Number.isFinite(v)) queueConfigUpdate({ detector: { edge_margin_db: v } });
+});
+if (mergeGapInput) mergeGapInput.addEventListener('change', () => {
+  const v = parseFloat(mergeGapInput.value);
+  if (Number.isFinite(v)) queueConfigUpdate({ detector: { merge_gap_hz: v } });
 });
 
 agcToggle.addEventListener('change', () => queueSettingsUpdate({ agc: agcToggle.checked }));

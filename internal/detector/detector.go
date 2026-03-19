@@ -34,6 +34,7 @@ type Detector struct {
 	CFARScaleDb     float64
 	EdgeMarginDb    float64
 	MaxSignalBwHz   float64
+	MergeGapHz      float64
 	binWidth        float64
 	nbins           int
 	sampleRate      int
@@ -87,6 +88,7 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	thresholdDb := detCfg.ThresholdDb
 	edgeMarginDb := detCfg.EdgeMarginDb
 	maxSignalBwHz := detCfg.MaxSignalBwHz
+	mergeGapHz := detCfg.MergeGapHz
 
 	if minDur <= 0 {
 		minDur = 250 * time.Millisecond
@@ -121,6 +123,9 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	if maxSignalBwHz <= 0 {
 		maxSignalBwHz = 150000
 	}
+	if mergeGapHz <= 0 {
+		mergeGapHz = 5000
+	}
 	if cfarRank <= 0 || cfarRank > 2*cfarTrain {
 		cfarRank = int(math.Round(0.75 * float64(2*cfarTrain)))
 		if cfarRank <= 0 {
@@ -149,6 +154,7 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 		CFARScaleDb:     cfarScaleDb,
 		EdgeMarginDb:    edgeMarginDb,
 		MaxSignalBwHz:   maxSignalBwHz,
+		MergeGapHz:      mergeGapHz,
 		binWidth:        float64(sampleRate) / float64(fftSize),
 		nbins:           fftSize,
 		sampleRate:      sampleRate,
@@ -323,6 +329,10 @@ func (d *Detector) mergeOverlapping(signals []Signal, centerHz float64) []Signal
 	if len(signals) <= 1 {
 		return signals
 	}
+	gapBins := 0
+	if d.MergeGapHz > 0 && d.binWidth > 0 {
+		gapBins = int(math.Ceil(d.MergeGapHz / d.binWidth))
+	}
 	sort.Slice(signals, func(i, j int) bool {
 		return signals[i].FirstBin < signals[j].FirstBin
 	})
@@ -330,7 +340,8 @@ func (d *Detector) mergeOverlapping(signals []Signal, centerHz float64) []Signal
 	for i := 1; i < len(signals); i++ {
 		last := &merged[len(merged)-1]
 		cur := signals[i]
-		if cur.FirstBin <= last.LastBin+1 {
+		gap := cur.FirstBin - last.LastBin - 1
+		if gap <= gapBins {
 			if cur.LastBin > last.LastBin {
 				last.LastBin = cur.LastBin
 			}
@@ -343,6 +354,9 @@ func (d *Detector) mergeOverlapping(signals []Signal, centerHz float64) []Signal
 			centerBin := float64(last.FirstBin+last.LastBin) / 2.0
 			last.BWHz = float64(last.LastBin-last.FirstBin+1) * d.binWidth
 			last.CenterHz = d.centerFreqForBin(centerBin, centerHz)
+			if cur.NoiseDb < last.NoiseDb || last.NoiseDb == 0 {
+				last.NoiseDb = cur.NoiseDb
+			}
 		} else {
 			merged = append(merged, cur)
 		}

@@ -35,6 +35,7 @@ type DetectorUpdate struct {
 	CFARScaleDb     *float64 `json:"cfar_scale_db"`
 	CFARWrapAround  *bool    `json:"cfar_wrap_around"`
 	EdgeMarginDb    *float64 `json:"edge_margin_db"`
+	MergeGapHz      *float64 `json:"merge_gap_hz"`
 }
 
 type SettingsUpdate struct {
@@ -202,6 +203,13 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 				return m.cfg, errors.New("edge_margin_db must be >= 0")
 			}
 			next.Detector.EdgeMarginDb = v
+		}
+		if update.Detector.MergeGapHz != nil {
+			v := *update.Detector.MergeGapHz
+			if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+				return m.cfg, errors.New("merge_gap_hz must be >= 0")
+			}
+			next.Detector.MergeGapHz = v
 		}
 	}
 	if update.Recorder != nil {

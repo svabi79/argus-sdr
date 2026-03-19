@@ -30,6 +30,7 @@ type DetectorConfig struct {
 	CFARWrapAround  bool    `yaml:"cfar_wrap_around" json:"cfar_wrap_around"`
 	EdgeMarginDb    float64 `yaml:"edge_margin_db" json:"edge_margin_db"`
 	MaxSignalBwHz   float64 `yaml:"max_signal_bw_hz" json:"max_signal_bw_hz"`
+	MergeGapHz      float64 `yaml:"merge_gap_hz" json:"merge_gap_hz"`
 
 	// Deprecated (backward compatibility)
 	CFAREnabled *bool `yaml:"cfar_enabled,omitempty" json:"cfar_enabled,omitempty"`
@@ -111,6 +112,7 @@ func Default() Config {
 			CFARWrapAround:  true,
 			EdgeMarginDb:    3.0,
 			MaxSignalBwHz:   150000,
+			MergeGapHz:      5000,
 		},
 		Recorder: RecorderConfig{
 			Enabled:     false,
@@ -196,6 +198,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Detector.MaxSignalBwHz <= 0 {
 		cfg.Detector.MaxSignalBwHz = 150000
+	}
+	if cfg.Detector.MergeGapHz <= 0 {
+		cfg.Detector.MergeGapHz = 5000
 	}
 	if cfg.FrameRate <= 0 {
 		cfg.FrameRate = 15

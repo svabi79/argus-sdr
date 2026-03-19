@@ -72,6 +72,7 @@ func TestSignalBandwidthExpansion(t *testing.T) {
 		CFARWrapAround:  true,
 		EdgeMarginDb:    3.0,
 		MaxSignalBwHz:   150000,
+		MergeGapHz:      5000,
 	}
 	d := New(cfg, sampleRate, fftSize)
 	spectrum := make([]float64, fftSize)
@@ -99,5 +100,40 @@ func TestSignalBandwidthExpansion(t *testing.T) {
 	expectedMinBW := 18.0 * 1000
 	if sig.BWHz < expectedMinBW {
 		t.Errorf("BW too narrow: got %.0f Hz, want >= %.0f Hz (FirstBin=%d LastBin=%d)", sig.BWHz, expectedMinBW, sig.FirstBin, sig.LastBin)
+	}
+}
+
+func TestMergeGap(t *testing.T) {
+	sampleRate := 2048000
+	fftSize := 2048
+	cfg := config.DetectorConfig{
+		ThresholdDb:     -20,
+		MinDurationMs:   1,
+		HoldMs:          10,
+		EmaAlpha:        1.0,
+		HysteresisDb:    3,
+		MinStableFrames: 1,
+		GapToleranceMs:  10,
+		CFARMode:        "OFF",
+		MergeGapHz:      5000,
+	}
+	d := New(cfg, sampleRate, fftSize)
+	spectrum := make([]float64, fftSize)
+	for i := range spectrum {
+		spectrum[i] = -100
+	}
+	for i := 500; i <= 505; i++ {
+		spectrum[i] = -20
+	}
+	for i := 509; i <= 514; i++ {
+		spectrum[i] = -20
+	}
+	now := time.Now()
+	_, signals := d.Process(now, spectrum, 434e6)
+	if len(signals) != 1 {
+		t.Errorf("expected 1 merged signal, got %d", len(signals))
+	}
+	if len(signals) == 1 && signals[0].BWHz < 14000 {
+		t.Errorf("merged BW too narrow: %.0f Hz", signals[0].BWHz)
 	}
 }
