@@ -34,6 +34,7 @@ type DetectorUpdate struct {
 	CFARRank        *int     `json:"cfar_rank"`
 	CFARScaleDb     *float64 `json:"cfar_scale_db"`
 	CFARWrapAround  *bool    `json:"cfar_wrap_around"`
+	EdgeMarginDb    *float64 `json:"edge_margin_db"`
 }
 
 type SettingsUpdate struct {
@@ -194,6 +195,13 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 		}
 		if update.Detector.CFARScaleDb != nil {
 			next.Detector.CFARScaleDb = *update.Detector.CFARScaleDb
+		}
+		if update.Detector.EdgeMarginDb != nil {
+			v := *update.Detector.EdgeMarginDb
+			if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+				return m.cfg, errors.New("edge_margin_db must be >= 0")
+			}
+			next.Detector.EdgeMarginDb = v
 		}
 	}
 	if update.Recorder != nil {
