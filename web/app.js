@@ -29,7 +29,8 @@ const gainRange = qs('gainRange');
 const gainInput = qs('gainInput');
 const thresholdRange = qs('thresholdRange');
 const thresholdInput = qs('thresholdInput');
-const cfarToggle = qs('cfarToggle');
+const cfarModeSelect = qs('cfarModeSelect');
+const cfarWrapToggle = qs('cfarWrapToggle');
 const cfarGuardInput = qs('cfarGuardInput');
 const cfarTrainInput = qs('cfarTrainInput');
 const cfarRankInput = qs('cfarRankInput');
@@ -312,11 +313,14 @@ function applyConfigToUI(cfg) {
   gainInput.value = uiGain;
   thresholdRange.value = cfg.detector.threshold_db;
   thresholdInput.value = cfg.detector.threshold_db;
-  if (cfarToggle) cfarToggle.checked = !!cfg.detector.cfar_enabled;
+  if (cfarModeSelect) cfarModeSelect.value = cfg.detector.cfar_mode || 'OFF';
+  if (cfarWrapToggle) cfarWrapToggle.checked = cfg.detector.cfar_wrap_around !== false;
   if (cfarGuardInput) cfarGuardInput.value = cfg.detector.cfar_guard_cells ?? 2;
   if (cfarTrainInput) cfarTrainInput.value = cfg.detector.cfar_train_cells ?? 16;
   if (cfarRankInput) cfarRankInput.value = cfg.detector.cfar_rank ?? 24;
   if (cfarScaleInput) cfarScaleInput.value = cfg.detector.cfar_scale_db ?? 6;
+  const rankRow = cfarRankInput?.closest('.field');
+  if (rankRow) rankRow.style.display = (cfg.detector.cfar_mode === 'OS') ? '' : 'none';
   if (minDurationInput) minDurationInput.value = cfg.detector.min_duration_ms;
   if (holdInput) holdInput.value = cfg.detector.hold_ms;
   if (emaAlphaInput) emaAlphaInput.value = cfg.detector.ema_alpha ?? 0.2;
@@ -544,7 +548,10 @@ function drawSpectrumGrid(ctx, w, h, startHz, endHz) {
 }
 
 function drawCfarEdgeOverlay(ctx, w, h, startHz, endHz) {
-  if (!latest || !currentConfig?.detector?.cfar_enabled) return;
+  if (!latest) return;
+  const mode = currentConfig?.detector?.cfar_mode || 'OFF';
+  if (mode === 'OFF') return;
+  if (currentConfig?.detector?.cfar_wrap_around) return;
   const guard = currentConfig.detector.cfar_guard_cells ?? 0;
   const train = currentConfig.detector.cfar_train_cells ?? 0;
   const bins = guard + train;
@@ -1230,7 +1237,14 @@ thresholdInput.addEventListener('change', () => {
   }
 });
 
-if (cfarToggle) cfarToggle.addEventListener('change', () => queueConfigUpdate({ detector: { cfar_enabled: cfarToggle.checked } }));
+if (cfarModeSelect) cfarModeSelect.addEventListener('change', () => {
+  queueConfigUpdate({ detector: { cfar_mode: cfarModeSelect.value } });
+  const rankRow = cfarRankInput?.closest('.field');
+  if (rankRow) rankRow.style.display = (cfarModeSelect.value === 'OS') ? '' : 'none';
+});
+if (cfarWrapToggle) cfarWrapToggle.addEventListener('change', () => {
+  queueConfigUpdate({ detector: { cfar_wrap_around: cfarWrapToggle.checked } });
+});
 if (cfarGuardInput) cfarGuardInput.addEventListener('change', () => {
   const v = parseInt(cfarGuardInput.value, 10);
   if (Number.isFinite(v)) queueConfigUpdate({ detector: { cfar_guard_cells: v } });

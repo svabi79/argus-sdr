@@ -195,8 +195,17 @@
               <label class="field"><span>Hysteresis (dB)</span><input id="hysteresisInput" type="number" step="1" min="0" /></label>
               <label class="field"><span>Min Stable Frames</span><input id="stableFramesInput" type="number" step="1" min="1" /></label>
               <label class="field"><span>Gap Tolerance (ms)</span><input id="gapToleranceInput" type="number" step="50" min="0" /></label>
+              <label class="field"><span>CFAR Mode</span>
+                <select id="cfarModeSelect">
+                  <option value="OFF">Off</option>
+                  <option value="CA">CA (Cell-Averaging)</option>
+                  <option value="OS">OS (Ordered-Statistic)</option>
+                  <option value="GOSCA">GOSCA (Greatest-Of)</option>
+                  <option value="CASO">CASO (Smallest-Of)</option>
+                </select>
+              </label>
               <div class="toggle-grid">
-                <label class="pill-toggle"><input id="cfarToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">CFAR</span></label>
+                <label class="pill-toggle"><input id="cfarWrapToggle" type="checkbox" checked /><span class="pt"><span class="pk"></span></span><span class="pl">Wrap-Around</span></label>
               </div>
             </div>
 
