@@ -1,63 +1,53 @@
-param(
-  [string]$CudaRoot = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2',
-  [string]$Source = 'internal/demod/gpudemod/kernels.cu',
-  [string]$OutDir = 'internal/demod/gpudemod/build'
-)
-
 $ErrorActionPreference = 'Stop'
-$repo = Split-Path -Parent $PSScriptRoot
-Set-Location $repo
 
-$nvcc = Join-Path $CudaRoot 'bin\nvcc.exe'
-if (!(Test-Path $nvcc)) {
-  throw "nvcc not found at $nvcc"
+$nvcc = (Get-Command nvcc -ErrorAction SilentlyContinue).Path
+if (-not $nvcc) {
+  $nvcc = 'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin\nvcc.exe'
+}
+if (-not (Test-Path $nvcc)) {
+  Write-Host 'nvcc not found — skipping kernel build' -ForegroundColor Yellow
+  exit 0
 }
 
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-$outObj = Join-Path $OutDir 'kernels.obj'
-$outLib = Join-Path $OutDir 'gpudemod_kernels.lib'
-if (Test-Path $outObj) { Remove-Item $outObj -Force }
-if (Test-Path $outLib) { Remove-Item $outLib -Force }
-
-Write-Host "Using nvcc: $nvcc"
-Write-Host "Building $Source -> $outObj"
-
-$nvccArgs = @('-c', $Source, '-o', $outObj, '-I', (Join-Path $CudaRoot 'include'))
-if ($HostCompiler) {
-  Write-Host "Using host compiler: $HostCompiler"
-  $hostDir = Split-Path -Parent $HostCompiler
-  $nvccArgs += @('-ccbin', $hostDir)
-} else {
-  $nvccArgs += @('-Xcompiler', '/EHsc')
+$mingwRoot = 'C:\msys64\mingw64\bin'
+$mingwGpp = Join-Path $mingwRoot 'g++.exe'
+$ar = Join-Path $mingwRoot 'ar.exe'
+if (-not (Test-Path $mingwGpp)) {
+  throw 'MinGW g++ not found'
+}
+if (-not (Test-Path $ar)) {
+  throw 'MinGW ar not found'
 }
 
-& $nvcc @nvccArgs
-if ($LASTEXITCODE -ne 0) {
-  throw "nvcc failed with exit code $LASTEXITCODE"
-}
+$kernelSrc = Join-Path $PSScriptRoot '..\internal\demod\gpudemod\kernels.cu'
+$buildDir = Join-Path $PSScriptRoot '..\internal\demod\gpudemod\build'
+if (-not (Test-Path $buildDir)) { New-Item -ItemType Directory -Path $buildDir | Out-Null }
 
-if ($HostCompiler) {
-  $ar = Get-Command ar.exe -ErrorAction SilentlyContinue
-  if (-not $ar) {
-    throw "ar.exe not found in PATH; required for MinGW-compatible archive"
-  }
-  Write-Host "Archiving $outObj -> $outLib with ar.exe"
-  if (Test-Path $outLib) { Remove-Item $outLib -Force }
-  & $ar 'rcs' $outLib $outObj
-  if ($LASTEXITCODE -ne 0) {
-    throw "ar.exe failed with exit code $LASTEXITCODE"
-  }
-} else {
-  $libexe = Get-Command lib.exe -ErrorAction SilentlyContinue
-  if (-not $libexe) {
-    throw "lib.exe not found in PATH; run from vcvars64.bat environment"
-  }
-  Write-Host "Archiving $outObj -> $outLib with lib.exe"
-  & $libexe /nologo /OUT:$outLib $outObj
-  if ($LASTEXITCODE -ne 0) {
-    throw "lib.exe failed with exit code $LASTEXITCODE"
-  }
-}
+$objFile = Join-Path $buildDir 'kernels.o'
+$libFile = Join-Path $buildDir 'libgpudemod_kernels.a'
+$legacyLib = Join-Path $buildDir 'gpudemod_kernels.lib'
 
-Write-Host "Built: $outObj"
-Write-Host "Archived: $outLib"
+if (Test-Path $objFile) { Remove-Item $objFile -Force }
+if (Test-Path $libFile) { Remove-Item $libFile -Force }
+if (Test-Path $legacyLib) { Remove-Item $legacyLib -Force }
+
+Write-Host 'Compiling CUDA kernels with MinGW host...' -ForegroundColor Cyan
+& $nvcc -ccbin $mingwGpp -c $kernelSrc -o $objFile `
+  --compiler-options=-fno-exceptions `
+  -arch=sm_75 `
+  -gencode arch=compute_75,code=sm_75 `
+  -gencode arch=compute_80,code=sm_80 `
+  -gencode arch=compute_86,code=sm_86 `
+  -gencode arch=compute_87,code=sm_87 `
+  -gencode arch=compute_88,code=sm_88 `
+  -gencode arch=compute_89,code=sm_89 `
+  -gencode arch=compute_90,code=sm_90
+
+if ($LASTEXITCODE -ne 0) { throw 'nvcc compilation failed' }
+
+Write-Host 'Archiving GNU-compatible CUDA kernel library...' -ForegroundColor Cyan
+& $ar rcs $libFile $objFile
+if ($LASTEXITCODE -ne 0) { throw 'ar archive failed' }
+
+Write-Host "Kernel object: $objFile" -ForegroundColor Green
+Write-Host "Kernel library: $libFile" -ForegroundColor Green

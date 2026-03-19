@@ -1,47 +1,55 @@
 # CUDA Build Strategy
 
-## Problem statement
+## Windows: MinGW-host NVCC path
 
-The repository currently mixes two Windows toolchain worlds:
+The recommended Windows CUDA build path for this repository is:
 
-- Go/CGO final link often goes through MinGW GCC/LD
-- CUDA kernel compilation via `nvcc` on Windows prefers MSVC (`cl.exe`)
+1. Compile `internal/demod/gpudemod/kernels.cu` with `nvcc` using MinGW `g++` as the host compiler
+2. Archive the result as `internal/demod/gpudemod/build/libgpudemod_kernels.a`
+3. Build the Go app with MinGW GCC/G++ via CGO
 
-This works for isolated package tests, but full application builds can fail when an MSVC-built CUDA library is linked by MinGW, producing unresolved symbols such as:
+This keeps the CUDA demod kernel library in a GNU-compatible format so Go's MinGW CGO linker can consume it.
 
+### Why
+
+The previous failing path mixed:
+- `nvcc` + default MSVC host compiler (`cl.exe`) for CUDA kernels
+- MinGW GCC/LD for the final Go/CGO link
+
+That produced unresolved MSVC runtime symbols such as:
 - `__GSHandlerCheck`
 - `__security_cookie`
 - `_Init_thread_epoch`
 
-## Recommended split
+### Current Windows build flow
 
-### Windows
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build-cuda-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\build-sdrplay.ps1
+```
 
-Use an explicitly Windows-oriented build path:
+### Critical details
 
-1. Prepare CUDA kernel artifacts with `nvcc`
-2. Keep the resulting CUDA linkage path clearly separated from MinGW-based fallback builds
-3. Do not assume that a MinGW-linked Go binary can always consume MSVC-built CUDA archives
+- CUDA kernel archive must be named `libgpudemod_kernels.a`
+- `nvcc` must be invoked with `-ccbin C:\msys64\mingw64\bin\g++.exe`
+- Windows CGO link uses:
+  - SDRplay API import lib
+  - MinGW CUDA import libs from `cuda-mingw/`
+  - `-lgpudemod_kernels`
+  - `-lcufft64_12`
+  - `-lcudart64_13`
+  - `-lstdc++`
 
-### Linux
+### Caveat
 
-Prefer a GCC/NVCC-oriented build path:
+`nvcc` + MinGW on Windows is not officially supported by NVIDIA. For the kernel launcher style used here (`extern "C"` functions, limited host C++ surface), it is the most practical path.
+
+CUDA 13.x also drops older GPU targets such as `sm_50` and `sm_60`, so the kernel build script targets `sm_75+`.
+
+## Linux
+
+Linux remains the cleanest end-to-end CUDA path:
 
 1. Build CUDA kernels with `nvcc` + GCC
-2. Link through the normal Linux CGO flow
-3. Avoid Windows-specific import-lib and MSVC runtime assumptions entirely
-
-## Repository design guidance
-
-- Keep `internal/demod/gpudemod/` platform-neutral at the Go API level
-- Keep CUDA kernels in `kernels.cu`
-- Use OS-specific build scripts for orchestration
-- Avoid embedding Windows-only build assumptions into shared Go code when possible
-
-## Current practical status
-
-- `go test ./...` passes
-- `go test -tags cufft ./internal/demod/gpudemod` passes with NVCC/MSVC setup
-- `build-sdrplay.ps1` has progressed past the original invalid `#cgo LDFLAGS` issue
-- Remaining Windows blocker in the default path is a toolchain mismatch between MSVC-built CUDA artifacts and MinGW final linking
-- Experimental full-MSVC CGO path (`build-windows-cuda-app.ps1`) also currently blocks because even `go build runtime/cgo` emits GCC-style flags (`-Wall`, `-Werror`, `-fno-stack-protector`) that `cl.exe` rejects in this environment; this is a toolchain/Go integration issue, not a project-specific one
+2. Link via standard CGO/GCC flow
+3. Avoid Windows toolchain mismatch entirely

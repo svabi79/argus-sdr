@@ -3,26 +3,23 @@ $gcc = 'C:\msys64\mingw64\bin'
 if (-not (Test-Path (Join-Path $gcc 'gcc.exe'))) {
   throw "gcc not found at $gcc"
 }
-$msvcCl = 'C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\bin\Hostx64\x64'
-if (-not (Test-Path (Join-Path $msvcCl 'cl.exe'))) {
-  throw "cl.exe not found at $msvcCl"
+if (-not (Test-Path (Join-Path $gcc 'g++.exe'))) {
+  throw "g++ not found at $gcc"
 }
-$env:PATH = "$gcc;$msvcCl;" + $env:PATH
+$env:PATH = "$gcc;" + $env:PATH
 $env:CGO_ENABLED = '1'
+$env:CC = 'gcc'
+$env:CXX = 'g++'
 
 # SDRplay
 $env:CGO_CFLAGS = '-IC:\PROGRA~1\SDRplay\API\inc'
 $env:CGO_LDFLAGS = '-LC:\PROGRA~1\SDRplay\API\x64 -lsdrplay_api'
 
 # CUDA (cuFFT)
-# Prefer C:\CUDA if present (no spaces)
 $cudaInc = 'C:\CUDA\include'
-$cudaLib = 'C:\CUDA\lib\x64'
 $cudaBin = 'C:\CUDA\bin'
-
 if (-not (Test-Path $cudaInc)) {
   $cudaInc = 'C:\PROGRA~1\NVIDIA GPU Computing Toolkit\CUDA\v13.2\include'
-  $cudaLib = 'C:\PROGRA~1\NVIDIA GPU Computing Toolkit\CUDA\v13.2\lib\x64'
   $cudaBin = 'C:\PROGRA~1\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin'
 }
 if (Test-Path $cudaInc) {
@@ -33,30 +30,21 @@ if (Test-Path $cudaBin) {
 }
 
 $cudaMingw = Join-Path $PSScriptRoot 'cuda-mingw'
+$gpuDemodBuild = Join-Path $PSScriptRoot 'internal\demod\gpudemod\build'
 if (Test-Path $cudaMingw) {
-  # Use MinGW import libs to avoid MSVC .lib linking issues
   $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaMingw"
-} elseif (Test-Path $cudaLib) {
-  # Fallback to CUDA lib path (requires compatible toolchain)
-  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaLib -lcufft -lcudart"
 }
-
-Write-Host "Building with SDRplay + cuFFT support..." -ForegroundColor Cyan
-Write-Host "WARNING: this path still performs final Go linking through MinGW GCC." -ForegroundColor Yellow
-Write-Host "If CUDA kernel artifacts are MSVC-built, final link may fail due to mixed toolchains." -ForegroundColor Yellow
-Write-Host "Use build-cuda-windows.ps1 for CUDA artifact prep; use this script for the current MinGW-oriented app build path." -ForegroundColor Yellow
-
-$gccHost = Join-Path $gcc 'g++.exe'
-if (!(Test-Path $gccHost)) {
-  throw "g++.exe not found at $gccHost"
+if (Test-Path $gpuDemodBuild) {
+  $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$gpuDemodBuild"
 }
+$env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -lgpudemod_kernels -lcufft64_12 -lcudart64_13 -lstdc++"
 
-# Kernel build currently relies on nvcc + MSVC host compiler availability.
+Write-Host 'Building with SDRplay + cuFFT support (MinGW-host CUDA path)...' -ForegroundColor Cyan
+Write-Host 'Preparing GNU-compatible CUDA kernel artifacts...' -ForegroundColor Cyan
 powershell -ExecutionPolicy Bypass -File tools\build-gpudemod-kernel.ps1
-if ($LASTEXITCODE -ne 0) { throw "kernel build failed" }
+if ($LASTEXITCODE -ne 0) { throw 'kernel build failed' }
 
 go build -tags "sdrplay,cufft" ./cmd/sdrd
+if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 
-if ($LASTEXITCODE -ne 0) { throw "build failed" }
-
-Write-Host "Done." -ForegroundColor Green
+Write-Host 'Done.' -ForegroundColor Green

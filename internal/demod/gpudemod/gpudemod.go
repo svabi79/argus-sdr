@@ -3,7 +3,7 @@
 package gpudemod
 
 /*
-#cgo windows LDFLAGS: -L${SRCDIR}/../../../cuda-mingw -L${SRCDIR}/build -lgpudemod_kernels -lcufft64_12 -lcudart64_13
+#cgo windows LDFLAGS: -L${SRCDIR}/../../../cuda-mingw -L${SRCDIR}/build -lgpudemod_kernels -lcufft64_12 -lcudart64_13 -lstdc++
 #cgo windows CFLAGS: -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/include"
 #include <cuda_runtime.h>
 #include <cufft.h>
@@ -182,12 +182,8 @@ func (e *Engine) SetFIR(taps []float32) {
 }
 
 func phaseStatus() string { return "phase1c-validated-shift" }
-func (e *Engine) LastShiftUsedGPU() bool {
-	return e != nil && e.lastShiftUsedGPU
-}
-func (e *Engine) LastDemodUsedGPU() bool {
-	return e != nil && e.lastDemodUsedGPU
-}
+func (e *Engine) LastShiftUsedGPU() bool { return e != nil && e.lastShiftUsedGPU }
+func (e *Engine) LastDemodUsedGPU() bool { return e != nil && e.lastDemodUsedGPU }
 
 func (e *Engine) tryCUDAFreqShift(iq []complex64, offsetHz float64) ([]complex64, bool) {
 	if e == nil || !e.cudaReady || len(iq) == 0 || e.dIQIn == nil || e.dShifted == nil {
