@@ -4,89 +4,9 @@ package gpudemod
 
 /*
 #cgo windows CFLAGS: -I"C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.2/include"
-#cgo windows LDFLAGS: -lcudart64_13 -lkernel32
-#include <windows.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
-
 typedef struct { float x; float y; } gpud_float2;
-typedef void* gpud_stream_handle;
-
-typedef int (__stdcall *gpud_stream_create_fn)(gpud_stream_handle* out);
-typedef int (__stdcall *gpud_stream_destroy_fn)(gpud_stream_handle stream);
-typedef int (__stdcall *gpud_stream_sync_fn)(gpud_stream_handle stream);
-typedef int (__stdcall *gpud_upload_fir_taps_fn)(const float* taps, int n);
-typedef int (__stdcall *gpud_launch_freq_shift_fn)(const gpud_float2* in, gpud_float2* out, int n, double phase_inc, double phase_start);
-typedef int (__stdcall *gpud_launch_fm_discrim_fn)(const gpud_float2* in, float* out, int n);
-typedef int (__stdcall *gpud_launch_fir_stream_fn)(const gpud_float2* in, gpud_float2* out, int n, int num_taps, gpud_stream_handle stream);
-typedef int (__stdcall *gpud_launch_fir_fn)(const gpud_float2* in, gpud_float2* out, int n, int num_taps);
-typedef int (__stdcall *gpud_launch_decimate_stream_fn)(const gpud_float2* in, gpud_float2* out, int n_out, int factor, gpud_stream_handle stream);
-typedef int (__stdcall *gpud_launch_decimate_fn)(const gpud_float2* in, gpud_float2* out, int n_out, int factor);
-typedef int (__stdcall *gpud_launch_am_envelope_fn)(const gpud_float2* in, float* out, int n);
-typedef int (__stdcall *gpud_launch_ssb_product_fn)(const gpud_float2* in, float* out, int n, double phase_inc, double phase_start);
-
-static HMODULE gpud_mod = NULL;
-static gpud_upload_fir_taps_fn gpud_p_upload_fir_taps = NULL;
-static gpud_launch_freq_shift_fn gpud_p_launch_freq_shift = NULL;
-static gpud_launch_fm_discrim_fn gpud_p_launch_fm_discrim = NULL;
-static gpud_launch_fir_fn gpud_p_launch_fir = NULL;
-static gpud_launch_decimate_fn gpud_p_launch_decimate = NULL;
-static gpud_launch_am_envelope_fn gpud_p_launch_am_envelope = NULL;
-static gpud_launch_ssb_product_fn gpud_p_launch_ssb_product = NULL;
-
-static int gpud_cuda_malloc(void **ptr, size_t bytes) { return (int)cudaMalloc(ptr, bytes); }
-static int gpud_cuda_free(void *ptr) { return (int)cudaFree(ptr); }
-static int gpud_memcpy_h2d(void *dst, const void *src, size_t bytes) { return (int)cudaMemcpy(dst, src, bytes, cudaMemcpyHostToDevice); }
-static int gpud_memcpy_d2h(void *dst, const void *src, size_t bytes) { return (int)cudaMemcpy(dst, src, bytes, cudaMemcpyDeviceToHost); }
-static int gpud_device_sync() { return (int)cudaDeviceSynchronize(); }
-
-static int gpud_load_library(const char* path) {
-	if (gpud_mod != NULL) return 0;
-	gpud_mod = LoadLibraryA(path);
-	if (gpud_mod == NULL) return -1;
-	gpud_p_upload_fir_taps = (gpud_upload_fir_taps_fn)GetProcAddress(gpud_mod, "gpud_upload_fir_taps_cuda");
-	gpud_p_launch_freq_shift = (gpud_launch_freq_shift_fn)GetProcAddress(gpud_mod, "gpud_launch_freq_shift_cuda");
-	gpud_p_launch_fm_discrim = (gpud_launch_fm_discrim_fn)GetProcAddress(gpud_mod, "gpud_launch_fm_discrim_cuda");
-	gpud_p_launch_fir = (gpud_launch_fir_fn)GetProcAddress(gpud_mod, "gpud_launch_fir_cuda");
-	gpud_p_launch_decimate = (gpud_launch_decimate_fn)GetProcAddress(gpud_mod, "gpud_launch_decimate_cuda");
-	gpud_p_launch_am_envelope = (gpud_launch_am_envelope_fn)GetProcAddress(gpud_mod, "gpud_launch_am_envelope_cuda");
-	gpud_p_launch_ssb_product = (gpud_launch_ssb_product_fn)GetProcAddress(gpud_mod, "gpud_launch_ssb_product_cuda");
-	if (!gpud_p_upload_fir_taps || !gpud_p_launch_freq_shift || !gpud_p_launch_fm_discrim || !gpud_p_launch_fir || !gpud_p_launch_decimate || !gpud_p_launch_am_envelope || !gpud_p_launch_ssb_product) {
-		FreeLibrary(gpud_mod);
-		gpud_mod = NULL;
-		return -2;
-	}
-	return 0;
-}
-
-static int gpud_upload_fir_taps(const float* taps, int n) {
-	if (!gpud_p_upload_fir_taps) return -1;
-	return gpud_p_upload_fir_taps(taps, n);
-}
-static int gpud_launch_freq_shift(gpud_float2 *in, gpud_float2 *out, int n, double phase_inc, double phase_start) {
-	if (!gpud_p_launch_freq_shift) return -1;
-	return gpud_p_launch_freq_shift(in, out, n, phase_inc, phase_start);
-}
-static int gpud_launch_fm_discrim(gpud_float2 *in, float *out, int n) {
-	if (!gpud_p_launch_fm_discrim) return -1;
-	return gpud_p_launch_fm_discrim(in, out, n);
-}
-static int gpud_launch_fir(gpud_float2 *in, gpud_float2 *out, int n, int num_taps) {
-	if (!gpud_p_launch_fir) return -1;
-	return gpud_p_launch_fir(in, out, n, num_taps);
-}
-static int gpud_launch_decimate(gpud_float2 *in, gpud_float2 *out, int n_out, int factor) {
-	if (!gpud_p_launch_decimate) return -1;
-	return gpud_p_launch_decimate(in, out, n_out, factor);
-}
-static int gpud_launch_am_envelope(gpud_float2 *in, float *out, int n) {
-	if (!gpud_p_launch_am_envelope) return -1;
-	return gpud_p_launch_am_envelope(in, out, n);
-}
-static int gpud_launch_ssb_product(gpud_float2 *in, float *out, int n, double phase_inc, double phase_start) {
-	if (!gpud_p_launch_ssb_product) return -1;
-	return gpud_p_launch_ssb_product(in, out, n, phase_inc, phase_start);
-}
 */
 import "C"
 
@@ -140,16 +60,14 @@ func ensureDLLLoaded() error {
 			}
 			seen[p] = true
 			if _, err := os.Stat(p); err == nil {
-				cp := C.CString(p)
-				res := C.gpud_load_library(cp)
-				C.free(unsafe.Pointer(cp))
+				res := bridgeLoadLibrary(p)
 				if res == 0 {
 					loadErr = nil
 					fmt.Fprintf(os.Stderr, "gpudemod: loaded DLL %s\n", p)
 					return
 				}
-				loadErr = fmt.Errorf("failed to load gpudemod DLL: %s (code %d)", p, int(res))
-				fmt.Fprintf(os.Stderr, "gpudemod: DLL load failed for %s (code %d)\n", p, int(res))
+				loadErr = fmt.Errorf("failed to load gpudemod DLL: %s (code %d)", p, res)
+				fmt.Fprintf(os.Stderr, "gpudemod: DLL load failed for %s (code %d)\n", p, res)
 			}
 		}
 		if loadErr == nil {
@@ -176,8 +94,8 @@ type Engine struct {
 	dFiltered         *C.gpud_float2
 	dDecimated        *C.gpud_float2
 	dAudio            *C.float
-	iqBytes           C.size_t
-	audioBytes        C.size_t
+	iqBytes           uintptr
+	audioBytes        uintptr
 }
 
 func Available() bool {
@@ -208,35 +126,35 @@ func New(maxSamples int, sampleRate int) (*Engine, error) {
 		maxSamples: maxSamples,
 		sampleRate: sampleRate,
 		cudaReady:  true,
-		iqBytes:    C.size_t(maxSamples) * C.size_t(unsafe.Sizeof(C.gpud_float2{})),
-		audioBytes: C.size_t(maxSamples) * C.size_t(unsafe.Sizeof(C.float(0))),
+		iqBytes:    uintptr(maxSamples) * unsafe.Sizeof(C.gpud_float2{}),
+		audioBytes: uintptr(maxSamples) * unsafe.Sizeof(C.float(0)),
 	}
 	var ptr unsafe.Pointer
-	if C.gpud_cuda_malloc(&ptr, e.iqBytes) != C.cudaSuccess {
+	if bridgeCudaMalloc(&ptr, e.iqBytes) != 0 {
 		e.Close()
 		return nil, errors.New("cudaMalloc dIQIn failed")
 	}
 	e.dIQIn = (*C.gpud_float2)(ptr)
 	ptr = nil
-	if C.gpud_cuda_malloc(&ptr, e.iqBytes) != C.cudaSuccess {
+	if bridgeCudaMalloc(&ptr, e.iqBytes) != 0 {
 		e.Close()
 		return nil, errors.New("cudaMalloc dShifted failed")
 	}
 	e.dShifted = (*C.gpud_float2)(ptr)
 	ptr = nil
-	if C.gpud_cuda_malloc(&ptr, e.iqBytes) != C.cudaSuccess {
+	if bridgeCudaMalloc(&ptr, e.iqBytes) != 0 {
 		e.Close()
 		return nil, errors.New("cudaMalloc dFiltered failed")
 	}
 	e.dFiltered = (*C.gpud_float2)(ptr)
 	ptr = nil
-	if C.gpud_cuda_malloc(&ptr, e.iqBytes) != C.cudaSuccess {
+	if bridgeCudaMalloc(&ptr, e.iqBytes) != 0 {
 		e.Close()
 		return nil, errors.New("cudaMalloc dDecimated failed")
 	}
 	e.dDecimated = (*C.gpud_float2)(ptr)
 	ptr = nil
-	if C.gpud_cuda_malloc(&ptr, e.audioBytes) != C.cudaSuccess {
+	if bridgeCudaMalloc(&ptr, e.audioBytes) != 0 {
 		e.Close()
 		return nil, errors.New("cudaMalloc dAudio failed")
 	}
@@ -254,7 +172,7 @@ func (e *Engine) SetFIR(taps []float32) {
 	}
 	e.firTaps = append(e.firTaps[:0], taps...)
 	if e.cudaReady {
-		_ = C.gpud_upload_fir_taps((*C.float)(unsafe.Pointer(&e.firTaps[0])), C.int(len(e.firTaps)))
+		_ = bridgeUploadFIRTaps((*C.float)(unsafe.Pointer(&e.firTaps[0])), len(e.firTaps))
 	}
 }
 
@@ -265,19 +183,19 @@ func (e *Engine) tryCUDAFreqShift(iq []complex64, offsetHz float64) ([]complex64
 	if e == nil || !e.cudaReady || len(iq) == 0 || e.dIQIn == nil || e.dShifted == nil {
 		return nil, false
 	}
-	bytes := C.size_t(len(iq)) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dIQIn), unsafe.Pointer(&iq[0]), bytes) != C.cudaSuccess {
+	bytes := uintptr(len(iq)) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyH2D(unsafe.Pointer(e.dIQIn), unsafe.Pointer(&iq[0]), bytes) != 0 {
 		return nil, false
 	}
 	phaseInc := -2.0 * math.Pi * offsetHz / float64(e.sampleRate)
-	if C.gpud_launch_freq_shift(e.dIQIn, e.dShifted, C.int(len(iq)), C.double(phaseInc), C.double(e.phase)) != 0 {
+	if bridgeLaunchFreqShift(e.dIQIn, e.dShifted, len(iq), phaseInc, e.phase) != 0 {
 		return nil, false
 	}
-	if C.gpud_device_sync() != C.cudaSuccess {
+	if bridgeDeviceSync() != 0 {
 		return nil, false
 	}
 	out := make([]complex64, len(iq))
-	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dShifted), bytes) != C.cudaSuccess {
+	if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dShifted), bytes) != 0 {
 		return nil, false
 	}
 	e.phase += phaseInc * float64(len(iq))
@@ -288,18 +206,18 @@ func (e *Engine) tryCUDAFIR(iq []complex64, numTaps int) ([]complex64, bool) {
 	if e == nil || !e.cudaReady || len(iq) == 0 || numTaps <= 0 || e.dShifted == nil || e.dFiltered == nil {
 		return nil, false
 	}
-	iqBytes := C.size_t(len(iq)) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dShifted), unsafe.Pointer(&iq[0]), iqBytes) != C.cudaSuccess {
+	iqBytes := uintptr(len(iq)) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyH2D(unsafe.Pointer(e.dShifted), unsafe.Pointer(&iq[0]), iqBytes) != 0 {
 		return nil, false
 	}
-	if C.gpud_launch_fir(e.dShifted, e.dFiltered, C.int(len(iq)), C.int(numTaps)) != 0 {
+	if bridgeLaunchFIR(e.dShifted, e.dFiltered, len(iq), numTaps) != 0 {
 		return nil, false
 	}
-	if C.gpud_device_sync() != C.cudaSuccess {
+	if bridgeDeviceSync() != 0 {
 		return nil, false
 	}
 	out := make([]complex64, len(iq))
-	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dFiltered), iqBytes) != C.cudaSuccess {
+	if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dFiltered), iqBytes) != 0 {
 		return nil, false
 	}
 	return out, true
@@ -313,19 +231,19 @@ func (e *Engine) tryCUDADecimate(filtered []complex64, factor int) ([]complex64,
 	if nOut <= 0 {
 		return nil, false
 	}
-	iqBytes := C.size_t(len(filtered)) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dFiltered), unsafe.Pointer(&filtered[0]), iqBytes) != C.cudaSuccess {
+	iqBytes := uintptr(len(filtered)) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyH2D(unsafe.Pointer(e.dFiltered), unsafe.Pointer(&filtered[0]), iqBytes) != 0 {
 		return nil, false
 	}
-	if C.gpud_launch_decimate(e.dFiltered, e.dDecimated, C.int(nOut), C.int(factor)) != 0 {
+	if bridgeLaunchDecimate(e.dFiltered, e.dDecimated, nOut, factor) != 0 {
 		return nil, false
 	}
-	if C.gpud_device_sync() != C.cudaSuccess {
+	if bridgeDeviceSync() != 0 {
 		return nil, false
 	}
 	out := make([]complex64, nOut)
-	outBytes := C.size_t(nOut) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dDecimated), outBytes) != C.cudaSuccess {
+	outBytes := uintptr(nOut) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dDecimated), outBytes) != 0 {
 		return nil, false
 	}
 	return out, true
@@ -335,19 +253,19 @@ func (e *Engine) tryCUDAFMDiscrim(shifted []complex64) ([]float32, bool) {
 	if e == nil || !e.cudaReady || len(shifted) < 2 || e.dShifted == nil || e.dAudio == nil {
 		return nil, false
 	}
-	iqBytes := C.size_t(len(shifted)) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dShifted), unsafe.Pointer(&shifted[0]), iqBytes) != C.cudaSuccess {
+	iqBytes := uintptr(len(shifted)) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyH2D(unsafe.Pointer(e.dShifted), unsafe.Pointer(&shifted[0]), iqBytes) != 0 {
 		return nil, false
 	}
-	if C.gpud_launch_fm_discrim(e.dShifted, e.dAudio, C.int(len(shifted))) != 0 {
+	if bridgeLaunchFMDiscrim(e.dShifted, e.dAudio, len(shifted)) != 0 {
 		return nil, false
 	}
-	if C.gpud_device_sync() != C.cudaSuccess {
+	if bridgeDeviceSync() != 0 {
 		return nil, false
 	}
 	out := make([]float32, len(shifted)-1)
-	outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
-	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+	outBytes := uintptr(len(out)) * unsafe.Sizeof(float32(0))
+	if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != 0 {
 		return nil, false
 	}
 	return out, true
@@ -357,19 +275,19 @@ func (e *Engine) tryCUDAAMEnvelope(shifted []complex64) ([]float32, bool) {
 	if e == nil || !e.cudaReady || len(shifted) == 0 || e.dShifted == nil || e.dAudio == nil {
 		return nil, false
 	}
-	iqBytes := C.size_t(len(shifted)) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dShifted), unsafe.Pointer(&shifted[0]), iqBytes) != C.cudaSuccess {
+	iqBytes := uintptr(len(shifted)) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyH2D(unsafe.Pointer(e.dShifted), unsafe.Pointer(&shifted[0]), iqBytes) != 0 {
 		return nil, false
 	}
-	if C.gpud_launch_am_envelope(e.dShifted, e.dAudio, C.int(len(shifted))) != 0 {
+	if bridgeLaunchAMEnvelope(e.dShifted, e.dAudio, len(shifted)) != 0 {
 		return nil, false
 	}
-	if C.gpud_device_sync() != C.cudaSuccess {
+	if bridgeDeviceSync() != 0 {
 		return nil, false
 	}
 	out := make([]float32, len(shifted))
-	outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
-	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+	outBytes := uintptr(len(out)) * unsafe.Sizeof(float32(0))
+	if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != 0 {
 		return nil, false
 	}
 	return out, true
@@ -379,20 +297,20 @@ func (e *Engine) tryCUDASSBProduct(shifted []complex64, bfoHz float64) ([]float3
 	if e == nil || !e.cudaReady || len(shifted) == 0 || e.dShifted == nil || e.dAudio == nil {
 		return nil, false
 	}
-	iqBytes := C.size_t(len(shifted)) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dShifted), unsafe.Pointer(&shifted[0]), iqBytes) != C.cudaSuccess {
+	iqBytes := uintptr(len(shifted)) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyH2D(unsafe.Pointer(e.dShifted), unsafe.Pointer(&shifted[0]), iqBytes) != 0 {
 		return nil, false
 	}
 	phaseInc := 2.0 * math.Pi * bfoHz / float64(e.sampleRate)
-	if C.gpud_launch_ssb_product(e.dShifted, e.dAudio, C.int(len(shifted)), C.double(phaseInc), C.double(e.bfoPhase)) != 0 {
+	if bridgeLaunchSSBProduct(e.dShifted, e.dAudio, len(shifted), phaseInc, e.bfoPhase) != 0 {
 		return nil, false
 	}
-	if C.gpud_device_sync() != C.cudaSuccess {
+	if bridgeDeviceSync() != 0 {
 		return nil, false
 	}
 	out := make([]float32, len(shifted))
-	outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
-	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+	outBytes := uintptr(len(out)) * unsafe.Sizeof(float32(0))
+	if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != 0 {
 		return nil, false
 	}
 	e.bfoPhase += phaseInc * float64(len(shifted))
@@ -436,7 +354,6 @@ func (e *Engine) ShiftFilterDecimate(iq []complex64, offsetHz float64, bw float6
 	if len(taps) == 0 {
 		return nil, 0, errors.New("no FIR taps configured")
 	}
-
 	decim := int(math.Round(float64(e.sampleRate) / float64(outRate)))
 	if decim < 1 {
 		decim = 1
@@ -446,28 +363,26 @@ func (e *Engine) ShiftFilterDecimate(iq []complex64, offsetHz float64, bw float6
 	if nOut <= 0 {
 		return nil, 0, errors.New("not enough output samples after decimation")
 	}
-
-	bytesIn := C.size_t(n) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dIQIn), unsafe.Pointer(&iq[0]), bytesIn) != C.cudaSuccess {
+	bytesIn := uintptr(n) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyH2D(unsafe.Pointer(e.dIQIn), unsafe.Pointer(&iq[0]), bytesIn) != 0 {
 		return nil, 0, errors.New("cudaMemcpy H2D failed")
 	}
-
 	phaseInc := -2.0 * math.Pi * offsetHz / float64(e.sampleRate)
-	if C.gpud_launch_freq_shift(e.dIQIn, e.dShifted, C.int(n), C.double(phaseInc), C.double(e.phase)) != 0 {
+	if bridgeLaunchFreqShift(e.dIQIn, e.dShifted, n, phaseInc, e.phase) != 0 {
 		return nil, 0, errors.New("gpu freq shift failed")
 	}
-	if C.gpud_launch_fir(e.dShifted, e.dFiltered, C.int(n), C.int(len(taps))) != 0 {
+	if bridgeLaunchFIR(e.dShifted, e.dFiltered, n, len(taps)) != 0 {
 		return nil, 0, errors.New("gpu FIR failed")
 	}
-	if C.gpud_launch_decimate(e.dFiltered, e.dDecimated, C.int(nOut), C.int(decim)) != 0 {
+	if bridgeLaunchDecimate(e.dFiltered, e.dDecimated, nOut, decim) != 0 {
 		return nil, 0, errors.New("gpu decimate failed")
 	}
-	if C.gpud_device_sync() != C.cudaSuccess {
+	if bridgeDeviceSync() != 0 {
 		return nil, 0, errors.New("cudaDeviceSynchronize failed")
 	}
 	out := make([]complex64, nOut)
-	outBytes := C.size_t(nOut) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dDecimated), outBytes) != C.cudaSuccess {
+	outBytes := uintptr(nOut) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dDecimated), outBytes) != 0 {
 		return nil, 0, errors.New("cudaMemcpy D2H failed")
 	}
 	e.phase += phaseInc * float64(n)
@@ -494,7 +409,6 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 	if len(iq) > e.maxSamples {
 		return nil, 0, errors.New("sample count exceeds engine capacity")
 	}
-
 	var outRate int
 	switch mode {
 	case DemodNFM, DemodAM, DemodUSB, DemodLSB, DemodCW:
@@ -504,7 +418,6 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 	default:
 		return nil, 0, errors.New("unsupported demod type")
 	}
-
 	cutoff := bw / 2
 	if cutoff < 200 {
 		cutoff = 200
@@ -521,7 +434,6 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 	if len(taps) == 0 {
 		return nil, 0, errors.New("no FIR taps configured")
 	}
-
 	decim := int(math.Round(float64(e.sampleRate) / float64(outRate)))
 	if decim < 1 {
 		decim = 1
@@ -531,54 +443,50 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 	if nOut <= 1 {
 		return nil, 0, errors.New("not enough output samples after decimation")
 	}
-
-	bytesIn := C.size_t(n) * C.size_t(unsafe.Sizeof(complex64(0)))
-	if C.gpud_memcpy_h2d(unsafe.Pointer(e.dIQIn), unsafe.Pointer(&iq[0]), bytesIn) != C.cudaSuccess {
+	bytesIn := uintptr(n) * unsafe.Sizeof(complex64(0))
+	if bridgeMemcpyH2D(unsafe.Pointer(e.dIQIn), unsafe.Pointer(&iq[0]), bytesIn) != 0 {
 		return nil, 0, errors.New("cudaMemcpy H2D failed")
 	}
-
 	phaseInc := -2.0 * math.Pi * offsetHz / float64(e.sampleRate)
-	if C.gpud_launch_freq_shift(e.dIQIn, e.dShifted, C.int(n), C.double(phaseInc), C.double(e.phase)) != 0 {
+	if bridgeLaunchFreqShift(e.dIQIn, e.dShifted, n, phaseInc, e.phase) != 0 {
 		return nil, 0, errors.New("gpu freq shift failed")
 	}
-	if C.gpud_launch_fir(e.dShifted, e.dFiltered, C.int(n), C.int(len(taps))) != 0 {
+	if bridgeLaunchFIR(e.dShifted, e.dFiltered, n, len(taps)) != 0 {
 		return nil, 0, errors.New("gpu FIR failed")
 	}
-	if C.gpud_launch_decimate(e.dFiltered, e.dDecimated, C.int(nOut), C.int(decim)) != 0 {
+	if bridgeLaunchDecimate(e.dFiltered, e.dDecimated, nOut, decim) != 0 {
 		return nil, 0, errors.New("gpu decimate failed")
 	}
-
 	e.lastShiftUsedGPU = true
 	e.lastFIRUsedGPU = true
 	e.lastDecimUsedGPU = true
 	e.lastDemodUsedGPU = false
-
 	switch mode {
 	case DemodNFM, DemodWFM:
-		if C.gpud_launch_fm_discrim(e.dDecimated, e.dAudio, C.int(nOut)) != 0 {
+		if bridgeLaunchFMDiscrim(e.dDecimated, e.dAudio, nOut) != 0 {
 			return nil, 0, errors.New("gpu FM discrim failed")
 		}
 		out := make([]float32, nOut-1)
-		outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
-		if C.gpud_device_sync() != C.cudaSuccess {
+		outBytes := uintptr(len(out)) * unsafe.Sizeof(float32(0))
+		if bridgeDeviceSync() != 0 {
 			return nil, 0, errors.New("cudaDeviceSynchronize failed")
 		}
-		if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+		if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != 0 {
 			return nil, 0, errors.New("cudaMemcpy D2H failed")
 		}
 		e.phase += phaseInc * float64(n)
 		e.lastDemodUsedGPU = true
 		return out, e.sampleRate / decim, nil
 	case DemodAM:
-		if C.gpud_launch_am_envelope(e.dDecimated, e.dAudio, C.int(nOut)) != 0 {
+		if bridgeLaunchAMEnvelope(e.dDecimated, e.dAudio, nOut) != 0 {
 			return nil, 0, errors.New("gpu AM envelope failed")
 		}
 		out := make([]float32, nOut)
-		outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
-		if C.gpud_device_sync() != C.cudaSuccess {
+		outBytes := uintptr(len(out)) * unsafe.Sizeof(float32(0))
+		if bridgeDeviceSync() != 0 {
 			return nil, 0, errors.New("cudaDeviceSynchronize failed")
 		}
-		if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+		if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != 0 {
 			return nil, 0, errors.New("cudaMemcpy D2H failed")
 		}
 		e.phase += phaseInc * float64(n)
@@ -590,15 +498,15 @@ func (e *Engine) DemodFused(iq []complex64, offsetHz float64, bw float64, mode D
 			bfoHz = -700.0
 		}
 		phaseBFO := 2.0 * math.Pi * bfoHz / float64(e.sampleRate)
-		if C.gpud_launch_ssb_product(e.dDecimated, e.dAudio, C.int(nOut), C.double(phaseBFO), C.double(e.bfoPhase)) != 0 {
+		if bridgeLaunchSSBProduct(e.dDecimated, e.dAudio, nOut, phaseBFO, e.bfoPhase) != 0 {
 			return nil, 0, errors.New("gpu SSB product failed")
 		}
 		out := make([]float32, nOut)
-		outBytes := C.size_t(len(out)) * C.size_t(unsafe.Sizeof(float32(0)))
-		if C.gpud_device_sync() != C.cudaSuccess {
+		outBytes := uintptr(len(out)) * unsafe.Sizeof(float32(0))
+		if bridgeDeviceSync() != 0 {
 			return nil, 0, errors.New("cudaDeviceSynchronize failed")
 		}
-		if C.gpud_memcpy_d2h(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != C.cudaSuccess {
+		if bridgeMemcpyD2H(unsafe.Pointer(&out[0]), unsafe.Pointer(e.dAudio), outBytes) != 0 {
 			return nil, 0, errors.New("cudaMemcpy D2H failed")
 		}
 		e.phase += phaseInc * float64(n)
@@ -623,13 +531,11 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	if len(iq) > e.maxSamples {
 		return nil, 0, errors.New("sample count exceeds engine capacity")
 	}
-
 	shifted, ok := e.tryCUDAFreqShift(iq, offsetHz)
 	e.lastShiftUsedGPU = ok && ValidateFreqShift(iq, e.sampleRate, offsetHz, shifted, 1e-3)
 	if !e.lastShiftUsedGPU {
 		shifted = dsp.FreqShift(iq, e.sampleRate, offsetHz)
 	}
-
 	var outRate int
 	switch mode {
 	case DemodNFM, DemodAM, DemodUSB, DemodLSB, DemodCW:
@@ -639,7 +545,6 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	default:
 		return nil, 0, errors.New("unsupported demod type")
 	}
-
 	cutoff := bw / 2
 	if cutoff < 200 {
 		cutoff = 200
@@ -675,7 +580,6 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 		}
 		filtered = dsp.ApplyFIR(shifted, ftaps)
 	}
-
 	decim := int(math.Round(float64(e.sampleRate) / float64(outRate)))
 	if decim < 1 {
 		decim = 1
@@ -695,7 +599,6 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 		dec = dsp.Decimate(filtered, decim)
 	}
 	inputRate := e.sampleRate / decim
-
 	e.lastDemodUsedGPU = false
 	switch mode {
 	case DemodNFM:
@@ -744,23 +647,23 @@ func (e *Engine) Close() {
 		return
 	}
 	if e.dIQIn != nil {
-		_ = C.gpud_cuda_free(unsafe.Pointer(e.dIQIn))
+		_ = bridgeCudaFree(unsafe.Pointer(e.dIQIn))
 		e.dIQIn = nil
 	}
 	if e.dShifted != nil {
-		_ = C.gpud_cuda_free(unsafe.Pointer(e.dShifted))
+		_ = bridgeCudaFree(unsafe.Pointer(e.dShifted))
 		e.dShifted = nil
 	}
 	if e.dFiltered != nil {
-		_ = C.gpud_cuda_free(unsafe.Pointer(e.dFiltered))
+		_ = bridgeCudaFree(unsafe.Pointer(e.dFiltered))
 		e.dFiltered = nil
 	}
 	if e.dDecimated != nil {
-		_ = C.gpud_cuda_free(unsafe.Pointer(e.dDecimated))
+		_ = bridgeCudaFree(unsafe.Pointer(e.dDecimated))
 		e.dDecimated = nil
 	}
 	if e.dAudio != nil {
-		_ = C.gpud_cuda_free(unsafe.Pointer(e.dAudio))
+		_ = bridgeCudaFree(unsafe.Pointer(e.dAudio))
 		e.dAudio = nil
 	}
 	e.firTaps = nil
