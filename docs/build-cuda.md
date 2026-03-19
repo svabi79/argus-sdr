@@ -20,6 +20,8 @@ The DLL split keeps that boundary at runtime instead of link time.
 
 ## Current Windows build flow
 
+This is the only supported Windows build flow in the repository:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build-cuda-windows.ps1
 powershell -ExecutionPolicy Bypass -File .\build-sdrplay.ps1

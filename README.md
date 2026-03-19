@@ -34,7 +34,7 @@ go build -tags sdrplay ./cmd/sdrd
 ```
 
 #### Windows (GPU / CUDA + SDRplay)
-Recommended build path:
+The only supported Windows build path in this repository is:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build-cuda-windows.ps1
@@ -48,8 +48,8 @@ This path uses:
 
 Important:
 - `gpudemod_kernels.dll` must be present next to `sdrd.exe` or in `internal/demod/gpudemod/build/`
-- `build-sdrplay.ps1` copies the DLL to the repo root after a successful app build when available
-- this avoids directly linking MSVC CUDA kernel objects into the MinGW-linked Go binary
+- `build-sdrplay.ps1` prepares the runtime DLL placement and PATH setup for SDRplay + CUDA DLLs
+- older experimental Windows build scripts were removed to avoid confusion
 
 ### Linux
 ```bash
