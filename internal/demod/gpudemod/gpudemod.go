@@ -36,10 +36,10 @@ static int gpud_launch_freq_shift(gpud_float2 *in, gpud_float2 *out, int n, doub
 	return gpud_launch_freq_shift_cuda(in, out, n, phase_inc, phase_start);
 }
 
+extern int gpud_launch_fm_discrim_cuda(const gpud_float2* in, float* out, int n);
+
 static int gpud_launch_fm_discrim(gpud_float2 *in, float *out, int n) {
-	// TODO(phase2): replace with real CUDA kernel launch.
-	(void)in; (void)out; (void)n;
-	return -1;
+	return gpud_launch_fm_discrim_cuda(in, out, n);
 }
 */
 import "C"
@@ -66,17 +66,18 @@ const (
 )
 
 type Engine struct {
-	maxSamples int
-	sampleRate int
-	phase      float64
-	bfoPhase   float64
-	firTaps    []float32
-	cudaReady  bool
-	dIQIn      *C.gpud_float2
-	dShifted   *C.gpud_float2
-	dAudio     *C.float
-	iqBytes    C.size_t
-	audioBytes C.size_t
+	maxSamples       int
+	sampleRate       int
+	phase            float64
+	bfoPhase         float64
+	firTaps          []float32
+	cudaReady        bool
+	lastShiftUsedGPU bool
+	dIQIn            *C.gpud_float2
+	dShifted         *C.gpud_float2
+	dAudio           *C.float
+	iqBytes          C.size_t
+	audioBytes       C.size_t
 }
 
 func Available() bool {
@@ -134,7 +135,14 @@ func (e *Engine) SetFIR(taps []float32) {
 }
 
 func phaseStatus() string {
-	return "phase1b-launch-boundary"
+	return "phase1c-validated-shift"
+}
+
+func (e *Engine) LastShiftUsedGPU() bool {
+	if e == nil {
+		return false
+	}
+	return e.lastShiftUsedGPU
 }
 
 func (e *Engine) tryCUDAFreqShift(iq []complex64, offsetHz float64) ([]complex64, bool) {
@@ -223,4 +231,6 @@ func (e *Engine) Close() {
 	}
 	e.firTaps = nil
 	e.cudaReady = false
+}
+aReady = false
 }

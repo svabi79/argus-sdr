@@ -2,6 +2,7 @@ package recorder
 
 import (
 	"errors"
+	"log"
 	"math"
 	"path/filepath"
 
@@ -33,6 +34,9 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 		if gpuAudio, gpuRate, err := m.gpuDemod.Demod(iq, offset, bw, gpudemod.DemodNFM); err == nil {
 			audio = gpuAudio
 			inputRate = gpuRate
+			if m.gpuDemod.LastShiftUsedGPU() {
+				log.Printf("gpudemod: validated GPU freq-shift used for event %d", ev.ID)
+			}
 		}
 	}
 	if audio == nil {
