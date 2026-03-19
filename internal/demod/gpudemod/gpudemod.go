@@ -229,8 +229,12 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	if len(taps) == 0 {
 		base := dsp.LowpassFIR(cutoff, e.sampleRate, 101)
 		taps = append(make([]float32, 0, len(base)), base...)
+		e.SetFIR(taps)
 	}
-	filtered := dsp.ApplyFIR(shifted, taps)
+	filtered, ok := e.tryCUDAFIR(shifted, len(taps))
+	if !ok {
+		filtered = dsp.ApplyFIR(shifted, taps)
+	}
 	decim := int(math.Round(float64(e.sampleRate) / float64(outRate)))
 	if decim < 1 {
 		decim = 1
@@ -254,6 +258,38 @@ func (e *Engine) Demod(iq []complex64, offsetHz float64, bw float64, mode DemodT
 	case DemodUSB:
 		return demod.USB{}.Demod(dec, inputRate), inputRate, nil
 	case DemodLSB:
+		return demod.LSB{}.Demod(dec, inputRate), inputRate, nil
+	case DemodCW:
+		return demod.CW{}.Demod(dec, inputRate), inputRate, nil
+	default:
+		return nil, 0, errors.New("unsupported demod type")
+	}
+}
+
+func (e *Engine) Close() {
+	if e == nil {
+		return
+	}
+	if e.dIQIn != nil {
+		_ = C.gpud_cuda_free(unsafe.Pointer(e.dIQIn))
+		e.dIQIn = nil
+	}
+	if e.dShifted != nil {
+		_ = C.gpud_cuda_free(unsafe.Pointer(e.dShifted))
+		e.dShifted = nil
+	}
+	if e.dDecimated != nil {
+		_ = C.gpud_cuda_free(unsafe.Pointer(e.dDecimated))
+		e.dDecimated = nil
+	}
+	if e.dAudio != nil {
+		_ = C.gpud_cuda_free(unsafe.Pointer(e.dAudio))
+		e.dAudio = nil
+	}
+	e.firTaps = nil
+	e.cudaReady = false
+}
+odLSB:
 		return demod.LSB{}.Demod(dec, inputRate), inputRate, nil
 	case DemodCW:
 		return demod.CW{}.Demod(dec, inputRate), inputRate, nil
