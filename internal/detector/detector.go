@@ -35,6 +35,8 @@ type Detector struct {
 	EdgeMarginDb    float64
 	MaxSignalBwHz   float64
 	MergeGapHz      float64
+	classHistorySize int
+	classSwitchRatio float64
 	binWidth        float64
 	nbins           int
 	sampleRate      int
@@ -57,8 +59,10 @@ type activeEvent struct {
 	snrDb      float64
 	firstBin   int
 	lastBin    int
-	class      *classifier.Classification
-	stableHits int
+	class        *classifier.Classification
+	stableHits   int
+	classHistory []classifier.SignalClass
+	classIdx     int
 }
 
 type Signal struct {
@@ -96,6 +100,8 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	edgeMarginDb := detCfg.EdgeMarginDb
 	maxSignalBwHz := detCfg.MaxSignalBwHz
 	mergeGapHz := detCfg.MergeGapHz
+	classHistorySize := detCfg.ClassHistorySize
+	classSwitchRatio := detCfg.ClassSwitchRatio
 
 	if minDur <= 0 {
 		minDur = 250 * time.Millisecond
@@ -127,6 +133,12 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	if mergeGapHz <= 0 {
 		mergeGapHz = 5000
 	}
+	if classHistorySize <= 0 {
+		classHistorySize = 10
+	}
+	if classSwitchRatio <= 0 || classSwitchRatio > 1 {
+		classSwitchRatio = 0.6
+	}
 	if cfarRank <= 0 || cfarRank > 2*cfarTrain {
 		cfarRank = int(math.Round(0.75 * float64(2*cfarTrain)))
 		if cfarRank <= 0 {
@@ -156,6 +168,8 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 		EdgeMarginDb:    edgeMarginDb,
 		MaxSignalBwHz:   maxSignalBwHz,
 		MergeGapHz:      mergeGapHz,
+		classHistorySize: classHistorySize,
+		classSwitchRatio: classSwitchRatio,
 		binWidth:        float64(sampleRate) / float64(fftSize),
 		nbins:           fftSize,
 		sampleRate:      sampleRate,
@@ -183,14 +197,68 @@ func (d *Detector) LastNoiseFloor() float64 {
 	return d.lastNoiseFloor
 }
 
+func (ev *activeEvent) updateClass(newCls *classifier.Classification, historySize int, switchRatio float64) {
+	if newCls == nil {
+		return
+	}
+	if historySize <= 0 {
+		historySize = 10
+	}
+	if switchRatio <= 0 || switchRatio > 1 {
+		switchRatio = 0.6
+	}
+	if len(ev.classHistory) != historySize {
+		ev.classHistory = make([]classifier.SignalClass, historySize)
+		ev.classIdx = 0
+	}
+	ev.classHistory[ev.classIdx%len(ev.classHistory)] = newCls.ModType
+	ev.classIdx++
+	if ev.class == nil {
+		clone := *newCls
+		ev.class = &clone
+		return
+	}
+	counts := map[classifier.SignalClass]int{}
+	filled := ev.classIdx
+	if filled > len(ev.classHistory) {
+		filled = len(ev.classHistory)
+	}
+	for i := 0; i < filled; i++ {
+		c := ev.classHistory[i]
+		if c != "" {
+			counts[c]++
+		}
+	}
+	var majority classifier.SignalClass
+	majorityCount := 0
+	for c, n := range counts {
+		if n > majorityCount {
+			majority = c
+			majorityCount = n
+		}
+	}
+	threshold := int(math.Ceil(float64(filled) * switchRatio))
+	if threshold < 1 {
+		threshold = 1
+	}
+	if majorityCount >= threshold && majority != ev.class.ModType {
+		clone := *newCls
+		clone.ModType = majority
+		ev.class = &clone
+	} else if majority == ev.class.ModType && newCls.Confidence > ev.class.Confidence {
+		ev.class.Confidence = newCls.Confidence
+		ev.class.Features = newCls.Features
+		ev.class.SecondBest = newCls.SecondBest
+		ev.class.Scores = newCls.Scores
+	}
+}
+
 func (d *Detector) UpdateClasses(signals []Signal) {
 	for _, s := range signals {
 		for _, ev := range d.active {
 			if overlapHz(s.CenterHz, s.BWHz, ev.centerHz, ev.bwHz) && math.Abs(s.CenterHz-ev.centerHz) < (s.BWHz+ev.bwHz)/2.0 {
 				if s.Class != nil {
-					if ev.class == nil || s.Class.Confidence >= ev.class.Confidence {
-						ev.class = s.Class
-					}
+					ev.updateClass(s.Class, d.classHistorySize, d.classSwitchRatio)
 				}
 			}
 		}
@@ -498,8 +566,11 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 		best.lastSeen = now
 		best.stableHits++
 		best.centerHz = (best.centerHz + s.CenterHz) / 2.0
-		if s.BWHz > best.bwHz {
+		if best.bwHz <= 0 {
 			best.bwHz = s.BWHz
+		} else {
+			const alpha = 0.15
+			best.bwHz = alpha*s.BWHz + (1-alpha)*best.bwHz
 		}
 		if s.PeakDb > best.peakDb {
 			best.peakDb = s.PeakDb
@@ -514,9 +585,7 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 			best.lastBin = s.LastBin
 		}
 		if s.Class != nil {
-			if best.class == nil || s.Class.Confidence >= best.class.Confidence {
-				best.class = s.Class
-			}
+			best.updateClass(s.Class, d.classHistorySize, d.classSwitchRatio)
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"sdr-visual-suite/internal/classifier"
 	"sdr-visual-suite/internal/config"
 )
 
@@ -171,6 +172,42 @@ func TestGuardTrainHzScaling(t *testing.T) {
 	ratio := bw1 / bw2
 	if ratio < 0.8 || ratio > 1.2 {
 		t.Errorf("BW mismatch across FFT sizes: fft2048=%.0f Hz, fft65536=%.0f Hz", bw1, bw2)
+	}
+}
+
+func TestClassStabilization(t *testing.T) {
+	ev := &activeEvent{}
+	histSize := 5
+	switchRatio := 0.6
+
+	wfm := &classifier.Classification{ModType: classifier.ClassWFM, Confidence: 0.8}
+	nfm := &classifier.Classification{ModType: classifier.ClassNFM, Confidence: 0.7}
+
+	ev.updateClass(wfm, histSize, switchRatio)
+	if ev.class.ModType != classifier.ClassWFM {
+		t.Fatalf("first class should be WFM, got %s", ev.class.ModType)
+	}
+
+	ev.updateClass(nfm, histSize, switchRatio)
+	if ev.class.ModType != classifier.ClassWFM {
+		t.Fatalf("should stay WFM after 1 NFM, got %s", ev.class.ModType)
+	}
+
+	ev.updateClass(nfm, histSize, switchRatio)
+	if ev.class.ModType != classifier.ClassNFM {
+		t.Fatalf("should switch to NFM after 2/3 majority, got %s", ev.class.ModType)
+	}
+
+	for i := 0; i < 5; i++ {
+		ev.updateClass(wfm, histSize, switchRatio)
+	}
+	if ev.class.ModType != classifier.ClassWFM {
+		t.Fatalf("should be WFM after 5 consecutive, got %s", ev.class.ModType)
+	}
+
+	ev.updateClass(nfm, histSize, switchRatio)
+	if ev.class.ModType != classifier.ClassWFM {
+		t.Fatalf("single outlier should not flip class, got %s", ev.class.ModType)
 	}
 }
 

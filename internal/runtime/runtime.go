@@ -38,6 +38,8 @@ type DetectorUpdate struct {
 	CFARWrapAround  *bool    `json:"cfar_wrap_around"`
 	EdgeMarginDb    *float64 `json:"edge_margin_db"`
 	MergeGapHz      *float64 `json:"merge_gap_hz"`
+	ClassHistorySize *int     `json:"class_history_size"`
+	ClassSwitchRatio *float64 `json:"class_switch_ratio"`
 }
 
 type SettingsUpdate struct {
@@ -224,6 +226,19 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 				return m.cfg, errors.New("merge_gap_hz must be >= 0")
 			}
 			next.Detector.MergeGapHz = v
+		}
+		if update.Detector.ClassHistorySize != nil {
+			if *update.Detector.ClassHistorySize < 1 {
+				return m.cfg, errors.New("class_history_size must be >= 1")
+			}
+			next.Detector.ClassHistorySize = *update.Detector.ClassHistorySize
+		}
+		if update.Detector.ClassSwitchRatio != nil {
+			v := *update.Detector.ClassSwitchRatio
+			if math.IsNaN(v) || math.IsInf(v, 0) || v < 0.1 || v > 1.0 {
+				return m.cfg, errors.New("class_switch_ratio must be between 0.1 and 1.0")
+			}
+			next.Detector.ClassSwitchRatio = v
 		}
 	}
 	if update.Recorder != nil {

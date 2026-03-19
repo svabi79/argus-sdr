@@ -44,6 +44,8 @@ const stableFramesInput = qs('stableFramesInput');
 const gapToleranceInput = qs('gapToleranceInput');
 const edgeMarginInput = qs('edgeMarginInput');
 const mergeGapInput = qs('mergeGapInput');
+const classHistoryInput = qs('classHistoryInput');
+const classSwitchInput = qs('classSwitchInput');
 const agcToggle = qs('agcToggle');
 const dcToggle = qs('dcToggle');
 const iqToggle = qs('iqToggle');
@@ -422,6 +424,8 @@ function applyConfigToUI(cfg) {
   if (gapToleranceInput) gapToleranceInput.value = cfg.detector.gap_tolerance_ms ?? cfg.detector.hold_ms;
   if (edgeMarginInput) edgeMarginInput.value = cfg.detector.edge_margin_db ?? 3.0;
   if (mergeGapInput) mergeGapInput.value = cfg.detector.merge_gap_hz ?? 5000;
+  if (classHistoryInput) classHistoryInput.value = cfg.detector.class_history_size ?? 10;
+  if (classSwitchInput) classSwitchInput.value = cfg.detector.class_switch_ratio ?? 0.6;
   agcToggle.checked = !!cfg.agc;
   dcToggle.checked = !!cfg.dc_block;
   iqToggle.checked = !!cfg.iq_balance;
@@ -1428,6 +1432,14 @@ if (edgeMarginInput) edgeMarginInput.addEventListener('change', () => {
 if (mergeGapInput) mergeGapInput.addEventListener('change', () => {
   const v = parseFloat(mergeGapInput.value);
   if (Number.isFinite(v)) queueConfigUpdate({ detector: { merge_gap_hz: v } });
+});
+if (classHistoryInput) classHistoryInput.addEventListener('change', () => {
+  const v = parseInt(classHistoryInput.value, 10);
+  if (Number.isFinite(v) && v >= 1) queueConfigUpdate({ detector: { class_history_size: v } });
+});
+if (classSwitchInput) classSwitchInput.addEventListener('change', () => {
+  const v = parseFloat(classSwitchInput.value);
+  if (Number.isFinite(v) && v >= 0.1 && v <= 1.0) queueConfigUpdate({ detector: { class_switch_ratio: v } });
 });
 
 agcToggle.addEventListener('change', () => queueSettingsUpdate({ agc: agcToggle.checked }));

@@ -33,6 +33,8 @@ type DetectorConfig struct {
 	EdgeMarginDb    float64 `yaml:"edge_margin_db" json:"edge_margin_db"`
 	MaxSignalBwHz   float64 `yaml:"max_signal_bw_hz" json:"max_signal_bw_hz"`
 	MergeGapHz      float64 `yaml:"merge_gap_hz" json:"merge_gap_hz"`
+	ClassHistorySize int    `yaml:"class_history_size" json:"class_history_size"`
+	ClassSwitchRatio float64 `yaml:"class_switch_ratio" json:"class_switch_ratio"`
 
 	// Deprecated (backward compatibility)
 	CFAREnabled *bool `yaml:"cfar_enabled,omitempty" json:"cfar_enabled,omitempty"`
@@ -117,6 +119,8 @@ func Default() Config {
 			EdgeMarginDb:    3.0,
 			MaxSignalBwHz:   150000,
 			MergeGapHz:      5000,
+			ClassHistorySize: 10,
+			ClassSwitchRatio: 0.6,
 		},
 		Recorder: RecorderConfig{
 			Enabled:     false,
@@ -217,6 +221,12 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Detector.MergeGapHz <= 0 {
 		cfg.Detector.MergeGapHz = 5000
+	}
+	if cfg.Detector.ClassHistorySize <= 0 {
+		cfg.Detector.ClassHistorySize = 10
+	}
+	if cfg.Detector.ClassSwitchRatio <= 0 || cfg.Detector.ClassSwitchRatio > 1 {
+		cfg.Detector.ClassSwitchRatio = 0.6
 	}
 	if cfg.FrameRate <= 0 {
 		cfg.FrameRate = 15
