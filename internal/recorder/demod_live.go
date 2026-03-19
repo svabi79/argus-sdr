@@ -3,6 +3,7 @@ package recorder
 import (
 	"bytes"
 	"errors"
+	"log"
 	"math"
 	"time"
 
@@ -66,13 +67,21 @@ func (m *Manager) DemodLive(centerHz float64, bw float64, mode string, seconds i
 			if gpuAudio, gpuRate, err := m.gpuDemod.DemodFused(segment, offset, bw, gpuMode); err == nil {
 				audio = gpuAudio
 				inputRate = gpuRate
-			} else if gpuAudio, gpuRate, err := m.gpuDemod.Demod(segment, offset, bw, gpuMode); err == nil {
-				audio = gpuAudio
-				inputRate = gpuRate
+				log.Printf("gpudemod: fused GPU live demod used (%s)", name)
+			} else {
+				log.Printf("gpudemod: fused GPU live demod failed (%s): %v", name, err)
+				if gpuAudio, gpuRate, err := m.gpuDemod.Demod(segment, offset, bw, gpuMode); err == nil {
+					audio = gpuAudio
+					inputRate = gpuRate
+					log.Printf("gpudemod: legacy GPU live demod used (%s)", name)
+				} else {
+					log.Printf("gpudemod: legacy GPU live demod failed (%s): %v", name, err)
+				}
 			}
 		}
 	}
 	if audio == nil {
+		log.Printf("gpudemod: CPU live demod fallback used (%s)", name)
 		shifted := dsp.FreqShift(segment, m.sampleRate, offset)
 		cutoff := bw / 2
 		if cutoff < 200 {

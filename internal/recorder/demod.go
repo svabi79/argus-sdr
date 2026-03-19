@@ -25,7 +25,6 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	if d == nil {
 		return errors.New("demodulator not found")
 	}
-	// band-extract around signal
 	bw := ev.Bandwidth
 	offset := ev.CenterHz - m.centerHz
 	var audio []float32
@@ -54,16 +53,22 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 				if m.gpuDemod.LastDemodUsedGPU() {
 					log.Printf("gpudemod: fused GPU demod used for event %d (%s)", ev.ID, name)
 				}
-			} else if gpuAudio, gpuRate, err := m.gpuDemod.Demod(iq, offset, bw, gpuMode); err == nil {
-				audio = gpuAudio
-				inputRate = gpuRate
-				if m.gpuDemod.LastDemodUsedGPU() {
-					log.Printf("gpudemod: GPU demod stage used for event %d (%s)", ev.ID, name)
+			} else {
+				log.Printf("gpudemod: fused GPU demod failed for event %d (%s): %v", ev.ID, name, err)
+				if gpuAudio, gpuRate, err := m.gpuDemod.Demod(iq, offset, bw, gpuMode); err == nil {
+					audio = gpuAudio
+					inputRate = gpuRate
+					if m.gpuDemod.LastDemodUsedGPU() {
+						log.Printf("gpudemod: legacy GPU demod used for event %d (%s)", ev.ID, name)
+					}
+				} else {
+					log.Printf("gpudemod: legacy GPU demod failed for event %d (%s): %v", ev.ID, name, err)
 				}
 			}
 		}
 	}
 	if audio == nil {
+		log.Printf("gpudemod: CPU demod fallback used for event %d (%s)", ev.ID, name)
 		shifted := dsp.FreqShift(iq, m.sampleRate, offset)
 		cutoff := bw / 2
 		if cutoff < 200 {
@@ -93,7 +98,6 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 			_ = writeWAV(rdsPath, rds, 2400, 1)
 			files["rds_baseband"] = "rds.wav"
 			files["rds_sample_rate"] = 2400
-			// naive decode
 			dec := rdsdecoder{}
 			res := dec.Decode(rds, 2400)
 			if res.PI != 0 {
