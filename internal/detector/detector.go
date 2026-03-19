@@ -80,8 +80,15 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	hysteresis := detCfg.HysteresisDb
 	minStable := detCfg.MinStableFrames
 	cfarMode := detCfg.CFARMode
-	cfarGuard := detCfg.CFARGuardCells
-	cfarTrain := detCfg.CFARTrainCells
+	binWidth := float64(sampleRate) / float64(fftSize)
+	cfarGuard := int(math.Ceil(detCfg.CFARGuardHz / binWidth))
+	if cfarGuard < 0 {
+		cfarGuard = 0
+	}
+	cfarTrain := int(math.Ceil(detCfg.CFARTrainHz / binWidth))
+	if cfarTrain < 1 {
+		cfarTrain = 1
+	}
 	cfarRank := detCfg.CFARRank
 	cfarScaleDb := detCfg.CFARScaleDb
 	cfarWrap := detCfg.CFARWrapAround
@@ -107,12 +114,6 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	}
 	if gapTolerance <= 0 {
 		gapTolerance = hold
-	}
-	if cfarGuard < 0 {
-		cfarGuard = 2
-	}
-	if cfarTrain <= 0 {
-		cfarTrain = 16
 	}
 	if cfarScaleDb <= 0 {
 		cfarScaleDb = 6

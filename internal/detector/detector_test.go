@@ -137,3 +137,58 @@ func TestMergeGap(t *testing.T) {
 		t.Errorf("merged BW too narrow: %.0f Hz", signals[0].BWHz)
 	}
 }
+
+func TestGuardTrainHzScaling(t *testing.T) {
+	sampleRate := 2048000
+	guardHz := 500.0
+	trainHz := 5000.0
+	cfg := config.DetectorConfig{
+		ThresholdDb:     -20,
+		MinDurationMs:   1,
+		HoldMs:          10,
+		EmaAlpha:        1.0,
+		HysteresisDb:    3,
+		MinStableFrames: 1,
+		GapToleranceMs:  10,
+		CFARMode:        "OFF",
+		CFARGuardHz:     guardHz,
+		CFARTrainHz:     trainHz,
+		CFARScaleDb:     6,
+		CFARWrapAround:  true,
+	}
+	d1 := New(cfg, sampleRate, 2048)
+	d2 := New(cfg, sampleRate, 65536)
+	spec2048 := makeSignalSpectrum(2048, sampleRate, 500e3, 12e3, -20, -100)
+	spec65536 := makeSignalSpectrum(65536, sampleRate, 500e3, 12e3, -20, -100)
+	now := time.Now()
+	_, sig1 := d1.Process(now, spec2048, 434e6)
+	_, sig2 := d2.Process(now, spec65536, 434e6)
+	if len(sig1) == 0 || len(sig2) == 0 {
+		t.Fatalf("detection failed: fft2048=%d signals, fft65536=%d signals", len(sig1), len(sig2))
+	}
+	bw1 := sig1[0].BWHz
+	bw2 := sig2[0].BWHz
+	ratio := bw1 / bw2
+	if ratio < 0.8 || ratio > 1.2 {
+		t.Errorf("BW mismatch across FFT sizes: fft2048=%.0f Hz, fft65536=%.0f Hz", bw1, bw2)
+	}
+}
+
+func makeSignalSpectrum(fftSize int, sampleRate int, offsetHz float64, bwHz float64, signalDb float64, noiseDb float64) []float64 {
+	spectrum := make([]float64, fftSize)
+	for i := range spectrum {
+		spectrum[i] = noiseDb
+	}
+	binWidth := float64(sampleRate) / float64(fftSize)
+	centerBin := int(float64(fftSize)/2 + offsetHz/binWidth)
+	halfBins := int((bwHz / 2) / binWidth)
+	if halfBins < 1 {
+		halfBins = 1
+	}
+	for i := centerBin - halfBins; i <= centerBin+halfBins; i++ {
+		if i >= 0 && i < fftSize {
+			spectrum[i] = signalDb
+		}
+	}
+	return spectrum
+}

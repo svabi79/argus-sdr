@@ -57,8 +57,8 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 				prev.Detector.MinStableFrames != next.Detector.MinStableFrames ||
 				prev.Detector.GapToleranceMs != next.Detector.GapToleranceMs ||
 				prev.Detector.CFARMode != next.Detector.CFARMode ||
-				prev.Detector.CFARGuardCells != next.Detector.CFARGuardCells ||
-				prev.Detector.CFARTrainCells != next.Detector.CFARTrainCells ||
+				prev.Detector.CFARGuardHz != next.Detector.CFARGuardHz ||
+				prev.Detector.CFARTrainHz != next.Detector.CFARTrainHz ||
 				prev.Detector.CFARRank != next.Detector.CFARRank ||
 				prev.Detector.CFARScaleDb != next.Detector.CFARScaleDb ||
 				prev.Detector.CFARWrapAround != next.Detector.CFARWrapAround ||

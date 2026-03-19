@@ -29,6 +29,8 @@ type DetectorUpdate struct {
 	MinStableFrames *int     `json:"min_stable_frames"`
 	GapToleranceMs  *int     `json:"gap_tolerance_ms"`
 	CFARMode        *string  `json:"cfar_mode"`
+	CFARGuardHz     *float64 `json:"cfar_guard_hz"`
+	CFARTrainHz     *float64 `json:"cfar_train_hz"`
 	CFARGuardCells  *int     `json:"cfar_guard_cells"`
 	CFARTrainCells  *int     `json:"cfar_train_cells"`
 	CFARRank        *int     `json:"cfar_rank"`
@@ -172,6 +174,18 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 		}
 		if update.Detector.CFARWrapAround != nil {
 			next.Detector.CFARWrapAround = *update.Detector.CFARWrapAround
+		}
+		if update.Detector.CFARGuardHz != nil {
+			if *update.Detector.CFARGuardHz < 0 {
+				return m.cfg, errors.New("cfar_guard_hz must be >= 0")
+			}
+			next.Detector.CFARGuardHz = *update.Detector.CFARGuardHz
+		}
+		if update.Detector.CFARTrainHz != nil {
+			if *update.Detector.CFARTrainHz <= 0 {
+				return m.cfg, errors.New("cfar_train_hz must be > 0")
+			}
+			next.Detector.CFARTrainHz = *update.Detector.CFARTrainHz
 		}
 		if update.Detector.CFARGuardCells != nil {
 			if *update.Detector.CFARGuardCells < 0 {

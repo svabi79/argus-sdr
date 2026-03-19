@@ -23,8 +23,10 @@ type DetectorConfig struct {
 	MinStableFrames int     `yaml:"min_stable_frames" json:"min_stable_frames"`
 	GapToleranceMs  int     `yaml:"gap_tolerance_ms" json:"gap_tolerance_ms"`
 	CFARMode        string  `yaml:"cfar_mode" json:"cfar_mode"`
-	CFARGuardCells  int     `yaml:"cfar_guard_cells" json:"cfar_guard_cells"`
-	CFARTrainCells  int     `yaml:"cfar_train_cells" json:"cfar_train_cells"`
+	CFARGuardHz     float64 `yaml:"cfar_guard_hz" json:"cfar_guard_hz"`
+	CFARTrainHz     float64 `yaml:"cfar_train_hz" json:"cfar_train_hz"`
+	CFARGuardCells  int     `yaml:"cfar_guard_cells,omitempty" json:"cfar_guard_cells,omitempty"`
+	CFARTrainCells  int     `yaml:"cfar_train_cells,omitempty" json:"cfar_train_cells,omitempty"`
 	CFARRank        int     `yaml:"cfar_rank" json:"cfar_rank"`
 	CFARScaleDb     float64 `yaml:"cfar_scale_db" json:"cfar_scale_db"`
 	CFARWrapAround  bool    `yaml:"cfar_wrap_around" json:"cfar_wrap_around"`
@@ -105,6 +107,8 @@ func Default() Config {
 			MinStableFrames: 3,
 			GapToleranceMs:  500,
 			CFARMode:        "GOSCA",
+			CFARGuardHz:     500,
+			CFARTrainHz:     5000,
 			CFARGuardCells:  3,
 			CFARTrainCells:  24,
 			CFARRank:        36,
@@ -177,6 +181,18 @@ func applyDefaults(cfg Config) Config {
 		} else {
 			cfg.Detector.CFARMode = "GOSCA"
 		}
+	}
+	if cfg.Detector.CFARGuardHz <= 0 && cfg.Detector.CFARGuardCells > 0 {
+		cfg.Detector.CFARGuardHz = float64(cfg.Detector.CFARGuardCells) * 62.5
+	}
+	if cfg.Detector.CFARTrainHz <= 0 && cfg.Detector.CFARTrainCells > 0 {
+		cfg.Detector.CFARTrainHz = float64(cfg.Detector.CFARTrainCells) * 62.5
+	}
+	if cfg.Detector.CFARGuardHz <= 0 {
+		cfg.Detector.CFARGuardHz = 500
+	}
+	if cfg.Detector.CFARTrainHz <= 0 {
+		cfg.Detector.CFARTrainHz = 5000
 	}
 	if cfg.Detector.CFARGuardCells <= 0 {
 		cfg.Detector.CFARGuardCells = 3

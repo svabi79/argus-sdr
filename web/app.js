@@ -32,8 +32,8 @@ const thresholdRange = qs('thresholdRange');
 const thresholdInput = qs('thresholdInput');
 const cfarModeSelect = qs('cfarModeSelect');
 const cfarWrapToggle = qs('cfarWrapToggle');
-const cfarGuardInput = qs('cfarGuardInput');
-const cfarTrainInput = qs('cfarTrainInput');
+const cfarGuardHzInput = qs('cfarGuardHzInput');
+const cfarTrainHzInput = qs('cfarTrainHzInput');
 const cfarRankInput = qs('cfarRankInput');
 const cfarScaleInput = qs('cfarScaleInput');
 const minDurationInput = qs('minDurationInput');
@@ -408,8 +408,8 @@ function applyConfigToUI(cfg) {
   thresholdInput.value = cfg.detector.threshold_db;
   if (cfarModeSelect) cfarModeSelect.value = cfg.detector.cfar_mode || 'OFF';
   if (cfarWrapToggle) cfarWrapToggle.checked = cfg.detector.cfar_wrap_around !== false;
-  if (cfarGuardInput) cfarGuardInput.value = cfg.detector.cfar_guard_cells ?? 2;
-  if (cfarTrainInput) cfarTrainInput.value = cfg.detector.cfar_train_cells ?? 16;
+  if (cfarGuardHzInput) cfarGuardHzInput.value = cfg.detector.cfar_guard_hz ?? 500;
+  if (cfarTrainHzInput) cfarTrainHzInput.value = cfg.detector.cfar_train_hz ?? 5000;
   if (cfarRankInput) cfarRankInput.value = cfg.detector.cfar_rank ?? 24;
   if (cfarScaleInput) cfarScaleInput.value = cfg.detector.cfar_scale_db ?? 6;
   const rankRow = cfarRankInput?.closest('.field');
@@ -651,8 +651,9 @@ function drawCfarEdgeOverlay(ctx, w, h, startHz, endHz) {
   const mode = currentConfig?.detector?.cfar_mode || 'OFF';
   if (mode === 'OFF') return;
   if (currentConfig?.detector?.cfar_wrap_around) return;
-  const guard = currentConfig.detector.cfar_guard_cells ?? 0;
-  const train = currentConfig.detector.cfar_train_cells ?? 0;
+  const binWidth = (currentConfig.sample_rate || 2048000) / (latest.fft_size || latest.spectrum_db?.length || 32768);
+  const guard = Math.ceil((currentConfig.detector.cfar_guard_hz ?? 500) / binWidth);
+  const train = Math.ceil((currentConfig.detector.cfar_train_hz ?? 5000) / binWidth);
   const bins = guard + train;
   if (bins <= 0) return;
   const fftSize = latest.fft_size || latest.spectrum_db?.length;
@@ -1380,13 +1381,13 @@ if (cfarModeSelect) cfarModeSelect.addEventListener('change', () => {
 if (cfarWrapToggle) cfarWrapToggle.addEventListener('change', () => {
   queueConfigUpdate({ detector: { cfar_wrap_around: cfarWrapToggle.checked } });
 });
-if (cfarGuardInput) cfarGuardInput.addEventListener('change', () => {
-  const v = parseInt(cfarGuardInput.value, 10);
-  if (Number.isFinite(v)) queueConfigUpdate({ detector: { cfar_guard_cells: v } });
+if (cfarGuardHzInput) cfarGuardHzInput.addEventListener('change', () => {
+  const v = parseFloat(cfarGuardHzInput.value);
+  if (Number.isFinite(v) && v >= 0) queueConfigUpdate({ detector: { cfar_guard_hz: v } });
 });
-if (cfarTrainInput) cfarTrainInput.addEventListener('change', () => {
-  const v = parseInt(cfarTrainInput.value, 10);
-  if (Number.isFinite(v)) queueConfigUpdate({ detector: { cfar_train_cells: v } });
+if (cfarTrainHzInput) cfarTrainHzInput.addEventListener('change', () => {
+  const v = parseFloat(cfarTrainHzInput.value);
+  if (Number.isFinite(v) && v > 0) queueConfigUpdate({ detector: { cfar_train_hz: v } });
 });
 if (cfarRankInput) cfarRankInput.addEventListener('change', () => {
   const v = parseInt(cfarRankInput.value, 10);
