@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"log"
-	"math"
 	"time"
 
 	"sdr-visual-suite/internal/demod"
-	"sdr-visual-suite/internal/dsp"
 )
 
 // DemodLive demodulates a recent window and returns WAV bytes.
@@ -61,20 +59,7 @@ func (m *Manager) DemodLive(centerHz float64, bw float64, mode string, seconds i
 		} else {
 			log.Printf("gpudemod: CPU live demod fallback used (%s)", name)
 		}
-		shifted := dsp.FreqShift(segment, m.sampleRate, offset)
-		cutoff := bw / 2
-		if cutoff < 200 {
-			cutoff = 200
-		}
-		taps := dsp.LowpassFIR(cutoff, m.sampleRate, 101)
-		filtered := dsp.ApplyFIR(shifted, taps)
-		decim := int(math.Round(float64(m.sampleRate) / float64(d.OutputSampleRate())))
-		if decim < 1 {
-			decim = 1
-		}
-		dec := dsp.Decimate(filtered, decim)
-		inputRate = m.sampleRate / decim
-		audio = d.Demod(dec, inputRate)
+		audio, inputRate = demodAudioCPU(d, segment, m.sampleRate, offset, bw)
 	}
 	buf := &bytes.Buffer{}
 	if err := writeWAVTo(buf, audio, inputRate, d.Channels()); err != nil {
