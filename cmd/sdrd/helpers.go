@@ -214,7 +214,13 @@ type streamIQOverlap struct {
 	tail []complex64
 }
 
-const streamOverlapLen = 512 // must be >= FIR tap count (101) with margin
+// extractionConfig holds audio quality settings for signal extraction.
+type extractionConfig struct {
+	firTaps   int     // AQ-3: FIR tap count (default 101)
+	bwMult    float64 // AQ-5: BW multiplier (default 1.2)
+}
+
+const streamOverlapLen = 512 // must be >= FIR tap count with margin
 
 // extractForStreaming performs GPU-accelerated extraction with:
 //   - Per-signal phase-continuous FreqShift (via PhaseStart in ExtractJob)
@@ -229,11 +235,18 @@ func extractForStreaming(
 	signals []detector.Signal,
 	phaseState map[int64]*streamExtractState,
 	overlap *streamIQOverlap,
+	aqCfg extractionConfig,
 ) ([][]complex64, []int) {
 	out := make([][]complex64, len(signals))
 	rates := make([]int, len(signals))
 	if len(allIQ) == 0 || sampleRate <= 0 || len(signals) == 0 {
 		return out, rates
+	}
+
+	// AQ-3: Use configured overlap length (must cover FIR taps)
+	overlapNeeded := streamOverlapLen
+	if aqCfg.firTaps > 0 && aqCfg.firTaps+64 > overlapNeeded {
+		overlapNeeded = aqCfg.firTaps + 64
 	}
 
 	// Prepend overlap from previous frame so FIR kernel has real halo data
@@ -248,19 +261,25 @@ func extractForStreaming(
 		overlapLen = 0
 	}
 
-	// Save tail for next frame
-	if len(allIQ) > streamOverlapLen {
-		overlap.tail = append(overlap.tail[:0], allIQ[len(allIQ)-streamOverlapLen:]...)
+	// Save tail for next frame (sized to cover configured FIR taps)
+	if len(allIQ) > overlapNeeded {
+		overlap.tail = append(overlap.tail[:0], allIQ[len(allIQ)-overlapNeeded:]...)
 	} else {
 		overlap.tail = append(overlap.tail[:0], allIQ...)
 	}
 
 	decimTarget := 200000
 
+	// AQ-5: BW multiplier for extraction (wider = better S/N for weak signals)
+	bwMult := aqCfg.bwMult
+	if bwMult <= 0 {
+		bwMult = 1.0
+	}
+
 	// Build jobs with per-signal phase
 	jobs := make([]gpudemod.ExtractJob, len(signals))
 	for i, sig := range signals {
-		bw := sig.BWHz
+		bw := sig.BWHz * bwMult // AQ-5: widen extraction BW
 		sigMHz := sig.CenterHz / 1e6
 		isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) ||
 			(sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
@@ -352,7 +371,11 @@ func extractForStreaming(
 		if cutoff > float64(sampleRate)/2-1 {
 			cutoff = float64(sampleRate)/2 - 1
 		}
-		taps := dsp.LowpassFIR(cutoff, sampleRate, 101)
+		firTaps := 101
+		if aqCfg.firTaps > 0 {
+			firTaps = aqCfg.firTaps
+		}
+		taps := dsp.LowpassFIR(cutoff, sampleRate, firTaps)
 		filtered := dsp.ApplyFIR(shifted, taps)
 		decim := sampleRate / decimTarget
 		if decim < 1 {

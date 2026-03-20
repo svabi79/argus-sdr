@@ -54,6 +54,11 @@ type RecorderConfig struct {
 	OutputDir   string   `yaml:"output_dir" json:"output_dir"`
 	ClassFilter []string `yaml:"class_filter" json:"class_filter"`
 	RingSeconds int      `yaml:"ring_seconds" json:"ring_seconds"`
+
+	// Audio quality settings (AQ-2, AQ-3, AQ-5)
+	DeemphasisUs     float64 `yaml:"deemphasis_us" json:"deemphasis_us"`         // De-emphasis time constant in µs. 50=Europe, 75=US/Japan, 0=disabled. Default: 50
+	ExtractionTaps   int     `yaml:"extraction_fir_taps" json:"extraction_fir_taps"` // FIR tap count for extraction filter. Default: 101, max 301
+	ExtractionBwMult float64 `yaml:"extraction_bw_mult" json:"extraction_bw_mult"`   // BW multiplier for extraction. Default: 1.2 (20% wider than detected)
 }
 
 type DecoderConfig struct {
@@ -136,7 +141,10 @@ func Default() Config {
 			AutoDecode:  false,
 			MaxDiskMB:   0,
 			OutputDir:   "data/recordings",
-			RingSeconds: 8,
+			RingSeconds:      8,
+			DeemphasisUs:     50,
+			ExtractionTaps:   101,
+			ExtractionBwMult: 1.2,
 		},
 		Decoder:        DecoderConfig{},
 		WebAddr:        ":8080",
@@ -270,6 +278,21 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Recorder.RingSeconds <= 0 {
 		cfg.Recorder.RingSeconds = 8
+	}
+	if cfg.Recorder.DeemphasisUs == 0 {
+		cfg.Recorder.DeemphasisUs = 50
+	}
+	if cfg.Recorder.ExtractionTaps <= 0 {
+		cfg.Recorder.ExtractionTaps = 101
+	}
+	if cfg.Recorder.ExtractionTaps > 301 {
+		cfg.Recorder.ExtractionTaps = 301
+	}
+	if cfg.Recorder.ExtractionTaps%2 == 0 {
+		cfg.Recorder.ExtractionTaps++ // must be odd
+	}
+	if cfg.Recorder.ExtractionBwMult <= 0 {
+		cfg.Recorder.ExtractionBwMult = 1.2
 	}
 	return cfg
 }

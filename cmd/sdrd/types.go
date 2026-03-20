@@ -33,6 +33,13 @@ type client struct {
 	send      chan []byte
 	done      chan struct{}
 	closeOnce sync.Once
+
+	// Per-client settings (set via initial config message)
+	binary    bool // send binary spectrum frames instead of JSON
+	maxBins   int  // target bin count (0 = full resolution)
+	targetFps int  // target frame rate (0 = full rate)
+	frameSkip int  // skip counter: send every N-th frame
+	frameN    int  // current frame counter
 }
 
 type hub struct {

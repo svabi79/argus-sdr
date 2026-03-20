@@ -117,7 +117,149 @@ const listenModeSelect = qs('listenMode');
 let latest = null;
 let currentConfig = null;
 let liveAudio = null;
+let liveListenWS = null; // WebSocket-based live listen
 let stats = { buffer_samples: 0, dropped: 0, resets: 0, last_sample_ago_ms: -1 };
+
+// ---------------------------------------------------------------------------
+// LiveListenWS — WebSocket-based gapless audio streaming via /ws/audio
+// ---------------------------------------------------------------------------
+class LiveListenWS {
+  constructor(freq, bw, mode) {
+    this.freq = freq;
+    this.bw = bw;
+    this.mode = mode;
+    this.ws = null;
+    this.audioCtx = null;
+    this.sampleRate = 48000;
+    this.channels = 1;
+    this.playing = false;
+    this.queue = [];         // buffered PCM chunks
+    this.nextTime = 0;       // next scheduled playback time
+    this.started = false;
+    this._onStop = null;
+  }
+
+  start() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/ws/audio?freq=${this.freq}&bw=${this.bw}&mode=${this.mode || ''}`;
+    this.ws = new WebSocket(url);
+    this.ws.binaryType = 'arraybuffer';
+    this.playing = true;
+
+    this.ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        // audio_info JSON message (initial or updated when session attached)
+        try {
+          const info = JSON.parse(ev.data);
+          if (info.sample_rate || info.channels) {
+            const newRate = info.sample_rate || 48000;
+            const newCh = info.channels || 1;
+            // If channels or rate changed, reinit AudioContext
+            if (newRate !== this.sampleRate || newCh !== this.channels) {
+              this.sampleRate = newRate;
+              this.channels = newCh;
+              if (this.audioCtx) {
+                this.audioCtx.close().catch(() => {});
+                this.audioCtx = null;
+              }
+              this.started = false;
+              this.nextTime = 0;
+            }
+            this._initAudio();
+          }
+        } catch (e) { /* ignore */ }
+        return;
+      }
+      // Binary PCM data (s16le)
+      if (!this.audioCtx || !this.playing) return;
+      this._playChunk(ev.data);
+    };
+
+    this.ws.onclose = () => {
+      this.playing = false;
+      if (this._onStop) this._onStop();
+    };
+    this.ws.onerror = () => {
+      this.playing = false;
+      if (this._onStop) this._onStop();
+    };
+
+    // If no audio_info arrives within 500ms, init with defaults
+    setTimeout(() => {
+      if (!this.audioCtx && this.playing) this._initAudio();
+    }, 500);
+  }
+
+  stop() {
+    this.playing = false;
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    if (this.audioCtx) {
+      this.audioCtx.close().catch(() => {});
+      this.audioCtx = null;
+    }
+    this.queue = [];
+    this.nextTime = 0;
+    this.started = false;
+  }
+
+  onStop(fn) { this._onStop = fn; }
+
+  _initAudio() {
+    if (this.audioCtx) return;
+    this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate: this.sampleRate
+    });
+    this.nextTime = 0;
+    this.started = false;
+  }
+
+  _playChunk(buf) {
+    const ctx = this.audioCtx;
+    if (!ctx) return;
+
+    const samples = new Int16Array(buf);
+    const nFrames = Math.floor(samples.length / this.channels);
+    if (nFrames === 0) return;
+
+    const audioBuffer = ctx.createBuffer(this.channels, nFrames, this.sampleRate);
+    for (let ch = 0; ch < this.channels; ch++) {
+      const channelData = audioBuffer.getChannelData(ch);
+      for (let i = 0; i < nFrames; i++) {
+        channelData[i] = samples[i * this.channels + ch] / 32768;
+      }
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+
+    // Schedule gapless playback with drift correction.
+    // We target a small jitter buffer (~100ms ahead of real time).
+    // If nextTime falls behind currentTime, we resync with a small
+    // buffer to avoid audible gaps.
+    const now = ctx.currentTime;
+    const targetLatency = 0.1; // 100ms jitter buffer
+
+    if (!this.started || this.nextTime < now) {
+      // First chunk or buffer underrun — resync
+      this.nextTime = now + targetLatency;
+      this.started = true;
+    }
+
+    // If we've drifted too far ahead (>500ms of buffered audio),
+    // drop this chunk to reduce latency. This prevents the buffer
+    // from growing unbounded when the server sends faster than realtime.
+    if (this.nextTime > now + 0.5) {
+      return; // drop — too much buffered
+    }
+
+    source.start(this.nextTime);
+    this.nextTime += audioBuffer.duration;
+  }
+}
 let gpuInfo = { available: false, active: false, error: '' };
 
 let zoom = 1;
@@ -1331,12 +1473,46 @@ function tuneToFrequency(centerHz) {
 function connect() {
   clearTimeout(wsReconnectTimer);
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  // Remote optimization: detect non-localhost and opt into binary + decimation
+  const hn = location.hostname;
+  const isLocal = ['localhost', '127.0.0.1', '::1'].includes(hn)
+    || hn.startsWith('192.168.')
+    || hn.startsWith('10.')
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(hn)
+    || hn.endsWith('.local')
+    || hn.endsWith('.lan');
+  const params = new URLSearchParams(location.search);
+  const wantBinary = params.get('binary') === '1' || !isLocal;
+  const bins = parseInt(params.get('bins') || (isLocal ? '0' : '2048'), 10);
+  const fps = parseInt(params.get('fps') || (isLocal ? '0' : '10'), 10);
+
+  let wsUrl = `${proto}://${location.host}/ws`;
+  if (wantBinary || bins > 0 || fps > 0) {
+    const qp = [];
+    if (wantBinary) qp.push('binary=1');
+    if (bins > 0) qp.push(`bins=${bins}`);
+    if (fps > 0) qp.push(`fps=${fps}`);
+    wsUrl += '?' + qp.join('&');
+  }
+
+  const ws = new WebSocket(wsUrl);
+  ws.binaryType = 'arraybuffer';
   setWsBadge('Connecting', 'neutral');
 
   ws.onopen = () => setWsBadge('Live', 'ok');
   ws.onmessage = (ev) => {
-    latest = JSON.parse(ev.data);
+    if (ev.data instanceof ArrayBuffer) {
+      try {
+        const decoded = decodeBinaryFrame(ev.data);
+        if (decoded) latest = decoded;
+      } catch (e) {
+        console.warn('binary frame decode error:', e);
+        return;
+      }
+    } else {
+      latest = JSON.parse(ev.data);
+    }
     markSpectrumDirty();
     if (followLive) pan = 0;
     updateHeroMetrics();
@@ -1347,6 +1523,59 @@ function connect() {
     wsReconnectTimer = setTimeout(connect, 1000);
   };
   ws.onerror = () => ws.close();
+}
+
+// Decode binary spectrum frame v4 (hybrid: binary spectrum + JSON signals)
+function decodeBinaryFrame(buf) {
+  const view = new DataView(buf);
+  if (buf.byteLength < 32) return null;
+
+  // Header: 32 bytes
+  const magic0 = view.getUint8(0);
+  const magic1 = view.getUint8(1);
+  if (magic0 !== 0x53 || magic1 !== 0x50) return null; // not "SP"
+
+  const version = view.getUint16(2, true);
+  const ts = Number(view.getBigInt64(4, true));
+  const centerHz = view.getFloat64(12, true);
+  const binCount = view.getUint32(20, true);
+  const sampleRateHz = view.getUint32(24, true);
+  const jsonOffset = view.getUint32(28, true);
+
+  if (buf.byteLength < 32 + binCount * 2) return null;
+
+  // Spectrum: binCount × int16 at offset 32
+  const spectrum = new Float64Array(binCount);
+  let off = 32;
+  for (let i = 0; i < binCount; i++) {
+    spectrum[i] = view.getInt16(off, true) / 100;
+    off += 2;
+  }
+
+  // JSON signals + debug after the spectrum data
+  let signals = [];
+  let debug = null;
+  if (jsonOffset > 0 && jsonOffset < buf.byteLength) {
+    try {
+      const jsonBytes = new Uint8Array(buf, jsonOffset);
+      const jsonStr = new TextDecoder().decode(jsonBytes);
+      const parsed = JSON.parse(jsonStr);
+      signals = parsed.signals || [];
+      debug = parsed.debug || null;
+    } catch (e) {
+      // JSON parse failed — continue with empty signals
+    }
+  }
+
+  return {
+    ts: ts,
+    center_hz: centerHz,
+    sample_rate: sampleRateHz,
+    fft_size: binCount,
+    spectrum_db: spectrum,
+    signals: signals,
+    debug: debug
+  };
 }
 
 function renderLoop() {
@@ -1447,7 +1676,7 @@ window.addEventListener('mousemove', (ev) => {
     hoveredSignal = hoverHit.signal;
     renderSignalPopover(hoverHit, hoverHit.signal);
   } else {
-    scheduleHideSignalPopover();
+    hideSignalPopover();
   }
   if (isDraggingSpectrum) {
     const dx = ev.clientX - dragStartX;
@@ -1664,13 +1893,33 @@ if (liveListenEventBtn) {
   liveListenEventBtn.addEventListener('click', () => {
     const ev = eventsById.get(selectedEventId);
     if (!ev) return;
+
+    // Toggle off if already listening
+    if (liveListenWS && liveListenWS.playing) {
+      liveListenWS.stop();
+      liveListenWS = null;
+      liveListenEventBtn.textContent = 'Listen';
+      liveListenEventBtn.classList.remove('active');
+      if (liveListenBtn) { liveListenBtn.textContent = 'Live Listen'; liveListenBtn.classList.remove('active'); }
+      return;
+    }
+
     const freq = ev.center_hz;
     const bw = ev.bandwidth_hz || 12000;
     const mode = (listenModeSelect?.value || ev.class?.mod_type || 'NFM');
-    const sec = parseInt(listenSecondsInput?.value || '2', 10);
-    const url = `/api/demod?freq=${freq}&bw=${bw}&mode=${mode}&sec=${sec}`;
-    const audio = new Audio(url);
-    audio.play();
+
+    if (liveAudio) { liveAudio.pause(); liveAudio = null; }
+
+    liveListenWS = new LiveListenWS(freq, bw, mode);
+    liveListenWS.onStop(() => {
+      liveListenEventBtn.textContent = 'Listen';
+      liveListenEventBtn.classList.remove('active');
+      if (liveListenBtn) { liveListenBtn.textContent = 'Live Listen'; liveListenBtn.classList.remove('active'); }
+      liveListenWS = null;
+    });
+    liveListenWS.start();
+    liveListenEventBtn.textContent = '■ Stop';
+    liveListenEventBtn.classList.add('active');
   });
 }
 if (decodeEventBtn) {
@@ -1729,6 +1978,15 @@ signalList.addEventListener('click', (ev) => {
 
 if (liveListenBtn) {
   liveListenBtn.addEventListener('click', async () => {
+    // Toggle: if already listening, stop
+    if (liveListenWS && liveListenWS.playing) {
+      liveListenWS.stop();
+      liveListenWS = null;
+      liveListenBtn.textContent = 'Live Listen';
+      liveListenBtn.classList.remove('active');
+      return;
+    }
+
     // Use selected signal if available, otherwise first in list
     let freq, bw, mode;
     if (window._selectedSignal) {
@@ -1743,14 +2001,20 @@ if (liveListenBtn) {
       mode = first.dataset.class || '';
     }
     if (!Number.isFinite(freq)) return;
-    mode = (listenModeSelect?.value === 'Auto') ? (mode || 'NFM') : listenModeSelect.value;
-    const sec = parseInt(listenSecondsInput?.value || '2', 10);
-    const url = `/api/demod?freq=${freq}&bw=${bw}&mode=${mode}&sec=${sec}`;
-    if (liveAudio) {
-      liveAudio.pause();
-    }
-    liveAudio = new Audio(url);
-    liveAudio.play().catch(() => {});
+    mode = (listenModeSelect?.value === 'Auto' || listenModeSelect?.value === '') ? (mode || 'NFM') : listenModeSelect.value;
+
+    // Stop any old HTTP audio
+    if (liveAudio) { liveAudio.pause(); liveAudio = null; }
+
+    liveListenWS = new LiveListenWS(freq, bw, mode);
+    liveListenWS.onStop(() => {
+      liveListenBtn.textContent = 'Live Listen';
+      liveListenBtn.classList.remove('active');
+      liveListenWS = null;
+    });
+    liveListenWS.start();
+    liveListenBtn.textContent = '■ Stop';
+    liveListenBtn.classList.add('active');
   });
 }
 

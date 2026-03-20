@@ -27,7 +27,25 @@ func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {
 			log.Printf("ws upgrade failed: %v (origin: %s)", err, r.Header.Get("Origin"))
 			return
 		}
-		c := &client{conn: conn, send: make(chan []byte, 32), done: make(chan struct{})}
+
+		// Parse query params for remote clients: ?binary=1&bins=2048&fps=5
+		q := r.URL.Query()
+		c := &client{conn: conn, send: make(chan []byte, 64), done: make(chan struct{})}
+		if q.Get("binary") == "1" || q.Get("binary") == "true" {
+			c.binary = true
+		}
+		if v, err := strconv.Atoi(q.Get("bins")); err == nil && v > 0 {
+			c.maxBins = v
+		}
+		if v, err := strconv.Atoi(q.Get("fps")); err == nil && v > 0 {
+			c.targetFps = v
+			// frameSkip: if server runs at ~15fps and client wants 5fps → skip 3
+			c.frameSkip = 15 / v
+			if c.frameSkip < 1 {
+				c.frameSkip = 1
+			}
+		}
+
 		h.add(c)
 		defer func() {
 			h.remove(c)
@@ -47,23 +65,55 @@ func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {
 					if !ok {
 						return
 					}
-					_ = conn.SetWriteDeadline(time.Now().Add(200 * time.Millisecond))
-					if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					// Binary frames can be large (130KB+) — need more time
+					deadline := 500 * time.Millisecond
+					if !c.binary {
+						deadline = 200 * time.Millisecond
+					}
+					_ = conn.SetWriteDeadline(time.Now().Add(deadline))
+					msgType := websocket.TextMessage
+					if c.binary {
+						msgType = websocket.BinaryMessage
+					}
+					if err := conn.WriteMessage(msgType, msg); err != nil {
 						return
 					}
 				case <-ping.C:
 					_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 					if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-						log.Printf("ws ping error: %v", err)
 						return
 					}
+				case <-c.done:
+					return
 				}
 			}
 		}()
+		// Read loop: handle config messages from client + keep-alive
 		for {
-			_, _, err := conn.ReadMessage()
+			_, msg, err := conn.ReadMessage()
 			if err != nil {
 				return
+			}
+			// Try to parse as client config update
+			var cfg struct {
+				Binary *bool `json:"binary,omitempty"`
+				Bins   *int  `json:"bins,omitempty"`
+				FPS    *int  `json:"fps,omitempty"`
+			}
+			if json.Unmarshal(msg, &cfg) == nil {
+				if cfg.Binary != nil {
+					c.binary = *cfg.Binary
+				}
+				if cfg.Bins != nil && *cfg.Bins > 0 {
+					c.maxBins = *cfg.Bins
+				}
+				if cfg.FPS != nil && *cfg.FPS > 0 {
+					c.targetFps = *cfg.FPS
+					c.frameSkip = 15 / *cfg.FPS
+					if c.frameSkip < 1 {
+						c.frameSkip = 1
+					}
+				}
 			}
 		}
 	})
@@ -90,9 +140,12 @@ func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {
 			return
 		}
 
-		subID, ch := streamer.SubscribeAudio(freq, bw, mode)
-		if ch == nil {
-			http.Error(w, "no active stream for this frequency", http.StatusNotFound)
+		// LL-3: Subscribe BEFORE upgrading WebSocket.
+		// SubscribeAudio now returns AudioInfo and never immediately closes
+		// the channel — it queues pending listeners instead.
+		subID, ch, audioInfo, err := streamer.SubscribeAudio(freq, bw, mode)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
 
@@ -109,12 +162,13 @@ func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {
 
 		log.Printf("ws/audio: client connected freq=%.1fMHz mode=%s", freq/1e6, mode)
 
-		// Send audio stream info as first text message
+		// LL-2: Send actual audio info (channels, sample rate from session)
 		info := map[string]any{
 			"type":        "audio_info",
-			"sample_rate": 48000,
-			"channels":    1,
-			"format":      "s16le",
+			"sample_rate": audioInfo.SampleRate,
+			"channels":    audioInfo.Channels,
+			"format":      audioInfo.Format,
+			"demod":       audioInfo.DemodName,
 			"freq":        freq,
 			"mode":        mode,
 		}
@@ -139,13 +193,25 @@ func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {
 
 		for {
 			select {
-			case pcm, ok := <-ch:
+			case data, ok := <-ch:
 				if !ok {
 					log.Printf("ws/audio: stream ended freq=%.1fMHz", freq/1e6)
 					return
 				}
+				if len(data) == 0 {
+					continue
+				}
 				_ = conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
-				if err := conn.WriteMessage(websocket.BinaryMessage, pcm); err != nil {
+				// Tag protocol: first byte is message type
+				//   0x00 = AudioInfo JSON (send as TextMessage, strip tag)
+				//   0x01 = PCM audio (send as BinaryMessage, strip tag)
+				tag := data[0]
+				payload := data[1:]
+				msgType := websocket.BinaryMessage
+				if tag == 0x00 {
+					msgType = websocket.TextMessage
+				}
+				if err := conn.WriteMessage(msgType, payload); err != nil {
 					log.Printf("ws/audio: write error: %v", err)
 					return
 				}

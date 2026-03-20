@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -24,6 +25,14 @@ import (
 )
 
 func main() {
+	// Reduce GC target to limit peak memory. Default GOGC=100 lets heap
+	// grow to 2× live set before collecting. GOGC=50 triggers GC at 1.5×,
+	// halving the memory swings at a small CPU cost.
+	debug.SetGCPercent(50)
+	// Soft memory limit — GC will be more aggressive near this limit.
+	// 1 GB is generous for 5 WFM-stereo signals + FFT + recordings.
+	debug.SetMemoryLimit(1024 * 1024 * 1024)
+
 	var cfgPath string
 	var mockFlag bool
 	flag.StringVar(&cfgPath, "config", "config.yaml", "path to config YAML")
@@ -100,7 +109,10 @@ func main() {
 		MaxDiskMB:   cfg.Recorder.MaxDiskMB,
 		OutputDir:   cfg.Recorder.OutputDir,
 		ClassFilter: cfg.Recorder.ClassFilter,
-		RingSeconds: cfg.Recorder.RingSeconds,
+		RingSeconds:      cfg.Recorder.RingSeconds,
+		DeemphasisUs:     cfg.Recorder.DeemphasisUs,
+		ExtractionTaps:   cfg.Recorder.ExtractionTaps,
+		ExtractionBwMult: cfg.Recorder.ExtractionBwMult,
 	}, cfg.CenterHz, decodeMap)
 	defer recMgr.Close()
 

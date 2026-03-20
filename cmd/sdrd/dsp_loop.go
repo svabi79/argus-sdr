@@ -97,7 +97,10 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					MaxDiskMB:   cfg.Recorder.MaxDiskMB,
 					OutputDir:   cfg.Recorder.OutputDir,
 					ClassFilter: cfg.Recorder.ClassFilter,
-					RingSeconds: cfg.Recorder.RingSeconds,
+					RingSeconds:      cfg.Recorder.RingSeconds,
+					DeemphasisUs:     cfg.Recorder.DeemphasisUs,
+					ExtractionTaps:   cfg.Recorder.ExtractionTaps,
+					ExtractionBwMult: cfg.Recorder.ExtractionBwMult,
 				}, cfg.CenterHz, buildDecoderMap(cfg))
 			}
 			if upd.det != nil {
@@ -180,20 +183,25 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			var spectrum []float64
 			if useGPU && gpuEngine != nil {
+				// GPU FFT: apply window to a COPY — allIQ must stay unmodified
+				// for extractForStreaming which needs raw IQ for signal extraction.
+				gpuBuf := make([]complex64, len(iq))
 				if len(window) == len(iq) {
 					for i := 0; i < len(iq); i++ {
 						v := iq[i]
 						w := float32(window[i])
-						iq[i] = complex(real(v)*w, imag(v)*w)
+						gpuBuf[i] = complex(real(v)*w, imag(v)*w)
 					}
+				} else {
+					copy(gpuBuf, iq)
 				}
-				out, err := gpuEngine.Exec(iq)
+				out, err := gpuEngine.Exec(gpuBuf)
 				if err != nil {
 					if gpuState != nil {
 						gpuState.set(false, err)
 					}
 					useGPU = false
-					spectrum = fftutil.SpectrumWithPlan(iq, nil, plan)
+					spectrum = fftutil.SpectrumWithPlan(gpuBuf, nil, plan)
 				} else {
 					spectrum = fftutil.SpectrumFromFFT(out)
 				}
@@ -322,11 +330,28 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					}
 				}
 
+				// Cleanup streamPhaseState for disappeared signals
+				if len(streamPhaseState) > 0 {
+					sigIDs := make(map[int64]bool, len(signals))
+					for _, s := range signals {
+						sigIDs[s.ID] = true
+					}
+					for id := range streamPhaseState {
+						if !sigIDs[id] {
+							delete(streamPhaseState, id)
+						}
+					}
+				}
+
 				// GPU-extract signal snippets with phase-continuous FreqShift and
 				// IQ overlap for FIR halo. Heavy work on GPU, only demod runs async.
 				displaySignals = det.StableSignals()
 				if rec != nil && len(displaySignals) > 0 && len(allIQ) > 0 {
-					streamSnips, streamRates := extractForStreaming(extractMgr, allIQ, cfg.SampleRate, cfg.CenterHz, displaySignals, streamPhaseState, streamOverlap)
+					aqCfg := extractionConfig{
+						firTaps: cfg.Recorder.ExtractionTaps,
+						bwMult:  cfg.Recorder.ExtractionBwMult,
+					}
+					streamSnips, streamRates := extractForStreaming(extractMgr, allIQ, cfg.SampleRate, cfg.CenterHz, displaySignals, streamPhaseState, streamOverlap, aqCfg)
 					items := make([]recorder.StreamFeedItem, 0, len(displaySignals))
 					for j, ds := range displaySignals {
 						if ds.ID == 0 || ds.Class == nil {

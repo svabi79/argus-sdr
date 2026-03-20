@@ -138,20 +138,6 @@ func RDSBasebandDecimated(iq []complex64, sampleRate int) RDSBasebandResult {
 	return RDSBasebandResult{Samples: out, SampleRate: res.SampleRate}
 }
 
-func deemphasis(x []float32, sampleRate int, tau float64) []float32 {
-	if len(x) == 0 || sampleRate <= 0 {
-		return x
-	}
-	alpha := math.Exp(-1.0 / (float64(sampleRate) * tau))
-	out := make([]float32, len(x))
-	var y float64
-	for i, v := range x {
-		y = alpha*y + (1-alpha)*float64(v)
-		out[i] = float32(y)
-	}
-	return out
-}
-
 func init() {
 	Register(NFM{})
 	Register(WFM{})

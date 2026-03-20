@@ -28,6 +28,11 @@ type Policy struct {
 	OutputDir   string        `yaml:"output_dir" json:"output_dir"`
 	ClassFilter []string      `yaml:"class_filter" json:"class_filter"`
 	RingSeconds int           `yaml:"ring_seconds" json:"ring_seconds"`
+
+	// Audio quality (AQ-2, AQ-3, AQ-5)
+	DeemphasisUs     float64 `yaml:"deemphasis_us" json:"deemphasis_us"`
+	ExtractionTaps   int     `yaml:"extraction_fir_taps" json:"extraction_fir_taps"`
+	ExtractionBwMult float64 `yaml:"extraction_bw_mult" json:"extraction_bw_mult"`
 }
 
 type Manager struct {
@@ -357,4 +362,12 @@ func (m *Manager) ActiveStreams() int {
 		return 0
 	}
 	return m.streamer.ActiveSessions()
+}
+
+// HasListeners returns true if any live-listen subscribers are active or pending.
+func (m *Manager) HasListeners() bool {
+	if m == nil || m.streamer == nil {
+		return false
+	}
+	return m.streamer.HasListeners()
 }
