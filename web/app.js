@@ -768,13 +768,32 @@ function renderSpectrum() {
       ctx.lineWidth = 1.5;
       ctx.fillRect(x1, 10, boxW, h - 28);
       ctx.strokeRect(x1, 10, boxW, h - 28);
-      ctx.fillStyle = color;
-      ctx.font = '12px Inter, sans-serif';
+
+      // Multi-line signal label with color coding
+      const labelX = Math.max(4, x1 + 4);
+      const baseY = 14;
       const modLabel = s.class?.mod_type || '';
       const rdsName = s.class?.pll?.rds_station || '';
       const freqStr = `${(s.center_hz / 1e6).toFixed(4)} MHz`;
-      const label = rdsName ? `${freqStr} · ${modLabel} · ${rdsName}` : (modLabel ? `${freqStr} · ${modLabel}` : freqStr);
-      ctx.fillText(label, Math.max(4, x1 + 4), 24 + (index % 3) * 16);
+
+      // Line 1: Frequency (teal/cyan)
+      ctx.fillStyle = 'rgba(102, 240, 209, 0.95)';
+      ctx.font = '11px Inter, sans-serif';
+      ctx.fillText(freqStr, labelX, baseY + 10);
+
+      // Line 2: Mod type (amber/yellow)
+      if (modLabel) {
+        ctx.fillStyle = 'rgba(255, 196, 92, 0.90)';
+        ctx.font = 'bold 10px Inter, sans-serif';
+        ctx.fillText(modLabel, labelX, baseY + 22);
+      }
+
+      // Line 3: RDS station name (white, bold, slightly larger)
+      if (rdsName) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.font = 'bold 12px Inter, sans-serif';
+        ctx.fillText(rdsName, labelX, baseY + 34);
+      }
 
       const debugMatch = (latest?.debug?.scores || []).find((d) => Math.abs((d.center_hz || 0) - (s.center_hz || 0)) < Math.max(500, s.bw_hz || 0));
       if (debugMatch?.scores && (!s.class || !s.class.scores)) {
