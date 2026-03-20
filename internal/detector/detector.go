@@ -47,6 +47,7 @@ type Detector struct {
 	cfarEngine     cfar.CFAR
 	lastThresholds []float64
 	lastNoiseFloor float64
+	lastProcessTime time.Time
 }
 
 type activeEvent struct {
@@ -61,11 +62,13 @@ type activeEvent struct {
 	lastBin    int
 	class        *classifier.Classification
 	stableHits   int
+	missedFrames int // Consecutive frames without a matching raw signal
 	classHistory []classifier.SignalClass
 	classIdx     int
 }
 
 type Signal struct {
+	ID       int64                       `json:"id"`
 	FirstBin int                        `json:"first_bin"`
 	LastBin  int                        `json:"last_bin"`
 	CenterHz float64                    `json:"center_hz"`
@@ -182,8 +185,24 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 }
 
 func (d *Detector) Process(now time.Time, spectrum []float64, centerHz float64) ([]Event, []Signal) {
-	signals := d.detectSignals(spectrum, centerHz)
-	finished := d.matchSignals(now, signals)
+	// Compute frame-rate adaptive alpha for consistent smoothing regardless of fps
+	dt := now.Sub(d.lastProcessTime).Seconds()
+	if d.lastProcessTime.IsZero() || dt <= 0 || dt > 1.0 {
+		dt = 1.0 / 15.0
+	}
+	d.lastProcessTime = now
+	dtRef := 1.0 / 15.0
+	ratio := dt / dtRef
+	adaptiveAlpha := 1.0 - math.Pow(1.0-d.EmaAlpha, ratio)
+	if adaptiveAlpha < 0.01 {
+		adaptiveAlpha = 0.01
+	}
+	if adaptiveAlpha > 0.99 {
+		adaptiveAlpha = 0.99
+	}
+
+	signals := d.detectSignals(spectrum, centerHz, adaptiveAlpha)
+	finished := d.matchSignals(now, signals, adaptiveAlpha)
 	return finished, signals
 }
 
@@ -252,6 +271,10 @@ func (ev *activeEvent) updateClass(newCls *classifier.Classification, historySiz
 		ev.class.SecondBest = newCls.SecondBest
 		ev.class.Scores = newCls.Scores
 	}
+	// Always update PLL — RDS station name accumulates over time
+	if newCls.PLL != nil {
+		ev.class.PLL = newCls.PLL
+	}
 }
 
 func (d *Detector) UpdateClasses(signals []Signal) {
@@ -266,12 +289,40 @@ func (d *Detector) UpdateClasses(signals []Signal) {
 	}
 }
 
-func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal {
+// StableSignals returns the smoothed active events as a Signal list for frontend display.
+// Only events that have been seen for at least MinStableFrames are included.
+// Output is sorted by CenterHz for consistent ordering across frames.
+func (d *Detector) StableSignals() []Signal {
+	var out []Signal
+	for _, ev := range d.active {
+		if ev.stableHits < d.MinStableFrames {
+			continue
+		}
+		sig := Signal{
+			ID:       ev.id,
+			FirstBin: ev.firstBin,
+			LastBin:  ev.lastBin,
+			CenterHz: ev.centerHz,
+			BWHz:     ev.bwHz,
+			PeakDb:   ev.peakDb,
+			SNRDb:    ev.snrDb,
+			Class:    ev.class,
+		}
+		if ev.class != nil && ev.class.PLL != nil {
+			sig.PLL = ev.class.PLL
+		}
+		out = append(out, sig)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CenterHz < out[j].CenterHz })
+	return out
+}
+
+func (d *Detector) detectSignals(spectrum []float64, centerHz float64, adaptiveAlpha float64) []Signal {
 	n := len(spectrum)
 	if n == 0 {
 		return nil
 	}
-	smooth := d.smoothSpectrum(spectrum)
+	smooth := d.smoothSpectrum(spectrum, adaptiveAlpha)
 	var thresholds []float64
 	if d.cfarEngine != nil {
 		thresholds = d.cfarEngine.Thresholds(smooth)
@@ -319,8 +370,8 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64) []Signal 
 	}
 	signals = d.expandSignalEdges(signals, smooth, noiseGlobal, centerHz)
 	for i := range signals {
-		centerBin := float64(signals[i].FirstBin+signals[i].LastBin) / 2.0
-		signals[i].CenterHz = d.centerFreqForBin(centerBin, centerHz)
+		// Use power-weighted centroid for accurate center frequency
+		signals[i].CenterHz = d.powerWeightedCenter(smooth, signals[i].FirstBin, signals[i].LastBin, centerHz)
 		signals[i].BWHz = float64(signals[i].LastBin-signals[i].FirstBin+1) * d.binWidth
 	}
 	return signals
@@ -387,8 +438,7 @@ func (d *Detector) expandSignalEdges(signals []Signal, smooth []float64, noiseFl
 		}
 		signals[i].FirstBin = newFirst
 		signals[i].LastBin = newLast
-		centerBin := float64(newFirst+newLast) / 2.0
-		signals[i].CenterHz = d.centerFreqForBin(centerBin, centerHz)
+		// CenterHz will be recalculated with power-weighted centroid after expansion
 		signals[i].BWHz = float64(newLast-newFirst+1) * d.binWidth
 	}
 	signals = d.mergeOverlapping(signals, centerHz)
@@ -436,6 +486,28 @@ func (d *Detector) mergeOverlapping(signals []Signal, centerHz float64) []Signal
 
 func (d *Detector) centerFreqForBin(bin float64, centerHz float64) float64 {
 	return centerHz + (bin-float64(d.nbins)/2.0)*d.binWidth
+}
+
+// powerWeightedCenter computes the power-weighted centroid frequency within [first, last].
+// This is more accurate than the midpoint because it accounts for asymmetric signal shapes.
+func (d *Detector) powerWeightedCenter(spectrum []float64, first, last int, centerHz float64) float64 {
+	if first > last || first < 0 || last >= len(spectrum) {
+		centerBin := float64(first+last) / 2.0
+		return d.centerFreqForBin(centerBin, centerHz)
+	}
+	// Convert dB to linear, compute weighted average bin
+	var sumPower, sumWeighted float64
+	for i := first; i <= last; i++ {
+		p := math.Pow(10, spectrum[i]/10.0)
+		sumPower += p
+		sumWeighted += p * float64(i)
+	}
+	if sumPower <= 0 {
+		centerBin := float64(first+last) / 2.0
+		return d.centerFreqForBin(centerBin, centerHz)
+	}
+	centroidBin := sumWeighted / sumPower
+	return d.centerFreqForBin(centroidBin, centerHz)
 }
 
 func minInRange(s []float64, from, to int) float64 {
@@ -496,8 +568,9 @@ func median(vals []float64) float64 {
 }
 
 func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise float64, centerHz float64, spectrum []float64) Signal {
-	centerBin := float64(first+last) / 2.0
-	centerFreq := centerHz + (centerBin-float64(d.nbins)/2.0)*d.binWidth
+	// Use peak bin for center frequency — more accurate than midpoint of first/last
+	// because edge expansion can be asymmetric
+	centerFreq := centerHz + (float64(peakBin)-float64(d.nbins)/2.0)*d.binWidth
 	bw := float64(last-first+1) * d.binWidth
 	snr := peak - noise
 	return Signal{
@@ -511,13 +584,12 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 	}
 }
 
-func (d *Detector) smoothSpectrum(spectrum []float64) []float64 {
+func (d *Detector) smoothSpectrum(spectrum []float64, alpha float64) []float64 {
 	if d.ema == nil || len(d.ema) != len(spectrum) {
 		d.ema = make([]float64, len(spectrum))
 		copy(d.ema, spectrum)
 		return d.ema
 	}
-	alpha := d.EmaAlpha
 	for i := range spectrum {
 		v := spectrum[i]
 		d.ema[i] = alpha*v + (1-alpha)*d.ema[i]
@@ -525,68 +597,90 @@ func (d *Detector) smoothSpectrum(spectrum []float64) []float64 {
 	return d.ema
 }
 
-func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
+func (d *Detector) matchSignals(now time.Time, signals []Signal, adaptiveAlpha float64) []Event {
 	used := make(map[int64]bool, len(d.active))
-	for _, s := range signals {
-		var best *activeEvent
-		var candidates []struct {
-			ev   *activeEvent
-			dist float64
-		}
-		for _, ev := range d.active {
-			if overlapHz(s.CenterHz, s.BWHz, ev.centerHz, ev.bwHz) && math.Abs(s.CenterHz-ev.centerHz) < (s.BWHz+ev.bwHz)/2.0 {
-				candidates = append(candidates, struct {
-					ev   *activeEvent
-					dist float64
-				}{ev: ev, dist: math.Abs(s.CenterHz - ev.centerHz)})
+	signalUsed := make([]bool, len(signals))
+	smoothAlpha := adaptiveAlpha
+
+	// Sort active events by maturity (stableHits descending).
+	// Mature events match FIRST, preventing ghost/new events from stealing their signals.
+	// Without this, Go map iteration is random and a 1-frame-old ghost can steal
+	// a signal from a 1000-frame-old stable event.
+	type eventEntry struct {
+		id int64
+		ev *activeEvent
+	}
+	sortedEvents := make([]eventEntry, 0, len(d.active))
+	for id, ev := range d.active {
+		sortedEvents = append(sortedEvents, eventEntry{id, ev})
+	}
+	sort.Slice(sortedEvents, func(i, j int) bool {
+		return sortedEvents[i].ev.stableHits > sortedEvents[j].ev.stableHits
+	})
+
+	// Event-first matching: for each active event (mature first), find the closest unmatched raw signal.
+	for _, entry := range sortedEvents {
+		id, ev := entry.id, entry.ev
+		bestIdx := -1
+		bestDist := math.MaxFloat64
+		for i, s := range signals {
+			if signalUsed[i] {
+				continue
+			}
+			// Use wider of raw and event BW for matching tolerance
+			matchBW := math.Max(s.BWHz, ev.bwHz)
+			if matchBW < 20000 {
+				matchBW = 20000 // Minimum 20 kHz matching window
+			}
+			dist := math.Abs(s.CenterHz - ev.centerHz)
+			if dist < matchBW && dist < bestDist {
+				bestIdx = i
+				bestDist = dist
 			}
 		}
-		if len(candidates) > 0 {
-			sort.Slice(candidates, func(i, j int) bool { return candidates[i].dist < candidates[j].dist })
-			best = candidates[0].ev
-		}
-		if best == nil {
-			id := d.nextID
-			d.nextID++
-			d.active[id] = &activeEvent{
-				id:         id,
-				start:      now,
-				lastSeen:   now,
-				centerHz:   s.CenterHz,
-				bwHz:       s.BWHz,
-				peakDb:     s.PeakDb,
-				snrDb:      s.SNRDb,
-				firstBin:   s.FirstBin,
-				lastBin:    s.LastBin,
-				class:      s.Class,
-				stableHits: 1,
-			}
+		if bestIdx < 0 {
 			continue
 		}
-		used[best.id] = true
-		best.lastSeen = now
-		best.stableHits++
-		best.centerHz = (best.centerHz + s.CenterHz) / 2.0
-		if best.bwHz <= 0 {
-			best.bwHz = s.BWHz
+		signalUsed[bestIdx] = true
+		used[id] = true
+		s := signals[bestIdx]
+		ev.lastSeen = now
+		ev.stableHits++
+		ev.missedFrames = 0 // Reset miss counter on successful match
+		ev.centerHz = smoothAlpha*s.CenterHz + (1-smoothAlpha)*ev.centerHz
+		if ev.bwHz <= 0 {
+			ev.bwHz = s.BWHz
 		} else {
-			const alpha = 0.15
-			best.bwHz = alpha*s.BWHz + (1-alpha)*best.bwHz
+			ev.bwHz = smoothAlpha*s.BWHz + (1-smoothAlpha)*ev.bwHz
 		}
-		if s.PeakDb > best.peakDb {
-			best.peakDb = s.PeakDb
-		}
-		if s.SNRDb > best.snrDb {
-			best.snrDb = s.SNRDb
-		}
-		if s.FirstBin < best.firstBin {
-			best.firstBin = s.FirstBin
-		}
-		if s.LastBin > best.lastBin {
-			best.lastBin = s.LastBin
-		}
+		ev.peakDb = smoothAlpha*s.PeakDb + (1-smoothAlpha)*ev.peakDb
+		ev.snrDb = smoothAlpha*s.SNRDb + (1-smoothAlpha)*ev.snrDb
+		ev.firstBin = int(math.Round(smoothAlpha*float64(s.FirstBin) + (1-smoothAlpha)*float64(ev.firstBin)))
+		ev.lastBin = int(math.Round(smoothAlpha*float64(s.LastBin) + (1-smoothAlpha)*float64(ev.lastBin)))
 		if s.Class != nil {
-			best.updateClass(s.Class, d.classHistorySize, d.classSwitchRatio)
+			ev.updateClass(s.Class, d.classHistorySize, d.classSwitchRatio)
+		}
+	}
+
+	// Create new events for unmatched raw signals
+	for i, s := range signals {
+		if signalUsed[i] {
+			continue
+		}
+		id := d.nextID
+		d.nextID++
+		d.active[id] = &activeEvent{
+			id:         id,
+			start:      now,
+			lastSeen:   now,
+			centerHz:   s.CenterHz,
+			bwHz:       s.BWHz,
+			peakDb:     s.PeakDb,
+			snrDb:      s.SNRDb,
+			firstBin:   s.FirstBin,
+			lastBin:    s.LastBin,
+			class:      s.Class,
+			stableHits: 1,
 		}
 	}
 
@@ -595,7 +689,20 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal) []Event {
 		if used[id] {
 			continue
 		}
-		if now.Sub(ev.lastSeen) < d.GapTolerance {
+		// Event was NOT matched this frame — increment miss counter
+		ev.missedFrames++
+
+		// Proportional gap tolerance: mature events are much harder to kill.
+		// A new event (stableHits=3) dies after GapTolerance (e.g. 500ms).
+		// A mature event (stableHits=300, i.e. ~10 seconds) gets 10x GapTolerance.
+		// This prevents FM broadcast events from dying during brief CFAR dips.
+		maturityFactor := 1.0 + math.Log1p(float64(ev.stableHits)/10.0)
+		if maturityFactor > 20.0 {
+			maturityFactor = 20.0 // Cap at 20x base tolerance
+		}
+		effectiveTolerance := time.Duration(float64(d.GapTolerance) * maturityFactor)
+
+		if now.Sub(ev.lastSeen) < effectiveTolerance {
 			continue
 		}
 		duration := ev.lastSeen.Sub(ev.start)

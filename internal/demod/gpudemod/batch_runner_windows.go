@@ -23,16 +23,7 @@ type slotBuffers struct {
 	stream     streamHandle
 }
 
-type windowsBatchRunner struct {
-	*BatchRunner
-	slotBufs []slotBuffers
-}
-
-func asWindowsBatchRunner(r *BatchRunner) *windowsBatchRunner {
-	return (*windowsBatchRunner)(unsafe.Pointer(r))
-}
-
-func (r *windowsBatchRunner) freeSlotBuffers() {
+func (r *BatchRunner) freeSlotBuffers() {
 	for i := range r.slotBufs {
 		if r.slotBufs[i].dShifted != nil {
 			_ = bridgeCudaFree(r.slotBufs[i].dShifted)
@@ -58,7 +49,7 @@ func (r *windowsBatchRunner) freeSlotBuffers() {
 	r.slotBufs = nil
 }
 
-func (r *windowsBatchRunner) allocSlotBuffers(n int) error {
+func (r *BatchRunner) allocSlotBuffers(n int) error {
 	if len(r.slotBufs) == len(r.slots) && len(r.slotBufs) > 0 {
 		return nil
 	}
@@ -91,7 +82,6 @@ func (r *windowsBatchRunner) allocSlotBuffers(n int) error {
 }
 
 func (r *BatchRunner) shiftFilterDecimateBatchImpl(iq []complex64) ([][]complex64, []int, error) {
-	wr := asWindowsBatchRunner(r)
 	e := r.eng
 	if e == nil || !e.cudaReady {
 		return nil, nil, ErrUnavailable
@@ -102,7 +92,7 @@ func (r *BatchRunner) shiftFilterDecimateBatchImpl(iq []complex64) ([][]complex6
 	if n == 0 {
 		return outs, rates, nil
 	}
-	if err := wr.allocSlotBuffers(n); err != nil {
+	if err := r.allocSlotBuffers(n); err != nil {
 		return nil, nil, err
 	}
 	bytesIn := uintptr(n) * unsafe.Sizeof(complex64(0))
@@ -113,7 +103,7 @@ func (r *BatchRunner) shiftFilterDecimateBatchImpl(iq []complex64) ([][]complex6
 		if !r.slots[i].active {
 			continue
 		}
-		nOut, rate, err := r.shiftFilterDecimateSlotParallel(iq, r.slots[i].job, wr.slotBufs[i])
+		nOut, rate, err := r.shiftFilterDecimateSlotParallel(iq, r.slots[i].job, r.slotBufs[i])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -125,7 +115,7 @@ func (r *BatchRunner) shiftFilterDecimateBatchImpl(iq []complex64) ([][]complex6
 		if !r.slots[i].active {
 			continue
 		}
-		buf := wr.slotBufs[i]
+		buf := r.slotBufs[i]
 		if bridgeStreamSync(buf.stream) != 0 {
 			return nil, nil, errors.New("cuda stream sync failed")
 		}

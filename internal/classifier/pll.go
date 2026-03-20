@@ -8,6 +8,8 @@ type PLLResult struct {
 	Locked      bool    `json:"locked"`
 	Method      string  `json:"method"`
 	PrecisionHz float64 `json:"precision_hz"`
+	Stereo      bool    `json:"stereo,omitempty"`
+	RDSStation  string  `json:"rds_station,omitempty"`
 }
 
 func EstimateExactFrequency(iq []complex64, sampleRate int, detectedHz float64, modType SignalClass) PLLResult {
@@ -29,6 +31,9 @@ func EstimateExactFrequency(iq []complex64, sampleRate int, detectedHz float64, 
 }
 
 func estimateWFMPilot(iq []complex64, sampleRate int, detectedHz float64) PLLResult {
+	if sampleRate < 40000 {
+		return PLLResult{ExactHz: detectedHz, Method: "pilot", Locked: false}
+	}
 	demod := fmDemod(iq)
 	if len(demod) == 0 {
 		return PLLResult{ExactHz: detectedHz, Method: "pilot"}
@@ -49,12 +54,13 @@ func estimateWFMPilot(iq []complex64, sampleRate int, detectedHz float64) PLLRes
 	if !locked {
 		return PLLResult{ExactHz: detectedHz, Method: "pilot", Locked: false}
 	}
-	return PLLResult{ExactHz: detectedHz - freqError, OffsetHz: -freqError, Locked: true, Method: "pilot", PrecisionHz: 1.0}
+	return PLLResult{ExactHz: detectedHz - freqError, OffsetHz: -freqError, Locked: true, Method: "pilot", PrecisionHz: 1.0, Stereo: true}
 }
 
 func estimateAMCarrier(iq []complex64, sampleRate int, detectedHz float64) PLLResult {
 	offset := meanInstFreqHz(iq, sampleRate)
-	return PLLResult{ExactHz: detectedHz + offset, OffsetHz: offset, Locked: true, Method: "carrier", PrecisionHz: 5.0}
+	locked := math.Abs(offset) < 5000 // Only lock if offset is plausible (<5 kHz)
+	return PLLResult{ExactHz: detectedHz + offset, OffsetHz: offset, Locked: locked, Method: "carrier", PrecisionHz: 5.0}
 }
 
 func estimateNFMCarrier(iq []complex64, sampleRate int, detectedHz float64) PLLResult {

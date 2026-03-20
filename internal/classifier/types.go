@@ -7,6 +7,7 @@ const (
 	ClassAM      SignalClass = "AM"
 	ClassNFM     SignalClass = "NFM"
 	ClassWFM     SignalClass = "WFM"
+	ClassWFMStereo SignalClass = "WFM_STEREO"
 	ClassSSBUSB  SignalClass = "USB"
 	ClassSSBLSB  SignalClass = "LSB"
 	ClassCW      SignalClass = "CW"
@@ -55,4 +56,5 @@ type SignalInput struct {
 	LastBin  int
 	SNRDb    float64
 	CenterHz float64
+	BWHz     float64 // Occupied bandwidth from detector (edge-expanded)
 }

@@ -8,8 +8,9 @@ type batchSlot struct {
 }
 
 type BatchRunner struct {
-	eng   *Engine
-	slots []batchSlot
+	eng      *Engine
+	slots    []batchSlot
+	slotBufs []slotBuffers
 }
 
 func NewBatchRunner(maxSamples int, sampleRate int) (*BatchRunner, error) {
@@ -24,6 +25,7 @@ func (r *BatchRunner) Close() {
 	if r == nil || r.eng == nil {
 		return
 	}
+	r.freeSlotBuffers()
 	r.eng.Close()
 	r.eng = nil
 	r.slots = nil

@@ -9,14 +9,17 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"sdr-visual-suite/internal/classifier"
 	"sdr-visual-suite/internal/config"
+	"sdr-visual-suite/internal/demod"
 	"sdr-visual-suite/internal/detector"
 	"sdr-visual-suite/internal/dsp"
 	fftutil "sdr-visual-suite/internal/fft"
 	"sdr-visual-suite/internal/fft/gpufft"
+	"sdr-visual-suite/internal/rds"
 	"sdr-visual-suite/internal/recorder"
 )
 
@@ -36,6 +39,16 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 	iqEnabled := cfg.IQBalance
 	plan := fftutil.NewCmplxPlan(cfg.FFTSize)
 	useGPU := cfg.UseGPUFFT
+
+	// Persistent RDS decoders per signal — async ring-buffer based
+	type rdsState struct {
+		dec        rds.Decoder
+		result     rds.Result
+		lastDecode time.Time
+		busy       int32 // atomic: 1 = goroutine running
+		mu         sync.Mutex
+	}
+	rdsMap := map[int64]*rdsState{}
 	var gpuEngine *gpufft.Engine
 	if useGPU && gpuState != nil {
 		snap := gpuState.snapshot()
@@ -122,7 +135,18 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			dcBlocker.Reset()
 			ticker.Reset(cfg.FrameInterval())
 		case <-ticker.C:
-			iq, err := srcMgr.ReadIQ(cfg.FFTSize)
+			// Read all available IQ data — not just one FFT block.
+			// This ensures the ring buffer captures 100% of IQ for recording/demod.
+			available := cfg.FFTSize
+			st := srcMgr.Stats()
+			if st.BufferSamples > cfg.FFTSize {
+				// Round down to multiple of FFTSize for clean processing
+				available = (st.BufferSamples / cfg.FFTSize) * cfg.FFTSize
+				if available < cfg.FFTSize {
+					available = cfg.FFTSize
+				}
+			}
+			allIQ, err := srcMgr.ReadIQ(available)
 			if err != nil {
 				log.Printf("read IQ: %v", err)
 				if strings.Contains(err.Error(), "timeout") {
@@ -132,8 +156,14 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 				continue
 			}
+			// Ingest ALL IQ data into the ring buffer for recording
 			if rec != nil {
-				rec.Ingest(time.Now(), iq)
+				rec.Ingest(time.Now(), allIQ)
+			}
+			// Use only the last FFT block for spectrum display
+			iq := allIQ
+			if len(allIQ) > cfg.FFTSize {
+				iq = allIQ[len(allIQ)-cfg.FFTSize:]
 			}
 			if !gotSamples {
 				log.Printf("received IQ samples")
@@ -177,27 +207,121 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			thresholds := det.LastThresholds()
 			noiseFloor := det.LastNoiseFloor()
 			if len(iq) > 0 {
-				snips := extractSignalIQBatch(extractMgr, iq, cfg.SampleRate, cfg.CenterHz, signals)
+				snips, snipRates := extractSignalIQBatch(extractMgr, iq, cfg.SampleRate, cfg.CenterHz, signals)
 				for i := range signals {
 					var snip []complex64
 					if i < len(snips) {
 						snip = snips[i]
 					}
-					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb, CenterHz: signals[i].CenterHz}, spectrum, cfg.SampleRate, cfg.FFTSize, snip, classifier.ClassifierMode(cfg.ClassifierMode))
+					// Determine actual sample rate of the extracted snippet
+					snipRate := cfg.SampleRate
+					if i < len(snipRates) && snipRates[i] > 0 {
+						snipRate = snipRates[i]
+					}
+					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb, CenterHz: signals[i].CenterHz, BWHz: signals[i].BWHz}, spectrum, cfg.SampleRate, cfg.FFTSize, snip, classifier.ClassifierMode(cfg.ClassifierMode))
 					signals[i].Class = cls
 					if cls != nil && snip != nil && len(snip) > 256 {
-						pll := classifier.EstimateExactFrequency(snip, cfg.SampleRate, signals[i].CenterHz, cls.ModType)
+						pll := classifier.EstimateExactFrequency(snip, snipRate, signals[i].CenterHz, cls.ModType)
 						cls.PLL = &pll
 						signals[i].PLL = &pll
-						if pll.Locked {
-							signals[i].CenterHz = pll.ExactHz
+						// Upgrade WFM → WFM_STEREO if stereo pilot detected
+						if cls.ModType == classifier.ClassWFM && pll.Stereo {
+							cls.ModType = classifier.ClassWFMStereo
+						}
+						// RDS decode for WFM — async, uses ring buffer for continuous IQ
+						if (cls.ModType == classifier.ClassWFM || cls.ModType == classifier.ClassWFMStereo) && rec != nil {
+							key := int64(math.Round(signals[i].CenterHz / 500000))
+							st := rdsMap[key]
+							if st == nil {
+								st = &rdsState{}
+								rdsMap[key] = st
+							}
+							// Launch async decode every 4 seconds, skip if previous still running
+							if now.Sub(st.lastDecode) >= 4*time.Second && atomic.LoadInt32(&st.busy) == 0 {
+								st.lastDecode = now
+								atomic.StoreInt32(&st.busy, 1)
+								go func(st *rdsState, sigHz float64) {
+									defer atomic.StoreInt32(&st.busy, 0)
+									ringIQ, ringSR, ringCenter := rec.SliceRecent(4.0)
+									if len(ringIQ) < ringSR || ringSR <= 0 {
+										return
+									}
+									// Shift FM station to center
+									offset := sigHz - ringCenter
+									shifted := dsp.FreqShift(ringIQ, ringSR, offset)
+
+									// Two-stage decimation to ~250kHz with proper anti-alias
+									// Stage 1: 4MHz → 1MHz (decim 4), LP at 400kHz
+									decim1 := ringSR / 1000000
+									if decim1 < 1 {
+										decim1 = 1
+									}
+									lp1 := dsp.LowpassFIR(float64(ringSR/decim1)/2.0*0.8, ringSR, 51)
+									f1 := dsp.ApplyFIR(shifted, lp1)
+									d1 := dsp.Decimate(f1, decim1)
+									rate1 := ringSR / decim1
+
+									// Stage 2: 1MHz → 250kHz (decim 4), LP at 100kHz
+									decim2 := rate1 / 250000
+									if decim2 < 1 {
+										decim2 = 1
+									}
+									lp2 := dsp.LowpassFIR(float64(rate1/decim2)/2.0*0.8, rate1, 101)
+									f2 := dsp.ApplyFIR(d1, lp2)
+									decimated := dsp.Decimate(f2, decim2)
+									actualRate := rate1 / decim2
+
+									// RDS baseband extraction on the clean decimated block
+									rdsBase := demod.RDSBasebandComplex(decimated, actualRate)
+									if len(rdsBase.Samples) == 0 {
+										return
+									}
+									st.mu.Lock()
+									result := st.dec.Decode(rdsBase.Samples, rdsBase.SampleRate)
+									diag := st.dec.LastDiag
+									if result.PS != "" {
+										st.result = result
+									}
+									st.mu.Unlock()
+									log.Printf("RDS TRACE: ring decode freq=%.1fMHz decIQ=%d decSR=%d bbLen=%d bbRate=%d PI=%04X PS=%q %s",
+										sigHz/1e6, len(decimated), actualRate, len(rdsBase.Samples), rdsBase.SampleRate,
+										result.PI, result.PS, diag)
+									if result.PS != "" {
+										log.Printf("RDS decoded: PI=%04X PS=%q RT=%q freq=%.1fMHz", result.PI, result.PS, result.RT, sigHz/1e6)
+									}
+								}(st, signals[i].CenterHz)
+							}
+							// Read last known result (lock-free for display)
+							st.mu.Lock()
+							ps := st.result.PS
+							st.mu.Unlock()
+							if ps != "" {
+								pll.RDSStation = strings.TrimSpace(ps)
+								cls.PLL = &pll
+								signals[i].PLL = &pll
+							}
 						}
 					}
 				}
 				det.UpdateClasses(signals)
+
+				// Cleanup RDS accumulators for signals that no longer exist
+				if len(rdsMap) > 0 {
+					activeIDs := make(map[int64]bool, len(signals))
+					for _, s := range signals {
+						activeIDs[int64(math.Round(s.CenterHz / 500000))] = true
+					}
+					for id := range rdsMap {
+						if !activeIDs[id] {
+							delete(rdsMap, id)
+						}
+					}
+				}
 			}
+			// Use smoothed active events for frontend display (stable markers)
+			displaySignals := det.StableSignals()
 			if sigSnap != nil {
-				sigSnap.set(signals)
+				sigSnap.set(displaySignals)
 			}
 			eventMu.Lock()
 			for _, ev := range finished {
@@ -210,9 +334,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				rec.OnEvents(evCopy)
 			}
 			var debugInfo *SpectrumDebug
-			if len(thresholds) > 0 || len(signals) > 0 || noiseFloor != 0 {
-				scoreDebug := make([]map[string]any, 0, len(signals))
-				for _, s := range signals {
+			if len(thresholds) > 0 || len(displaySignals) > 0 || noiseFloor != 0 {
+				scoreDebug := make([]map[string]any, 0, len(displaySignals))
+				for _, s := range displaySignals {
 					if s.Class == nil || len(s.Class.Scores) == 0 {
 						scoreDebug = append(scoreDebug, map[string]any{"center_hz": s.CenterHz, "class": nil})
 						continue
@@ -231,7 +355,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 				debugInfo = &SpectrumDebug{Thresholds: thresholds, NoiseFloor: noiseFloor, Scores: scoreDebug}
 			}
-			h.broadcast(SpectrumFrame{Timestamp: now.UnixMilli(), CenterHz: cfg.CenterHz, SampleHz: cfg.SampleRate, FFTSize: cfg.FFTSize, Spectrum: spectrum, Signals: signals, Debug: debugInfo})
+			h.broadcast(SpectrumFrame{Timestamp: now.UnixMilli(), CenterHz: cfg.CenterHz, SampleHz: cfg.SampleRate, FFTSize: cfg.FFTSize, Spectrum: spectrum, Signals: displaySignals, Debug: debugInfo})
 		}
 	}
 }

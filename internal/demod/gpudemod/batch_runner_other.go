@@ -2,6 +2,13 @@
 
 package gpudemod
 
+// slotBuffers stub for non-Windows platforms
+type slotBuffers struct{}
+
+func (r *BatchRunner) freeSlotBuffers() {
+	r.slotBufs = nil
+}
+
 func (r *BatchRunner) shiftFilterDecimateBatchImpl(iq []complex64) ([][]complex64, []int, error) {
 	outs := make([][]complex64, len(r.slots))
 	rates := make([]int, len(r.slots))

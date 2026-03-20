@@ -28,6 +28,16 @@ if (Test-Path $cudaInc) { $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I$cudaInc" }
 if (Test-Path $cudaBin) { $env:PATH = "$cudaBin;" + $env:PATH }
 if (Test-Path $cudaMingw) { $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaMingw -lcudart64_13 -lcufft64_12 -lkernel32" }
 
+# Fix for GCC 15 / MSYS2: ensure system headers are found by CGO
+$mingwSysInclude = 'C:\msys64\mingw64\include'
+if (Test-Path $mingwSysInclude) {
+  $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I$mingwSysInclude"
+}
+$mingwCrtInclude = 'C:\msys64\mingw64\x86_64-w64-mingw32\include'
+if (Test-Path $mingwCrtInclude) {
+  $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I$mingwCrtInclude"
+}
+
 Write-Host 'Building SDRplay + cuFFT app (Windows DLL path)...' -ForegroundColor Cyan
 go build -tags "sdrplay,cufft" ./cmd/sdrd
 if ($LASTEXITCODE -ne 0) { throw 'build failed' }

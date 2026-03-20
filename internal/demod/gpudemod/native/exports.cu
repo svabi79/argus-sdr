@@ -170,6 +170,21 @@ GPUD_API int GPUD_CALL gpud_launch_fir_cuda(
     return (int)cudaGetLastError();
 }
 
+GPUD_API int GPUD_CALL gpud_launch_fir_stream_cuda(
+    const float2* in,
+    float2* out,
+    int n,
+    int num_taps,
+    gpud_stream_handle stream
+) {
+    if (n <= 0 || num_taps <= 0 || num_taps > 256) return 0;
+    const int block = 256;
+    const int grid = (n + block - 1) / block;
+    size_t sharedBytes = (size_t)(block + num_taps - 1) * sizeof(float2);
+    gpud_fir_kernel<<<grid, block, sharedBytes, (cudaStream_t)stream>>>(in, out, n, num_taps);
+    return (int)cudaGetLastError();
+}
+
 __global__ void gpud_fir_kernel_v2(
     const float2* __restrict__ in,
     float2* __restrict__ out,
@@ -228,6 +243,20 @@ GPUD_API int GPUD_CALL gpud_launch_decimate_cuda(
     const int block = 256;
     const int grid = (n_out + block - 1) / block;
     gpud_decimate_kernel<<<grid, block>>>(in, out, n_out, factor);
+    return (int)cudaGetLastError();
+}
+
+GPUD_API int GPUD_CALL gpud_launch_decimate_stream_cuda(
+    const float2* in,
+    float2* out,
+    int n_out,
+    int factor,
+    gpud_stream_handle stream
+) {
+    if (n_out <= 0 || factor <= 0) return 0;
+    const int block = 256;
+    const int grid = (n_out + block - 1) / block;
+    gpud_decimate_kernel<<<grid, block, 0, (cudaStream_t)stream>>>(in, out, n_out, factor);
     return (int)cudaGetLastError();
 }
 

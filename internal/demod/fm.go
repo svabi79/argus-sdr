@@ -98,40 +98,44 @@ func RDSBaseband(iq []complex64, sampleRate int) []float32 {
 	return RDSBasebandDecimated(iq, sampleRate).Samples
 }
 
-// RDSBasebandDecimated returns the 57 kHz RDS baseband mixed to near-DC and decimated.
-func RDSBasebandDecimated(iq []complex64, sampleRate int) RDSBasebandResult {
+// RDSComplexResult holds complex baseband samples for the Costas loop RDS decoder.
+type RDSComplexResult struct {
+	Samples    []complex64
+	SampleRate int
+}
+
+// RDSBasebandComplex extracts the RDS subcarrier as complex samples.
+// The Costas loop in the RDS decoder needs both I and Q to lock.
+func RDSBasebandComplex(iq []complex64, sampleRate int) RDSComplexResult {
 	base := wfmMonoBase(iq)
 	if len(base) == 0 || sampleRate <= 0 {
-		return RDSBasebandResult{}
+		return RDSComplexResult{}
 	}
-	bpHi := dsp.LowpassFIR(60000, sampleRate, 101)
-	bpLo := dsp.LowpassFIR(54000, sampleRate, 101)
-	hi := dsp.ApplyFIRReal(base, bpHi)
-	lo := dsp.ApplyFIRReal(base, bpLo)
-	bpf := make([]float32, len(base))
-	for i := range base {
-		bpf[i] = hi[i] - lo[i]
+	cplx := make([]complex64, len(base))
+	for i, v := range base {
+		cplx[i] = complex(v, 0)
 	}
-	phase := 0.0
-	inc := 2 * math.Pi * 57000 / float64(sampleRate)
-	mixed := make([]float32, len(base))
-	for i := range bpf {
-		phase += inc
-		mixed[i] = bpf[i] * float32(math.Cos(phase))
-	}
-	lp := dsp.LowpassFIR(2400, sampleRate, 101)
-	filtered := dsp.ApplyFIRReal(mixed, lp)
-	targetRate := 4800
+	cplx = dsp.FreqShift(cplx, sampleRate, -57000)
+	lpTaps := dsp.LowpassFIR(7500, sampleRate, 101)
+	cplx = dsp.ApplyFIR(cplx, lpTaps)
+	targetRate := 19000
 	decim := sampleRate / targetRate
 	if decim < 1 {
 		decim = 1
 	}
+	cplx = dsp.Decimate(cplx, decim)
 	actualRate := sampleRate / decim
-	out := make([]float32, 0, len(filtered)/decim+1)
-	for i := 0; i < len(filtered); i += decim {
-		out = append(out, filtered[i])
+	return RDSComplexResult{Samples: cplx, SampleRate: actualRate}
+}
+
+// RDSBasebandDecimated returns float32 baseband for WAV writing / recorder.
+func RDSBasebandDecimated(iq []complex64, sampleRate int) RDSBasebandResult {
+	res := RDSBasebandComplex(iq, sampleRate)
+	out := make([]float32, len(res.Samples))
+	for i, c := range res.Samples {
+		out[i] = real(c)
 	}
-	return RDSBasebandResult{Samples: out, SampleRate: actualRate}
+	return RDSBasebandResult{Samples: out, SampleRate: res.SampleRate}
 }
 
 func deemphasis(x []float32, sampleRate int, tau float64) []float32 {

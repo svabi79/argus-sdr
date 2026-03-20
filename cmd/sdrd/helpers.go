@@ -88,17 +88,18 @@ func extractSignalIQ(iq []complex64, sampleRate int, centerHz float64, sigHz flo
 	if len(iq) == 0 || sampleRate <= 0 {
 		return nil
 	}
-	results := extractSignalIQBatch(nil, iq, sampleRate, centerHz, []detector.Signal{{CenterHz: sigHz, BWHz: bwHz}})
+	results, _ := extractSignalIQBatch(nil, iq, sampleRate, centerHz, []detector.Signal{{CenterHz: sigHz, BWHz: bwHz}})
 	if len(results) == 0 {
 		return nil
 	}
 	return results[0]
 }
 
-func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleRate int, centerHz float64, signals []detector.Signal) [][]complex64 {
+func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleRate int, centerHz float64, signals []detector.Signal) ([][]complex64, []int) {
 	out := make([][]complex64, len(signals))
+	rates := make([]int, len(signals))
 	if len(iq) == 0 || sampleRate <= 0 || len(signals) == 0 {
-		return out
+		return out, rates
 	}
 	decimTarget := 200000
 	if decimTarget <= 0 {
@@ -109,24 +110,51 @@ func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleR
 	if runner != nil {
 		jobs := make([]gpudemod.ExtractJob, len(signals))
 		for i, sig := range signals {
-			jobs[i] = gpudemod.ExtractJob{OffsetHz: sig.CenterHz - centerHz, BW: sig.BWHz, OutRate: decimTarget}
+			bw := sig.BWHz
+			// Minimum extraction BW: ensure enough bandwidth for demod features
+			// FM broadcast (87.5-108 MHz) needs >=150kHz for stereo pilot + RDS at 57kHz
+			// Also widen for any signal classified as WFM (in case of re-extraction)
+			sigMHz := sig.CenterHz / 1e6
+			isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
+			if isWFM {
+				if bw < 150000 {
+					bw = 150000
+				}
+			} else if bw < 20000 {
+				bw = 20000
+			}
+			jobs[i] = gpudemod.ExtractJob{OffsetHz: sig.CenterHz - centerHz, BW: bw, OutRate: decimTarget}
 		}
-		if gpuOuts, _, err := runner.ShiftFilterDecimateBatch(iq, jobs); err == nil && len(gpuOuts) == len(signals) {
-			log.Printf("gpudemod: batch extraction used for %d signals", len(signals))
+		if gpuOuts, gpuRates, err := runner.ShiftFilterDecimateBatch(iq, jobs); err == nil && len(gpuOuts) == len(signals) {
+			// batch extraction OK (silent)
 			for i := range gpuOuts {
 				out[i] = gpuOuts[i]
+				if i < len(gpuRates) {
+					rates[i] = gpuRates[i]
+				}
 			}
-			return out
+			return out, rates
 		} else if err != nil {
 			log.Printf("gpudemod: batch extraction failed for %d signals: %v", len(signals), err)
 		}
 	}
 
-	log.Printf("gpudemod: CPU extraction fallback used for %d signals", len(signals))
+	// CPU extraction fallback (silent — see batch extraction failed above if applicable)
 	for i, sig := range signals {
 		offset := sig.CenterHz - centerHz
 		shifted := dsp.FreqShift(iq, sampleRate, offset)
-		cutoff := sig.BWHz / 2
+		bw := sig.BWHz
+		// FM broadcast (87.5-108 MHz) needs >=150kHz for stereo + RDS
+		sigMHz := sig.CenterHz / 1e6
+		isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
+		if isWFM {
+			if bw < 150000 {
+				bw = 150000
+			}
+		} else if bw < 20000 {
+			bw = 20000
+		}
+		cutoff := bw / 2
 		if cutoff < 200 {
 			cutoff = 200
 		}
@@ -140,8 +168,9 @@ func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleR
 			decim = 1
 		}
 		out[i] = dsp.Decimate(filtered, decim)
+		rates[i] = sampleRate / decim
 	}
-	return out
+	return out, rates
 }
 
 func parseSince(raw string) (time.Time, error) {

@@ -64,7 +64,7 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 			files["rds_baseband"] = "rds.wav"
 			files["rds_sample_rate"] = stereoHybrid.RDSRate
 			dec := rdsdecoder{}
-			res := dec.Decode(stereoHybrid.RDS, stereoHybrid.RDSRate)
+			res := dec.DecodeFloat32(stereoHybrid.RDS, stereoHybrid.RDSRate)
 			if res.PI != 0 {
 				files["rds_pi"] = res.PI
 			}

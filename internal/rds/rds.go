@@ -1,12 +1,26 @@
 package rds
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
-// Decoder performs a simple RDS baseband decode (BPSK, 1187.5 bps).
+// Decoder performs RDS baseband decode with Costas loop carrier recovery
+// and Mueller & Muller symbol timing synchronization.
 type Decoder struct {
 	ps     [8]rune
 	rt     [64]rune
 	lastPI uint16
+	// Costas loop state (persistent across calls)
+	costasPhase float64
+	costasFreq  float64
+	// Symbol sync state
+	syncMu float64
+	// Diagnostic counters
+	TotalDecodes  int
+	BlockAHits    int
+	GroupsFound   int
+	LastDiag      string
 }
 
 type Result struct {
@@ -15,56 +29,181 @@ type Result struct {
 	RT string `json:"rt"`
 }
 
-// Decode takes baseband samples at ~2400 Hz and attempts to extract PI/PS/RT.
-// NOTE: lightweight decoder with CRC+block sync; not a full RDS implementation.
-func (d *Decoder) Decode(base []float32, sampleRate int) Result {
-	if len(base) == 0 || sampleRate <= 0 {
-		return Result{}
-	}
-	// crude clock: 1187.5 bps
-	baud := 1187.5
-	spb := float64(sampleRate) / baud
-	bits := make([]int, 0, int(float64(len(base))/spb))
-	phase := 0.0
-	for i := 0; i < len(base); i++ {
-		phase += 1.0
-		if phase >= spb {
-			phase -= spb
-			if base[i] >= 0 {
-				bits = append(bits, 1)
-			} else {
-				bits = append(bits, 0)
-			}
-		}
-	}
-	if len(bits) < 26*4 {
+// Decode takes complex baseband samples at ~20kHz and extracts RDS data.
+func (d *Decoder) Decode(samples []complex64, sampleRate int) Result {
+	if len(samples) < 104 || sampleRate <= 0 {
 		return Result{PI: d.lastPI, PS: d.psString(), RT: d.rtString()}
 	}
-	// search for block sync
+	d.TotalDecodes++
+
+	sps := float64(sampleRate) / 1187.5 // samples per symbol
+
+	// === Mueller & Muller symbol timing recovery ===
+	// Reset state each call — accumulated samples have phase gaps between frames
+	mu := sps / 2
+	symbols := make([]complex64, 0, len(samples)/int(sps)+1)
+	var prev, prevDecision complex64
+	for mu < float64(len(samples)-1) {
+		idx := int(mu)
+		frac := mu - float64(idx)
+		if idx+1 >= len(samples) {
+			break
+		}
+		samp := complex64(complex(
+			float64(real(samples[idx]))*(1-frac)+float64(real(samples[idx+1]))*frac,
+			float64(imag(samples[idx]))*(1-frac)+float64(imag(samples[idx+1]))*frac,
+		))
+
+		var decision complex64
+		if real(samp) > 0 {
+			decision = 1
+		} else {
+			decision = -1
+		}
+
+		if len(symbols) >= 2 {
+			errR := float64(real(decision)-real(prevDecision))*float64(real(prev)) -
+				float64(real(samp)-real(prev))*float64(real(prevDecision))
+			mu += sps + 0.01*errR
+		} else {
+			mu += sps
+		}
+
+		prevDecision = decision
+		prev = samp
+		symbols = append(symbols, samp)
+	}
+	
+
+	if len(symbols) < 26*4 {
+		d.LastDiag = fmt.Sprintf("too few symbols: %d", len(symbols))
+		return Result{PI: d.lastPI, PS: d.psString(), RT: d.rtString()}
+	}
+
+	// === Costas loop for fine frequency/phase synchronization ===
+	// Reset each call — phase gaps between accumulated frames break continuity
+	alpha := 0.132
+	beta := alpha * alpha / 4.0
+	phase := 0.0
+	freq := 0.0
+	synced := make([]complex64, len(symbols))
+	for i, s := range symbols {
+		// Multiply by exp(-j*phase) to de-rotate
+		cosP := float32(math.Cos(phase))
+		sinP := float32(math.Sin(phase))
+		synced[i] = complex(
+			real(s)*cosP+imag(s)*sinP,
+			imag(s)*cosP-real(s)*sinP,
+		)
+		// BPSK phase error: sign(I) * Q
+		var err float64
+		if real(synced[i]) > 0 {
+			err = float64(imag(synced[i]))
+		} else {
+			err = -float64(imag(synced[i]))
+		}
+		freq += beta * err
+		phase += freq + alpha*err
+		for phase > math.Pi {
+			phase -= 2 * math.Pi
+		}
+		for phase < -math.Pi {
+			phase += 2 * math.Pi
+		}
+	}
+	// state not persisted — samples have gaps
+	
+
+	// Measure signal quality: average |I| and |Q| after Costas
+	var sumI, sumQ float64
+	for _, s := range synced {
+		ri := float64(real(s))
+		rq := float64(imag(s))
+		if ri < 0 { ri = -ri }
+		if rq < 0 { rq = -rq }
+		sumI += ri
+		sumQ += rq
+	}
+	avgI := sumI / float64(len(synced))
+	avgQ := sumQ / float64(len(synced))
+
+	// === BPSK demodulation ===
+	hardBits := make([]int, len(synced))
+	for i, s := range synced {
+		if real(s) > 0 {
+			hardBits[i] = 1
+		} else {
+			hardBits[i] = 0
+		}
+	}
+
+	// === Differential decoding ===
+	bits := make([]int, len(hardBits)-1)
+	for i := 1; i < len(hardBits); i++ {
+		bits[i-1] = hardBits[i] ^ hardBits[i-1]
+	}
+
+	// === Block sync + CRC decode (try both polarities) ===
+	// Count block A CRC hits for diagnostics
+	blockAHits := 0
+	for i := 0; i+26 <= len(bits); i++ {
+		if _, ok := decodeBlock(bits[i : i+26]); ok {
+			blockAHits++
+		}
+	}
+	d.BlockAHits += blockAHits
+
+	found1 := d.tryDecode(bits)
+	invBits := make([]int, len(bits))
+	for i, b := range bits {
+		invBits[i] = 1 - b
+	}
+	found2 := d.tryDecode(invBits)
+	if found1 || found2 {
+		d.GroupsFound++
+	}
+
+	d.LastDiag = fmt.Sprintf("syms=%d sps=%.1f costasFreq=%.4f avgI=%.4f avgQ=%.4f blockAHits=%d groups=%d",
+		len(symbols), sps, freq, avgI, avgQ, blockAHits, d.GroupsFound)
+
+	return Result{PI: d.lastPI, PS: d.psString(), RT: d.rtString()}
+}
+
+func (d *Decoder) tryDecode(bits []int) bool {
+	found := false
 	for i := 0; i+26*4 <= len(bits); i++ {
 		bA, okA := decodeBlock(bits[i : i+26])
+		if !okA || bA.offset != offA {
+			continue
+		}
 		bB, okB := decodeBlock(bits[i+26 : i+52])
+		if !okB || bB.offset != offB {
+			continue
+		}
 		bC, okC := decodeBlock(bits[i+52 : i+78])
+		if !okC || (bC.offset != offC && bC.offset != offCp) {
+			continue
+		}
 		bD, okD := decodeBlock(bits[i+78 : i+104])
-		if !(okA && okB && okC && okD) {
+		if !okD || bD.offset != offD {
 			continue
 		}
-		if bA.offset != offA || bB.offset != offB || bC.offset != offC || bD.offset != offD {
-			continue
-		}
+		found = true
 		pi := bA.data
 		if pi != 0 {
 			d.lastPI = pi
 		}
 		groupType := (bB.data >> 12) & 0xF
 		versionA := ((bB.data >> 11) & 0x1) == 0
-		if groupType == 0 && versionA {
+		if groupType == 0 {
 			addr := bB.data & 0x3
-			chars := []byte{byte(bD.data >> 8), byte(bD.data & 0xFF)}
-			idx := int(addr) * 2
-			if idx+1 < len(d.ps) {
-				d.ps[idx] = sanitizeRune(chars[0])
-				d.ps[idx+1] = sanitizeRune(chars[1])
+			if versionA {
+				chars := []byte{byte(bD.data >> 8), byte(bD.data & 0xFF)}
+				idx := int(addr) * 2
+				if idx+1 < len(d.ps) {
+					d.ps[idx] = sanitizeRune(chars[0])
+					d.ps[idx+1] = sanitizeRune(chars[1])
+				}
 			}
 		}
 		if groupType == 2 && versionA {
@@ -75,9 +214,9 @@ func (d *Decoder) Decode(base []float32, sampleRate int) Result {
 				d.rt[idx+j] = sanitizeRune(chars[j])
 			}
 		}
-		break
+		i += 103
 	}
-	return Result{PI: d.lastPI, PS: d.psString(), RT: d.rtString()}
+	return found
 }
 
 type block struct {
@@ -86,10 +225,11 @@ type block struct {
 }
 
 const (
-	offA uint16 = 0x0FC
-	offB uint16 = 0x198
-	offC uint16 = 0x168
-	offD uint16 = 0x1B4
+	offA  uint16 = 0x0FC
+	offB  uint16 = 0x198
+	offC  uint16 = 0x168
+	offCp uint16 = 0x350
+	offD  uint16 = 0x1B4
 )
 
 func decodeBlock(bits []int) (block, bool) {
@@ -103,17 +243,16 @@ func decodeBlock(bits []int) (block, bool) {
 	data := uint16(raw >> 10)
 	synd := crcSyndrome(raw)
 	switch synd {
-	case offA, offB, offC, offD:
-		return block{data: data, offset: uint16(synd)}, true
+	case offA, offB, offC, offCp, offD:
+		return block{data: data, offset: synd}, true
 	default:
 		return block{}, false
 	}
 }
 
 func crcSyndrome(raw uint32) uint16 {
-	// polynomial 0x1B9 (10-bit)
-	var reg uint32 = raw
 	poly := uint32(0x1B9)
+	reg := raw
 	for i := 25; i >= 10; i-- {
 		if (reg>>uint(i))&1 == 1 {
 			reg ^= poly << uint(i-10)
@@ -157,15 +296,4 @@ func trimRight(in []rune) string {
 		end--
 	}
 	return string(in[:end])
-}
-
-// BPSKCostas returns a simple carrier-locked version of baseband (placeholder).
-func BPSKCostas(in []float32) []float32 {
-	out := make([]float32, len(in))
-	var phase float64
-	for i, v := range in {
-		phase += 0.0001 * float64(v) * math.Sin(phase)
-		out[i] = float32(float64(v) * math.Cos(phase))
-	}
-	return out
 }

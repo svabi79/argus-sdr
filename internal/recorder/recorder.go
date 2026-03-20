@@ -62,16 +62,22 @@ func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.policy = policy
-	m.sampleRate = sampleRate
-	m.blockSize = blockSize
 	m.centerHz = centerHz
 	m.decodeCommands = decodeCommands
-	m.initGPUDemodLocked(sampleRate, blockSize)
-	if m.ring == nil {
+	// Only reset ring and GPU engine if sample parameters actually changed
+	needRingReset := m.sampleRate != sampleRate || m.blockSize != blockSize
+	m.sampleRate = sampleRate
+	m.blockSize = blockSize
+	if needRingReset {
+		m.initGPUDemodLocked(sampleRate, blockSize)
+		if m.ring == nil {
+			m.ring = NewRing(sampleRate, blockSize, policy.RingSeconds)
+		} else {
+			m.ring.Reset(sampleRate, blockSize, policy.RingSeconds)
+		}
+	} else if m.ring == nil {
 		m.ring = NewRing(sampleRate, blockSize, policy.RingSeconds)
-		return
 	}
-	m.ring.Reset(sampleRate, blockSize, policy.RingSeconds)
 }
 
 func (m *Manager) Ingest(t0 time.Time, samples []complex64) {
@@ -239,4 +245,24 @@ func (m *Manager) recordEvent(ev detector.Event) error {
 
 	_ = centerHz
 	return writeMeta(dir, ev, sampleRate, files)
+}
+
+// SliceRecent returns the most recent `seconds` of raw IQ from the ring buffer.
+// Returns the IQ samples, sample rate, and center frequency.
+func (m *Manager) SliceRecent(seconds float64) ([]complex64, int, float64) {
+	if m == nil {
+		return nil, 0, 0
+	}
+	m.mu.RLock()
+	ring := m.ring
+	sr := m.sampleRate
+	center := m.centerHz
+	m.mu.RUnlock()
+	if ring == nil || sr <= 0 {
+		return nil, 0, 0
+	}
+	end := time.Now()
+	start := end.Add(-time.Duration(seconds * float64(time.Second)))
+	iq := ring.Slice(start, end)
+	return iq, sr, center
 }

@@ -13,8 +13,16 @@ func Classify(input SignalInput, spectrum []float64, sampleRate int, fftSize int
 		return nil
 	}
 	feat := ExtractFeatures(input, spectrum, sampleRate, fftSize)
-	if hard := TryHardRule(input.CenterHz, feat.BW3dB); hard != nil {
+	// Use the wider of spectral BW3dB and detector's occupied BWHz for hard rules.
+	// BW3dB measures only the 3dB peak width which can be much narrower than the
+	// actual occupied bandwidth (e.g. FM broadcast has a peaked spectrum).
+	hardBW := feat.BW3dB
+	if input.BWHz > hardBW {
+		hardBW = input.BWHz
+	}
+	if hard := TryHardRule(input.CenterHz, hardBW); hard != nil {
 		hard.Features = feat
+		hard.BW3dB = hardBW
 		return hard
 	}
 	if len(iq) > 0 {

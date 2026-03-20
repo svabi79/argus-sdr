@@ -1,10 +1,10 @@
 {
   "rules": [
     {
-      "name": "fm_broadcast",
-      "match": {"min_mhz": 87.5, "max_mhz": 108.0, "min_bw_hz": 50000},
+      "name": "fm_broadcast_any",
+      "match": {"min_mhz": 87.5, "max_mhz": 108.0},
       "result": {"mod_type": "WFM", "confidence": 0.99},
-      "note": "FM Broadcast: >50 kHz BW im UKW-Band ist immer WFM"
+      "note": "FM Broadcast band: ANY signal here is WFM, no BW check needed"
     },
     {
       "name": "airband_am",
@@ -44,9 +44,9 @@
     },
     {
       "name": "wfm_wide_any",
-      "match": {"min_bw_hz": 100000},
+      "match": {"min_bw_hz": 80000},
       "result": {"mod_type": "WFM", "confidence": 0.95},
-      "note": "Über 100 kHz BW ist fast immer WFM, unabhängig vom Band"
+      "note": "Ueber 80 kHz BW ist fast immer WFM"
     }
   ]
 }
