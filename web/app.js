@@ -254,6 +254,26 @@ function snrColor(snr) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+// Modulation-type color map for signal boxes and badges
+function modColor(modType) {
+  switch (modType) {
+    case 'WFM':        return { r: 72, g: 210, b: 120, label: '#48d278' }; // green
+    case 'WFM_STEREO': return { r: 72, g: 230, b: 160, label: '#48e6a0' }; // bright green
+    case 'NFM':        return { r: 255, g: 170, b: 60, label: '#ffaa3c' };  // orange
+    case 'AM':         return { r: 90, g: 160, b: 255, label: '#5aa0ff' };  // blue
+    case 'USB': case 'LSB':
+                       return { r: 160, g: 120, b: 255, label: '#a078ff' }; // purple
+    case 'CW':         return { r: 255, g: 100, b: 100, label: '#ff6464' }; // red
+    case 'FT8': case 'WSPR': case 'FSK': case 'PSK':
+                       return { r: 255, g: 220, b: 80, label: '#ffdc50' };  // yellow
+    default:           return { r: 160, g: 190, b: 220, label: '#a0bedc' }; // grey-blue
+  }
+}
+function modColorStr(modType, alpha) {
+  const c = modColor(modType);
+  return `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha})`;
+}
+
 function binForFreq(freq, centerHz, sampleRate, n) {
   return Math.floor((freq - (centerHz - sampleRate / 2)) / (sampleRate / n));
 }
@@ -761,38 +781,47 @@ function renderSpectrum() {
       const x1 = ((left - startHz) / (endHz - startHz)) * w;
       const x2 = ((right - startHz) / (endHz - startHz)) * w;
       const boxW = Math.max(2, x2 - x1);
-      const color = snrColor(s.snr_db || 0);
+      const mod = s.class?.mod_type || '';
+      const mc = modColor(mod);
+      const rdsName = s.class?.pll?.rds_station || '';
 
-      ctx.fillStyle = color.replace('rgb', 'rgba').replace(')', ', 0.14)');
-      ctx.strokeStyle = color;
+      // Signal box with modulation-based color
+      ctx.fillStyle = modColorStr(mod, 0.10);
+      ctx.strokeStyle = modColorStr(mod, 0.75);
       ctx.lineWidth = 1.5;
       ctx.fillRect(x1, 10, boxW, h - 28);
       ctx.strokeRect(x1, 10, boxW, h - 28);
 
-      // Multi-line signal label with color coding
+      // Label badges with dark background for readability
       const labelX = Math.max(4, x1 + 4);
       const baseY = 14;
-      const modLabel = s.class?.mod_type || '';
-      const rdsName = s.class?.pll?.rds_station || '';
       const freqStr = `${(s.center_hz / 1e6).toFixed(4)} MHz`;
 
-      // Line 1: Frequency (teal/cyan)
+      // Badge background
+      const badgeH = rdsName ? 42 : (mod ? 30 : 16);
+      const freqW = ctx.measureText ? 0 : 0; // will measure below
+      ctx.font = '11px Inter, sans-serif';
+      const textW = Math.max(ctx.measureText(freqStr).width, mod ? ctx.measureText(mod).width : 0, rdsName ? ctx.measureText(rdsName).width : 0) + 8;
+      ctx.fillStyle = 'rgba(7, 16, 24, 0.82)';
+      ctx.fillRect(labelX - 3, baseY, textW, badgeH);
+
+      // Line 1: Frequency (teal)
       ctx.fillStyle = 'rgba(102, 240, 209, 0.95)';
       ctx.font = '11px Inter, sans-serif';
-      ctx.fillText(freqStr, labelX, baseY + 10);
+      ctx.fillText(freqStr, labelX, baseY + 11);
 
-      // Line 2: Mod type (amber/yellow)
-      if (modLabel) {
-        ctx.fillStyle = 'rgba(255, 196, 92, 0.90)';
+      // Line 2: Mod type (modulation color)
+      if (mod) {
+        ctx.fillStyle = mc.label;
         ctx.font = 'bold 10px Inter, sans-serif';
-        ctx.fillText(modLabel, labelX, baseY + 22);
+        ctx.fillText(mod, labelX, baseY + 23);
       }
 
-      // Line 3: RDS station name (white, bold, slightly larger)
+      // Line 3: RDS station name (white bold)
       if (rdsName) {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
         ctx.font = 'bold 12px Inter, sans-serif';
-        ctx.fillText(rdsName, labelX, baseY + 34);
+        ctx.fillText(rdsName, labelX, baseY + 36);
       }
 
       const debugMatch = (latest?.debug?.scores || []).find((d) => Math.abs((d.center_hz || 0) - (s.center_hz || 0)) < Math.max(500, s.bw_hz || 0));
@@ -844,6 +873,24 @@ function renderWaterfall() {
   }
   ctx.putImageData(row, 0, 0);
   drawCfarEdgeOverlay(ctx, w, h, startHz, endHz);
+
+  // Waterfall signal markers: thin vertical lines at signal center frequencies
+  if (Array.isArray(latest.signals)) {
+    latest.signals.forEach(s => {
+      if (!s.center_hz) return;
+      const xc = ((s.center_hz - startHz) / (endHz - startHz)) * w;
+      if (xc < 0 || xc > w) return;
+      const mod = s.class?.mod_type || '';
+      ctx.strokeStyle = modColorStr(mod, 0.35);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(xc, 0);
+      ctx.lineTo(xc, h);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
 }
 
 function renderOccupancy() {
@@ -1020,7 +1067,13 @@ function _createSignalItem(s) {
   btn.dataset.bw = s.bw_hz || 0;
   btn.dataset.class = s.class?.mod_type || '';
   btn.dataset.id = s.id || 0;
-  btn.innerHTML = `<div class="item-top"><span class="item-title" data-field="freq">${fmtMHz(s.center_hz, 6)}</span><span class="item-badge" data-field="snr" style="color:${snrColor(s.snr_db || 0)}">${(s.snr_db || 0).toFixed(1)} dB</span></div><div class="item-bottom"><span class="item-meta" data-field="bw">BW ${fmtKHz(s.bw_hz || 0)}</span><span class="item-meta" data-field="mod">${s.class?.mod_type || 'live carrier'}${s.class?.pll?.rds_station ? ' · ' + s.class.pll.rds_station : ''}</span></div>`;
+  const mod = s.class?.mod_type || '';
+  const mc = modColor(mod);
+  const rds = s.class?.pll?.rds_station || '';
+  btn.innerHTML = `<div class="item-top"><span class="item-title" data-field="freq">${fmtMHz(s.center_hz, 6)}</span><span class="item-badge" data-field="snr" style="color:${snrColor(s.snr_db || 0)}">${(s.snr_db || 0).toFixed(1)} dB</span></div><div class="item-bottom"><span class="item-meta" data-field="mod" style="color:${mc.label};font-weight:600">${mod || 'carrier'}</span><span class="item-meta" data-field="bw" style="opacity:0.6">BW ${fmtKHz(s.bw_hz || 0)}</span>${rds ? `<span class="item-meta" data-field="rds" style="color:#fff;font-weight:700">${rds}</span>` : ''}</div>`;
+  btn.style.borderLeftColor = mc.label;
+  btn.style.borderLeftWidth = '3px';
+  btn.style.borderLeftStyle = 'solid';
   return btn;
 }
 
@@ -1029,13 +1082,27 @@ function _patchSignalItem(el, s) {
   const snrEl = el.querySelector('[data-field="snr"]');
   const bwEl = el.querySelector('[data-field="bw"]');
   const modEl = el.querySelector('[data-field="mod"]');
+  const rdsEl = el.querySelector('[data-field="rds"]');
+  const mod = s.class?.mod_type || '';
+  const mc = modColor(mod);
+  const rds = s.class?.pll?.rds_station || '';
   if (freqEl) freqEl.textContent = fmtMHz(s.center_hz, 6);
   if (snrEl) { snrEl.textContent = `${(s.snr_db || 0).toFixed(1)} dB`; snrEl.style.color = snrColor(s.snr_db || 0); }
   if (bwEl) bwEl.textContent = `BW ${fmtKHz(s.bw_hz || 0)}`;
-  if (modEl) modEl.textContent = (s.class?.mod_type || 'live carrier') + (s.class?.pll?.rds_station ? ' · ' + s.class.pll.rds_station : '');
+  if (modEl) { modEl.textContent = mod || 'carrier'; modEl.style.color = mc.label; }
+  if (rdsEl) { rdsEl.textContent = rds; } else if (rds && !rdsEl) {
+    const span = document.createElement('span');
+    span.className = 'item-meta';
+    span.dataset.field = 'rds';
+    span.style.color = '#fff';
+    span.style.fontWeight = '700';
+    span.textContent = rds;
+    el.querySelector('.item-bottom')?.appendChild(span);
+  }
   el.dataset.center = s.center_hz;
   el.dataset.bw = s.bw_hz || 0;
-  el.dataset.class = s.class?.mod_type || '';
+  el.dataset.class = mod;
+  el.style.borderLeftColor = mc.label;
 }
 
 function renderLists() {
