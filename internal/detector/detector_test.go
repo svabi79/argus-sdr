@@ -40,7 +40,7 @@ func TestDetectorCreatesEvent(t *testing.T) {
 
 	_, _ = d.Process(now.Add(5*time.Millisecond), spectrum, center)
 
-	now2 := now.Add(30 * time.Millisecond)
+	now2 := now.Add(50 * time.Millisecond)
 	noSignal := make([]float64, len(spectrum))
 	for i := range noSignal {
 		noSignal[i] = -100
