@@ -221,6 +221,11 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		}
 		http.ServeFile(w, r, filepath.Join(base, "meta.json"))
 	})
+	mux.HandleFunc("/api/streams", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		n := recMgr.ActiveStreams()
+		_ = json.NewEncoder(w).Encode(map[string]any{"active_sessions": n})
+	})
 	mux.HandleFunc("/api/demod", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -249,7 +254,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 
 func newHTTPServer(addr string, webRoot string, h *hub, cfgPath string, cfgManager *runtime.Manager, srcMgr *sourceManager, dspUpdates chan dspUpdate, gpuState *gpuStatus, recMgr *recorder.Manager, sigSnap *signalSnapshot, eventMu *sync.RWMutex) *http.Server {
 	mux := http.NewServeMux()
-	registerWSHandlers(mux, h)
+	registerWSHandlers(mux, h, recMgr)
 	registerAPIHandlers(mux, cfgPath, cfgManager, srcMgr, dspUpdates, gpuState, recMgr, sigSnap, eventMu)
 	mux.Handle("/", http.FileServer(http.Dir(webRoot)))
 	return &http.Server{Addr: addr, Handler: mux}

@@ -49,6 +49,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 		mu         sync.Mutex
 	}
 	rdsMap := map[int64]*rdsState{}
+	// Streaming extraction state: per-signal phase + IQ overlap for FIR halo
+	streamPhaseState := map[int64]*streamExtractState{}
+	streamOverlap := &streamIQOverlap{}
 	var gpuEngine *gpufft.Engine
 	if useGPU && gpuState != nil {
 		snap := gpuState.snapshot()
@@ -206,6 +209,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			finished, signals := det.Process(now, spectrum, cfg.CenterHz)
 			thresholds := det.LastThresholds()
 			noiseFloor := det.LastNoiseFloor()
+			var displaySignals []detector.Signal
 			if len(iq) > 0 {
 				snips, snipRates := extractSignalIQBatch(extractMgr, iq, cfg.SampleRate, cfg.CenterHz, signals)
 				for i := range signals {
@@ -317,9 +321,39 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						}
 					}
 				}
+
+				// GPU-extract signal snippets with phase-continuous FreqShift and
+				// IQ overlap for FIR halo. Heavy work on GPU, only demod runs async.
+				displaySignals = det.StableSignals()
+				if rec != nil && len(displaySignals) > 0 && len(allIQ) > 0 {
+					streamSnips, streamRates := extractForStreaming(extractMgr, allIQ, cfg.SampleRate, cfg.CenterHz, displaySignals, streamPhaseState, streamOverlap)
+					items := make([]recorder.StreamFeedItem, 0, len(displaySignals))
+					for j, ds := range displaySignals {
+						if ds.ID == 0 || ds.Class == nil {
+							continue
+						}
+						if j >= len(streamSnips) || len(streamSnips[j]) == 0 {
+							continue
+						}
+						snipRate := cfg.SampleRate
+						if j < len(streamRates) && streamRates[j] > 0 {
+							snipRate = streamRates[j]
+						}
+						items = append(items, recorder.StreamFeedItem{
+							Signal:   ds,
+							Snippet:  streamSnips[j],
+							SnipRate: snipRate,
+						})
+					}
+					if len(items) > 0 {
+						rec.FeedSnippets(items)
+					}
+				}
+			} else {
+				// No IQ data this frame — still need displaySignals for broadcast
+				displaySignals = det.StableSignals()
 			}
-			// Use smoothed active events for frontend display (stable markers)
-			displaySignals := det.StableSignals()
+
 			if sigSnap != nil {
 				sigSnap.set(displaySignals)
 			}

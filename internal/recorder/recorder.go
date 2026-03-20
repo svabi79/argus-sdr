@@ -3,6 +3,7 @@ package recorder
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +43,11 @@ type Manager struct {
 	closed         bool
 	closeOnce      sync.Once
 	workerWG       sync.WaitGroup
+
+	// Streaming recorder
+	streamer    *Streamer
+	streamedIDs map[int64]bool // signal IDs that were streamed (skip retroactive recording)
+	streamedMu  sync.Mutex
 }
 
 func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeCommands map[string]string) *Manager {
@@ -51,7 +57,17 @@ func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeC
 	if policy.RingSeconds <= 0 {
 		policy.RingSeconds = 8
 	}
-	m := &Manager{policy: policy, ring: NewRing(sampleRate, blockSize, policy.RingSeconds), sampleRate: sampleRate, blockSize: blockSize, centerHz: centerHz, decodeCommands: decodeCommands, queue: make(chan detector.Event, 64)}
+	m := &Manager{
+		policy:         policy,
+		ring:           NewRing(sampleRate, blockSize, policy.RingSeconds),
+		sampleRate:     sampleRate,
+		blockSize:      blockSize,
+		centerHz:       centerHz,
+		decodeCommands: decodeCommands,
+		queue:          make(chan detector.Event, 64),
+		streamer:       newStreamer(policy, centerHz),
+		streamedIDs:    make(map[int64]bool),
+	}
 	m.initGPUDemod(sampleRate, blockSize)
 	m.workerWG.Add(1)
 	go m.worker()
@@ -77,6 +93,9 @@ func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz 
 		}
 	} else if m.ring == nil {
 		m.ring = NewRing(sampleRate, blockSize, policy.RingSeconds)
+	}
+	if m.streamer != nil {
+		m.streamer.updatePolicy(policy, centerHz)
 	}
 }
 
@@ -152,6 +171,11 @@ func (m *Manager) Close() {
 		return
 	}
 	m.closeOnce.Do(func() {
+		// Close all active streaming sessions first
+		if m.streamer != nil {
+			m.streamer.CloseAll()
+		}
+
 		m.mu.Lock()
 		m.closed = true
 		if m.queue != nil {
@@ -168,6 +192,16 @@ func (m *Manager) Close() {
 }
 
 func (m *Manager) recordEvent(ev detector.Event) error {
+	// Skip events that were already recorded via streaming
+	m.streamedMu.Lock()
+	wasStreamed := m.streamedIDs[ev.ID]
+	delete(m.streamedIDs, ev.ID) // clean up — event is finished
+	m.streamedMu.Unlock()
+	if wasStreamed {
+		log.Printf("STREAM: skipping retroactive recording for signal %d (already streamed)", ev.ID)
+		return nil
+	}
+
 	m.mu.RLock()
 	policy := m.policy
 	ring := m.ring
@@ -265,4 +299,62 @@ func (m *Manager) SliceRecent(seconds float64) ([]complex64, int, float64) {
 	start := end.Add(-time.Duration(seconds * float64(time.Second)))
 	iq := ring.Slice(start, end)
 	return iq, sr, center
+}
+
+// FeedSnippets is called once per DSP frame with pre-extracted IQ snippets
+// (GPU-accelerated FreqShift+FIR+Decimate). The Streamer handles demod with
+// persistent state (overlap-save, stereo decode, de-emphasis) asynchronously.
+func (m *Manager) FeedSnippets(items []StreamFeedItem) {
+	if m == nil || m.streamer == nil || len(items) == 0 {
+		return
+	}
+	m.mu.RLock()
+	closed := m.closed
+	m.mu.RUnlock()
+	if closed {
+		return
+	}
+
+	// Mark all signal IDs so recordEvent skips them
+	m.streamedMu.Lock()
+	for _, item := range items {
+		if item.Signal.ID != 0 {
+			m.streamedIDs[item.Signal.ID] = true
+		}
+	}
+	m.streamedMu.Unlock()
+
+	// Convert to internal type
+	internal := make([]streamFeedItem, len(items))
+	for i, item := range items {
+		internal[i] = streamFeedItem{
+			signal:   item.Signal,
+			snippet:  item.Snippet,
+			snipRate: item.SnipRate,
+		}
+	}
+	m.streamer.FeedSnippets(internal)
+}
+
+// StreamFeedItem is the public type for passing extracted snippets from DSP loop.
+type StreamFeedItem struct {
+	Signal   detector.Signal
+	Snippet  []complex64
+	SnipRate int
+}
+
+// Streamer returns the underlying Streamer for live-listen subscriptions.
+func (m *Manager) StreamerRef() *Streamer {
+	if m == nil {
+		return nil
+	}
+	return m.streamer
+}
+
+// ActiveStreams returns info about currently active streaming sessions.
+func (m *Manager) ActiveStreams() int {
+	if m == nil || m.streamer == nil {
+		return 0
+	}
+	return m.streamer.ActiveSessions()
 }

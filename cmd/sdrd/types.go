@@ -61,8 +61,9 @@ type sourceManager struct {
 }
 
 type extractionManager struct {
-	mu     sync.Mutex
-	runner *gpudemod.BatchRunner
+	mu         sync.Mutex
+	runner     *gpudemod.BatchRunner
+	maxSamples int
 }
 
 type dspUpdate struct {

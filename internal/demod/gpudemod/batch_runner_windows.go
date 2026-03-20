@@ -50,7 +50,9 @@ func (r *BatchRunner) freeSlotBuffers() {
 }
 
 func (r *BatchRunner) allocSlotBuffers(n int) error {
-	if len(r.slotBufs) == len(r.slots) && len(r.slotBufs) > 0 {
+	// Re-allocate if slot count changed OR if buffer size grew
+	needRealloc := len(r.slotBufs) != len(r.slots) || n > r.slotBufSize
+	if !needRealloc && len(r.slotBufs) > 0 {
 		return nil
 	}
 	r.freeSlotBuffers()
@@ -78,6 +80,7 @@ func (r *BatchRunner) allocSlotBuffers(n int) error {
 		}
 		r.slotBufs[i].stream = s
 	}
+	r.slotBufSize = n
 	return nil
 }
 
@@ -166,7 +169,7 @@ func (r *BatchRunner) shiftFilterDecimateSlotParallel(iq []complex64, job Extrac
 		return 0, 0, errors.New("not enough output samples after decimation")
 	}
 	phaseInc := -2.0 * math.Pi * job.OffsetHz / float64(e.sampleRate)
-	if bridgeLaunchFreqShiftStream(e.dIQIn, (*gpuFloat2)(buf.dShifted), n, phaseInc, e.phase, buf.stream) != 0 {
+	if bridgeLaunchFreqShiftStream(e.dIQIn, (*gpuFloat2)(buf.dShifted), n, phaseInc, job.PhaseStart, buf.stream) != 0 {
 		return 0, 0, errors.New("gpu freq shift failed")
 	}
 	if bridgeLaunchFIRv2Stream((*gpuFloat2)(buf.dShifted), (*gpuFloat2)(buf.dFiltered), (*C.float)(buf.dTaps), n, len(taps), buf.stream) != 0 {

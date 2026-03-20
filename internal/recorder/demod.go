@@ -87,6 +87,8 @@ func mapClassToDemod(c classifier.SignalClass) string {
 		return "NFM"
 	case classifier.ClassWFM:
 		return "WFM"
+	case classifier.ClassWFMStereo:
+		return "WFM_STEREO"
 	case classifier.ClassSSBUSB:
 		return "USB"
 	case classifier.ClassSSBLSB:

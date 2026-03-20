@@ -1,5 +1,7 @@
 package gpudemod
 
+import "math"
+
 type batchSlot struct {
 	job    ExtractJob
 	out    []complex64
@@ -8,9 +10,10 @@ type batchSlot struct {
 }
 
 type BatchRunner struct {
-	eng      *Engine
-	slots    []batchSlot
-	slotBufs []slotBuffers
+	eng        *Engine
+	slots      []batchSlot
+	slotBufs   []slotBuffers
+	slotBufSize int // number of IQ samples the slot buffers were allocated for
 }
 
 func NewBatchRunner(maxSamples int, sampleRate int) (*BatchRunner, error) {
@@ -48,4 +51,35 @@ func (r *BatchRunner) ShiftFilterDecimateBatch(iq []complex64, jobs []ExtractJob
 	}
 	r.prepare(jobs)
 	return r.shiftFilterDecimateBatchImpl(iq)
+}
+
+// ShiftFilterDecimateBatchWithPhase uses per-job PhaseStart and returns
+// per-job PhaseEnd for phase-continuous streaming.
+func (r *BatchRunner) ShiftFilterDecimateBatchWithPhase(iq []complex64, jobs []ExtractJob) ([]ExtractResult, error) {
+	if r == nil || r.eng == nil {
+		return nil, ErrUnavailable
+	}
+	r.prepare(jobs)
+	outs, rates, err := r.shiftFilterDecimateBatchImpl(iq)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]ExtractResult, len(jobs))
+	for i, job := range jobs {
+		phaseInc := -2.0 * math.Pi * job.OffsetHz / float64(r.eng.sampleRate)
+		var iq_out []complex64
+		var rate int
+		if i < len(outs) {
+			iq_out = outs[i]
+		}
+		if i < len(rates) {
+			rate = rates[i]
+		}
+		results[i] = ExtractResult{
+			IQ:       iq_out,
+			Rate:     rate,
+			PhaseEnd: job.PhaseStart + phaseInc*float64(len(iq)),
+		}
+	}
+	return results, nil
 }
