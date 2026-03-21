@@ -66,6 +66,10 @@ const refineAutoSpan = qs('refineAutoSpan');
 const refineMinSpan = qs('refineMinSpan');
 const refineMaxSpan = qs('refineMaxSpan');
 
+const resMaxRefine = qs('resMaxRefine');
+const resMaxRecord = qs('resMaxRecord');
+const resMaxDecode = qs('resMaxDecode');
+
 const signalList = qs('signalList');
 const eventList = qs('eventList');
 const recordingList = qs('recordingList');
@@ -678,6 +682,9 @@ function applyConfigToUI(cfg) {
   if (refineAutoSpan) refineAutoSpan.value = String(cfg.refinement?.auto_span ?? true);
   if (refineMinSpan) refineMinSpan.value = cfg.refinement?.min_span_hz ?? 0;
   if (refineMaxSpan) refineMaxSpan.value = cfg.refinement?.max_span_hz ?? 0;
+  if (resMaxRefine) resMaxRefine.value = cfg.resources?.max_refinement_jobs ?? 0;
+  if (resMaxRecord) resMaxRecord.value = cfg.resources?.max_recording_streams ?? 0;
+  if (resMaxDecode) resMaxDecode.value = cfg.resources?.max_decode_jobs ?? 0;
   spanInput.value = (cfg.sample_rate / zoom / 1e6).toFixed(3);
   isSyncingConfig = false;
 }
@@ -1977,6 +1984,18 @@ if (refineMinSpan) refineMinSpan.addEventListener('change', () => {
 if (refineMaxSpan) refineMaxSpan.addEventListener('change', () => {
   const v = parseFloat(refineMaxSpan.value);
   if (Number.isFinite(v)) queueConfigUpdate({ refinement: { max_span_hz: v } });
+});
+if (resMaxRefine) resMaxRefine.addEventListener('change', () => {
+  const v = parseInt(resMaxRefine.value || '0', 10);
+  queueConfigUpdate({ resources: { max_refinement_jobs: v } });
+});
+if (resMaxRecord) resMaxRecord.addEventListener('change', () => {
+  const v = parseInt(resMaxRecord.value || '0', 10);
+  queueConfigUpdate({ resources: { max_recording_streams: v } });
+});
+if (resMaxDecode) resMaxDecode.addEventListener('change', () => {
+  const v = parseInt(resMaxDecode.value || '0', 10);
+  queueConfigUpdate({ resources: { max_decode_jobs: v } });
 });
 
 avgSelect.addEventListener('change', () => {
