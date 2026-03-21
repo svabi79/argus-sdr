@@ -859,7 +859,11 @@ function updateHeroMetrics() {
     const reasonCounts = decisionSummary.reasons || {};
     const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0];
     const reasonText = topReason ? `· ${topReason[0]}` : '';
-    healthRefinePlan.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} · drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0} · rec ${recOn} dec ${decOn} ${reasonText}`;
+    const queueStats = refinementInfo.queue_stats || {};
+    const queueText = (queueStats.record_queued || queueStats.decode_queued)
+      ? `· q ${queueStats.record_queued || 0}/${queueStats.decode_queued || 0}`
+      : '';
+    healthRefinePlan.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} · drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0} · rec ${recOn} dec ${decOn} ${queueText} ${reasonText}`;
   }
   if (healthRefineWindows) {
     const stats = refinementInfo.window_stats || null;
