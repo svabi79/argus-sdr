@@ -133,5 +133,8 @@ func ApplyNamedProfile(cfg *config.Config, name string) {
 			cfg.Recorder.Enabled = true
 		}
 	}
+	if cfg.Resources.MaxDecodeJobs <= 0 {
+		cfg.Resources.MaxDecodeJobs = cfg.Resources.MaxRecordingStreams
+	}
 	cfg.FFTSize = cfg.Surveillance.AnalysisFFTSize
 }
