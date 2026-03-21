@@ -216,8 +216,12 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	if art == nil {
 		return pipeline.SurveillanceResult{}
 	}
+	policy := pipeline.PolicyFromConfig(rt.cfg)
+	candidates := pipeline.CandidatesFromSignals(art.detected, "surveillance-detector")
+	scheduled := pipeline.ScheduleCandidates(candidates, policy)
 	return pipeline.SurveillanceResult{
-		Candidates: pipeline.CandidatesFromSignals(art.detected, "surveillance-detector"),
+		Candidates: candidates,
+		Scheduled:  scheduled,
 		Finished:   art.finished,
 		Signals:    art.detected,
 		NoiseFloor: art.noiseFloor,
@@ -225,13 +229,11 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	}
 }
 
-func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, extractMgr *extractionManager, rec *recorder.Manager) pipeline.RefinementResult {
+func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, scheduled []pipeline.ScheduledCandidate, extractMgr *extractionManager, rec *recorder.Manager) pipeline.RefinementResult {
 	if art == nil || len(art.iq) == 0 {
 		return pipeline.RefinementResult{}
 	}
 	policy := pipeline.PolicyFromConfig(rt.cfg)
-	candidates := pipeline.CandidatesFromSignals(art.detected, "surveillance-detector")
-	scheduled := pipeline.ScheduleCandidates(candidates, policy)
 	selectedCandidates := make([]pipeline.Candidate, 0, len(scheduled))
 	selectedSignals := make([]detector.Signal, 0, len(scheduled))
 	for _, sc := range scheduled {
@@ -280,7 +282,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, extractMgr *extracti
 		}
 	}
 	rt.det.UpdateClasses(signals)
-	return pipeline.RefinementResult{Signals: signals, Decisions: decisions}
+	return pipeline.RefinementResult{Signals: signals, Decisions: decisions, Candidates: selectedCandidates}
 }
 
 func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, sig *detector.Signal, cls *classifier.Classification) {
