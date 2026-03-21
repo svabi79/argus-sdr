@@ -843,14 +843,19 @@ function updateHeroMetrics() {
     healthRefinePlan.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} · drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0}`;
   }
   if (healthRefineWindows) {
-    const windows = refinementInfo.windows || [];
-    if (!Array.isArray(windows) || windows.length === 0) {
-      healthRefineWindows.textContent = 'n/a';
+    const stats = refinementInfo.window_stats || null;
+    if (stats && stats.count) {
+      healthRefineWindows.textContent = `${fmtHz(stats.min_span_hz || 0)}–${fmtHz(stats.max_span_hz || 0)}`;
     } else {
-      const spans = windows.map(w => w.span_hz || 0).filter(v => v > 0);
-      const minSpan = spans.length ? Math.min(...spans) : 0;
-      const maxSpan = spans.length ? Math.max(...spans) : 0;
-      healthRefineWindows.textContent = spans.length ? `${fmtHz(minSpan)}–${fmtHz(maxSpan)}` : 'n/a';
+      const windows = refinementInfo.windows || [];
+      if (!Array.isArray(windows) || windows.length === 0) {
+        healthRefineWindows.textContent = 'n/a';
+      } else {
+        const spans = windows.map(w => w.span_hz || 0).filter(v => v > 0);
+        const minSpan = spans.length ? Math.min(...spans) : 0;
+        const maxSpan = spans.length ? Math.max(...spans) : 0;
+        healthRefineWindows.textContent = spans.length ? `${fmtHz(minSpan)}–${fmtHz(maxSpan)}` : 'n/a';
+      }
     }
   }
 }
