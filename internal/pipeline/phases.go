@@ -12,13 +12,15 @@ type AnalysisLevel struct {
 }
 
 type SurveillanceResult struct {
-	Level      AnalysisLevel        `json:"level"`
-	Candidates []Candidate          `json:"candidates"`
-	Scheduled  []ScheduledCandidate `json:"scheduled,omitempty"`
-	Finished   []detector.Event     `json:"finished"`
-	Signals    []detector.Signal    `json:"signals"`
-	NoiseFloor float64              `json:"noise_floor"`
-	Thresholds []float64            `json:"thresholds,omitempty"`
+	Level        AnalysisLevel        `json:"level"`
+	Levels       []AnalysisLevel      `json:"levels,omitempty"`
+	Candidates   []Candidate          `json:"candidates"`
+	Scheduled    []ScheduledCandidate `json:"scheduled,omitempty"`
+	Finished     []detector.Event     `json:"finished"`
+	Signals      []detector.Signal    `json:"signals"`
+	NoiseFloor   float64              `json:"noise_floor"`
+	Thresholds   []float64            `json:"thresholds,omitempty"`
+	DisplayLevel AnalysisLevel        `json:"display_level"`
 }
 
 type RefinementPlan struct {

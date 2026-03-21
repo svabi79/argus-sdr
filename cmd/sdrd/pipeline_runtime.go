@@ -229,14 +229,24 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 		SpanHz:     float64(rt.cfg.SampleRate),
 		Source:     "baseband",
 	}
+	displayLevel := pipeline.AnalysisLevel{
+		Name:       "presentation",
+		SampleRate: rt.cfg.SampleRate,
+		FFTSize:    rt.cfg.Surveillance.DisplayBins,
+		CenterHz:   rt.cfg.CenterHz,
+		SpanHz:     float64(rt.cfg.SampleRate),
+		Source:     "display",
+	}
 	return pipeline.SurveillanceResult{
-		Level:      level,
-		Candidates: candidates,
-		Scheduled:  scheduled,
-		Finished:   art.finished,
-		Signals:    art.detected,
-		NoiseFloor: art.noiseFloor,
-		Thresholds: art.thresholds,
+		Level:        level,
+		Levels:       []pipeline.AnalysisLevel{level},
+		DisplayLevel: displayLevel,
+		Candidates:   candidates,
+		Scheduled:    scheduled,
+		Finished:     art.finished,
+		Signals:      art.detected,
+		NoiseFloor:   art.noiseFloor,
+		Thresholds:   art.thresholds,
 	}
 }
 
