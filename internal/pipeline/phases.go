@@ -2,7 +2,17 @@ package pipeline
 
 import "sdr-wideband-suite/internal/detector"
 
+type AnalysisLevel struct {
+	Name       string  `json:"name"`
+	SampleRate int     `json:"sample_rate"`
+	FFTSize    int     `json:"fft_size"`
+	CenterHz   float64 `json:"center_hz"`
+	SpanHz     float64 `json:"span_hz"`
+	Source     string  `json:"source,omitempty"`
+}
+
 type SurveillanceResult struct {
+	Level      AnalysisLevel        `json:"level"`
 	Candidates []Candidate          `json:"candidates"`
 	Scheduled  []ScheduledCandidate `json:"scheduled,omitempty"`
 	Finished   []detector.Event     `json:"finished"`
@@ -21,6 +31,7 @@ type RefinementPlan struct {
 }
 
 type RefinementInput struct {
+	Level      AnalysisLevel        `json:"level"`
 	Candidates []Candidate          `json:"candidates,omitempty"`
 	Scheduled  []ScheduledCandidate `json:"scheduled,omitempty"`
 	Plan       RefinementPlan       `json:"plan,omitempty"`

@@ -29,6 +29,7 @@ func TestSurveillanceResultCarriesScheduledCandidates(t *testing.T) {
 
 func TestRefinementInputCarriesScheduledCandidates(t *testing.T) {
 	res := RefinementInput{
+		Level:      AnalysisLevel{Name: "refinement"},
 		Candidates: []Candidate{{ID: 2}},
 		Scheduled:  []ScheduledCandidate{{Candidate: Candidate{ID: 2}, Priority: 4}},
 		Plan: RefinementPlan{

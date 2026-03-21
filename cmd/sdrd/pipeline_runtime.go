@@ -219,7 +219,16 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	policy := pipeline.PolicyFromConfig(rt.cfg)
 	candidates := pipeline.CandidatesFromSignals(art.detected, "surveillance-detector")
 	scheduled := pipeline.ScheduleCandidates(candidates, policy)
+	level := pipeline.AnalysisLevel{
+		Name:       "surveillance",
+		SampleRate: rt.cfg.SampleRate,
+		FFTSize:    rt.cfg.Surveillance.AnalysisFFTSize,
+		CenterHz:   rt.cfg.CenterHz,
+		SpanHz:     float64(rt.cfg.SampleRate),
+		Source:     "baseband",
+	}
 	return pipeline.SurveillanceResult{
+		Level:      level,
 		Candidates: candidates,
 		Scheduled:  scheduled,
 		Finished:   art.finished,
@@ -262,7 +271,16 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 			Source:   windowSource,
 		})
 	}
+	level := pipeline.AnalysisLevel{
+		Name:       "refinement",
+		SampleRate: rt.cfg.SampleRate,
+		FFTSize:    rt.cfg.FFTSize,
+		CenterHz:   rt.cfg.CenterHz,
+		SpanHz:     float64(rt.cfg.SampleRate),
+		Source:     "refinement-window",
+	}
 	input := pipeline.RefinementInput{
+		Level:      level,
 		Candidates: append([]pipeline.Candidate(nil), surv.Candidates...),
 		Scheduled:  scheduled,
 		Plan:       plan,
