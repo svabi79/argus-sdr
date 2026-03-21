@@ -229,6 +229,22 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 		SpanHz:     float64(rt.cfg.SampleRate),
 		Source:     "baseband",
 	}
+	lowRate := rt.cfg.SampleRate / 2
+	lowFFT := rt.cfg.Surveillance.AnalysisFFTSize / 2
+	if lowRate < 200000 {
+		lowRate = rt.cfg.SampleRate
+	}
+	if lowFFT < 256 {
+		lowFFT = rt.cfg.Surveillance.AnalysisFFTSize
+	}
+	lowLevel := pipeline.AnalysisLevel{
+		Name:       "surveillance-lowres",
+		SampleRate: lowRate,
+		FFTSize:    lowFFT,
+		CenterHz:   rt.cfg.CenterHz,
+		SpanHz:     float64(lowRate),
+		Source:     "downsampled",
+	}
 	displayLevel := pipeline.AnalysisLevel{
 		Name:       "presentation",
 		SampleRate: rt.cfg.SampleRate,
@@ -237,9 +253,13 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 		SpanHz:     float64(rt.cfg.SampleRate),
 		Source:     "display",
 	}
+	levels := []pipeline.AnalysisLevel{level}
+	if lowLevel.SampleRate != level.SampleRate || lowLevel.FFTSize != level.FFTSize {
+		levels = append(levels, lowLevel)
+	}
 	return pipeline.SurveillanceResult{
 		Level:        level,
-		Levels:       []pipeline.AnalysisLevel{level},
+		Levels:       levels,
 		DisplayLevel: displayLevel,
 		Candidates:   candidates,
 		Scheduled:    scheduled,
@@ -369,7 +389,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	maxRecord := rt.cfg.Resources.MaxRecordingStreams
 	maxDecode := rt.cfg.Resources.MaxDecodeJobs
 	hold := time.Duration(rt.cfg.Resources.DecisionHoldMs) * time.Millisecond
-	queueStats := rt.decisionQueues.Apply(decisions, maxRecord, maxDecode, hold, art.now)
+	queueStats := rt.decisionQueues.Apply(decisions, maxRecord, maxDecode, hold, art.now, policy)
 	rt.queueStats = queueStats
 	summary := summarizeDecisions(decisions)
 	if rec != nil {

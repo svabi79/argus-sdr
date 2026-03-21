@@ -21,6 +21,8 @@ type decisionQueueStats struct {
 type queuedDecision struct {
 	ID        int64
 	SNRDb     float64
+	Hint      string
+	Class     string
 	FirstSeen time.Time
 	LastSeen  time.Time
 }
@@ -41,7 +43,7 @@ func newDecisionQueues() *decisionQueues {
 	}
 }
 
-func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord int, maxDecode int, hold time.Duration, now time.Time) decisionQueueStats {
+func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord int, maxDecode int, hold time.Duration, now time.Time, policy pipeline.Policy) decisionQueueStats {
 	if dq == nil {
 		return decisionQueueStats{}
 	}
@@ -59,6 +61,8 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord i
 				dq.record[id] = qd
 			}
 			qd.SNRDb = decisions[i].Candidate.SNRDb
+			qd.Hint = decisions[i].Candidate.Hint
+			qd.Class = decisions[i].Class
 			qd.LastSeen = now
 			recSeen[id] = true
 		}
@@ -69,6 +73,8 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord i
 				dq.decode[id] = qd
 			}
 			qd.SNRDb = decisions[i].Candidate.SNRDb
+			qd.Hint = decisions[i].Candidate.Hint
+			qd.Class = decisions[i].Class
 			qd.LastSeen = now
 			decSeen[id] = true
 		}
@@ -87,8 +93,8 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord i
 	purgeExpired(dq.recordHold, now)
 	purgeExpired(dq.decodeHold, now)
 
-	recSelected := selectQueued(dq.record, dq.recordHold, maxRecord, hold, now)
-	decSelected := selectQueued(dq.decode, dq.decodeHold, maxDecode, hold, now)
+	recSelected := selectQueued(dq.record, dq.recordHold, maxRecord, hold, now, policy)
+	decSelected := selectQueued(dq.decode, dq.decodeHold, maxDecode, hold, now, policy)
 
 	stats := decisionQueueStats{
 		RecordQueued:   len(dq.record),
@@ -121,7 +127,7 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord i
 	return stats
 }
 
-func selectQueued(queue map[int64]*queuedDecision, hold map[int64]time.Time, max int, holdDur time.Duration, now time.Time) map[int64]struct{} {
+func selectQueued(queue map[int64]*queuedDecision, hold map[int64]time.Time, max int, holdDur time.Duration, now time.Time, policy pipeline.Policy) map[int64]struct{} {
 	selected := map[int64]struct{}{}
 	if len(queue) == 0 {
 		return selected
@@ -137,7 +143,12 @@ func selectQueued(queue map[int64]*queuedDecision, hold map[int64]time.Time, max
 		if boost > 5 {
 			boost = 5
 		}
-		scoredList = append(scoredList, scored{id: id, score: qd.SNRDb + boost})
+		hint := qd.Hint
+		if hint == "" {
+			hint = qd.Class
+		}
+		policyBoost := pipeline.CandidatePriorityBoost(policy, hint)
+		scoredList = append(scoredList, scored{id: id, score: qd.SNRDb + boost + policyBoost})
 	}
 	sort.Slice(scoredList, func(i, j int) bool {
 		return scoredList[i].score > scoredList[j].score
