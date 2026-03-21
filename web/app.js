@@ -126,6 +126,7 @@ let liveAudio = null;
 let liveListenWS = null; // WebSocket-based live listen
 let liveListenTarget = null; // { freq, bw, mode }
 let stats = { buffer_samples: 0, dropped: 0, resets: 0, last_sample_ago_ms: -1 };
+let refinementInfo = {};
 
 // ---------------------------------------------------------------------------
 // LiveListenWS — WebSocket-based gapless audio streaming via /ws/audio
