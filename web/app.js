@@ -763,6 +763,14 @@ async function loadRefinement() {
   } catch {}
 }
 
+function formatLevelSummary(level) {
+  if (!level) return 'n/a';
+  const name = level.name || 'level';
+  const fft = level.fft_size ? `${level.fft_size} bins` : 'bins n/a';
+  const span = level.span_hz ? fmtHz(level.span_hz) : 'span n/a';
+  return `${name} · ${fft} · ${span}`;
+}
+
 function queueConfigUpdate(partial) {
   if (isSyncingConfig) return;
   pendingConfigUpdate = { ...(pendingConfigUpdate || {}), ...partial };
@@ -868,7 +876,8 @@ function updateHeroMetrics() {
   if (healthRefineWindows) {
     const stats = refinementInfo.window_stats || null;
     if (stats && stats.count) {
-      healthRefineWindows.textContent = `${fmtHz(stats.min_span_hz || 0)}–${fmtHz(stats.max_span_hz || 0)}`;
+      const levels = refinementInfo.surveillance_level ? ` · ${formatLevelSummary(refinementInfo.surveillance_level)}` : '';
+      healthRefineWindows.textContent = `${fmtHz(stats.min_span_hz || 0)}–${fmtHz(stats.max_span_hz || 0)}${levels}`;
     } else {
       const windows = refinementInfo.windows || [];
       if (!Array.isArray(windows) || windows.length === 0) {
