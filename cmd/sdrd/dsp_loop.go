@@ -13,10 +13,11 @@ import (
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
+	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/recorder"
 )
 
-func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot, extractMgr *extractionManager) {
+func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot, extractMgr *extractionManager, phaseSnap *phaseSnapshot) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("FATAL: runDSP goroutine panic: %v\n%s", r, debug.Stack())
@@ -88,7 +89,11 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 				rt.maintenance(displaySignals, rec)
 			} else {
+				state.refinement = pipeline.RefinementResult{}
 				displaySignals = rt.det.StableSignals()
+			}
+			if phaseSnap != nil {
+				phaseSnap.Set(*state)
 			}
 
 			if sigSnap != nil {

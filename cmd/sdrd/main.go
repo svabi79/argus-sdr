@@ -97,18 +97,18 @@ func main() {
 
 	decodeMap := buildDecoderMap(cfg)
 	recMgr := recorder.New(cfg.SampleRate, cfg.FFTSize, recorder.Policy{
-		Enabled:     cfg.Recorder.Enabled,
-		MinSNRDb:    cfg.Recorder.MinSNRDb,
-		MinDuration: mustParseDuration(cfg.Recorder.MinDuration, 1*time.Second),
-		MaxDuration: mustParseDuration(cfg.Recorder.MaxDuration, 300*time.Second),
-		PrerollMs:   cfg.Recorder.PrerollMs,
-		RecordIQ:    cfg.Recorder.RecordIQ,
-		RecordAudio: cfg.Recorder.RecordAudio,
-		AutoDemod:   cfg.Recorder.AutoDemod,
-		AutoDecode:  cfg.Recorder.AutoDecode,
-		MaxDiskMB:   cfg.Recorder.MaxDiskMB,
-		OutputDir:   cfg.Recorder.OutputDir,
-		ClassFilter: cfg.Recorder.ClassFilter,
+		Enabled:          cfg.Recorder.Enabled,
+		MinSNRDb:         cfg.Recorder.MinSNRDb,
+		MinDuration:      mustParseDuration(cfg.Recorder.MinDuration, 1*time.Second),
+		MaxDuration:      mustParseDuration(cfg.Recorder.MaxDuration, 300*time.Second),
+		PrerollMs:        cfg.Recorder.PrerollMs,
+		RecordIQ:         cfg.Recorder.RecordIQ,
+		RecordAudio:      cfg.Recorder.RecordAudio,
+		AutoDemod:        cfg.Recorder.AutoDemod,
+		AutoDecode:       cfg.Recorder.AutoDecode,
+		MaxDiskMB:        cfg.Recorder.MaxDiskMB,
+		OutputDir:        cfg.Recorder.OutputDir,
+		ClassFilter:      cfg.Recorder.ClassFilter,
 		RingSeconds:      cfg.Recorder.RingSeconds,
 		DeemphasisUs:     cfg.Recorder.DeemphasisUs,
 		ExtractionTaps:   cfg.Recorder.ExtractionTaps,
@@ -120,9 +120,10 @@ func main() {
 	extractMgr := &extractionManager{}
 	defer extractMgr.reset()
 
-	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr, sigSnap, extractMgr)
+	phaseSnap := &phaseSnapshot{}
+	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr, sigSnap, extractMgr, phaseSnap)
 
-	server := newHTTPServer(cfg.WebAddr, cfg.WebRoot, h, cfgPath, cfgManager, srcMgr, dspUpdates, gpuState, recMgr, sigSnap, eventMu)
+	server := newHTTPServer(cfg.WebAddr, cfg.WebRoot, h, cfgPath, cfgManager, srcMgr, dspUpdates, gpuState, recMgr, sigSnap, eventMu, phaseSnap)
 	go func() {
 		log.Printf("web listening on %s", cfg.WebAddr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -135,7 +136,3 @@ func main() {
 	<-stop
 	shutdownServer(server)
 }
-
-
-
-
