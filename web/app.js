@@ -131,6 +131,7 @@ let liveListenWS = null; // WebSocket-based live listen
 let liveListenTarget = null; // { freq, bw, mode }
 let stats = { buffer_samples: 0, dropped: 0, resets: 0, last_sample_ago_ms: -1 };
 let refinementInfo = {};
+let decisionIndex = new Map();
 
 // ---------------------------------------------------------------------------
 // LiveListenWS — WebSocket-based gapless audio streaming via /ws/audio
@@ -754,6 +755,11 @@ async function loadRefinement() {
     const res = await fetch('/api/refinement');
     if (!res.ok) return;
     refinementInfo = await res.json();
+    decisionIndex = new Map();
+    const items = Array.isArray(refinementInfo.decision_items) ? refinementInfo.decision_items : [];
+    items.forEach(item => {
+      if (item && item.id != null) decisionIndex.set(String(item.id), item);
+    });
   } catch {}
 }
 
@@ -1341,7 +1347,11 @@ function _createSignalItem(s) {
   const mod = s.class?.mod_type || '';
   const mc = modColor(mod);
   const rds = s.class?.pll?.rds_station || '';
-  btn.innerHTML = `<div class="item-top"><span class="item-title" data-field="freq">${fmtMHz(s.center_hz, 6)}</span><span class="item-badge" data-field="snr" style="color:${snrColor(s.snr_db || 0)}">${(s.snr_db || 0).toFixed(1)} dB</span></div><div class="item-bottom"><span class="item-meta" data-field="mod" style="color:${mc.label};font-weight:600">${mod || 'carrier'}</span><span class="item-meta" data-field="bw" style="opacity:0.6">BW ${fmtKHz(s.bw_hz || 0)}</span>${rds ? `<span class="item-meta" data-field="rds" style="color:#fff;font-weight:700">${rds}</span>` : ''}</div>`;
+  const dec = decisionIndex.get(String(s.id || 0));
+  const decText = dec?.reason ? `${dec.reason}` : '';
+  const decFlags = dec ? `${dec.record ? 'REC' : ''}${dec.decode ? (dec.record ? '+DEC' : 'DEC') : ''}` : '';
+  const decMeta = decText || decFlags ? `<span class="item-meta" data-field="decision" style="opacity:0.75">${decFlags}${decFlags && decText ? ' · ' : ''}${decText}</span>` : '';
+  btn.innerHTML = `<div class="item-top"><span class="item-title" data-field="freq">${fmtMHz(s.center_hz, 6)}</span><span class="item-badge" data-field="snr" style="color:${snrColor(s.snr_db || 0)}">${(s.snr_db || 0).toFixed(1)} dB</span></div><div class="item-bottom"><span class="item-meta" data-field="mod" style="color:${mc.label};font-weight:600">${mod || 'carrier'}</span><span class="item-meta" data-field="bw" style="opacity:0.6">BW ${fmtKHz(s.bw_hz || 0)}</span>${rds ? `<span class="item-meta" data-field="rds" style="color:#fff;font-weight:700">${rds}</span>` : ''}${decMeta}</div>`;
   btn.style.borderLeftColor = mc.label;
   btn.style.borderLeftWidth = '3px';
   btn.style.borderLeftStyle = 'solid';
