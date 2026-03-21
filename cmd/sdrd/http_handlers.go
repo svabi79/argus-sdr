@@ -133,6 +133,21 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		cfg := cfgManager.Snapshot()
 		_ = json.NewEncoder(w).Encode(pipeline.PolicyFromConfig(cfg))
 	})
+	mux.HandleFunc("/api/pipeline/recommendations", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		cfg := cfgManager.Snapshot()
+		policy := pipeline.PolicyFromConfig(cfg)
+		recommend := map[string]any{
+			"mode":                policy.Mode,
+			"intent":              policy.Intent,
+			"monitor_span_hz":     policy.MonitorSpanHz,
+			"signal_priorities":   policy.SignalPriorities,
+			"auto_record_classes": policy.AutoRecordClasses,
+			"auto_decode_classes": policy.AutoDecodeClasses,
+			"refinement_jobs":     policy.MaxRefinementJobs,
+		}
+		_ = json.NewEncoder(w).Encode(recommend)
+	})
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		limit := 200

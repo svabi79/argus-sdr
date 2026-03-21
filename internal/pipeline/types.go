@@ -32,6 +32,10 @@ type Refinement struct {
 func CandidatesFromSignals(signals []detector.Signal, source string) []Candidate {
 	out := make([]Candidate, 0, len(signals))
 	for _, s := range signals {
+		hint := ""
+		if s.Class != nil {
+			hint = string(s.Class.ModType)
+		}
 		out = append(out, Candidate{
 			ID:          s.ID,
 			CenterHz:    s.CenterHz,
@@ -42,6 +46,7 @@ func CandidatesFromSignals(signals []detector.Signal, source string) []Candidate
 			LastBin:     s.LastBin,
 			NoiseDb:     s.NoiseDb,
 			Source:      source,
+			Hint:        hint,
 		})
 	}
 	return out

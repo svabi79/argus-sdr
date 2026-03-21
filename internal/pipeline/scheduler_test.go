@@ -21,3 +21,14 @@ func TestScheduleCandidates(t *testing.T) {
 		t.Fatalf("expected next strongest candidate second, got id=%d", got[1].Candidate.ID)
 	}
 }
+
+func TestScheduleCandidatesPriorityBoost(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0, SignalPriorities: []string{"digital"}}
+	got := ScheduleCandidates([]Candidate{
+		{ID: 1, SNRDb: 15, Hint: "voice"},
+		{ID: 2, SNRDb: 14, Hint: "digital-burst"},
+	}, policy)
+	if len(got) != 1 || got[0].Candidate.ID != 2 {
+		t.Fatalf("expected priority boost to favor digital candidate, got %+v", got)
+	}
+}

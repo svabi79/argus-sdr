@@ -143,6 +143,8 @@ go build -tags sdrplay ./cmd/sdrd
 - `POST /api/config`
 - `POST /api/sdr/settings`
 - `GET /api/gpu`
+- `GET /api/pipeline/policy`
+- `GET /api/pipeline/recommendations`
 
 ### Signals / Events
 - `GET /api/signals` → current live signals

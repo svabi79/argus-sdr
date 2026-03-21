@@ -19,7 +19,7 @@ func ScheduleCandidates(candidates []Candidate, policy Policy) []ScheduledCandid
 		if c.SNRDb < policy.MinCandidateSNRDb {
 			continue
 		}
-		priority := c.SNRDb
+		priority := c.SNRDb + CandidatePriorityBoost(policy, c.Hint)
 		if c.BandwidthHz > 0 {
 			priority += minFloat64(c.BandwidthHz/25000.0, 6)
 		}
