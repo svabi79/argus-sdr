@@ -364,7 +364,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	maxDecode := rt.cfg.Resources.MaxDecodeJobs
 	enforceDecisionBudgets(decisions, maxRecord, maxDecode)
 	rt.det.UpdateClasses(signals)
-	return pipeline.RefinementResult{Signals: signals, Decisions: decisions, Candidates: selectedCandidates}
+	return pipeline.RefinementResult{Level: input.Level, Signals: signals, Decisions: decisions, Candidates: selectedCandidates}
 }
 
 func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, sig *detector.Signal, cls *classifier.Classification) {

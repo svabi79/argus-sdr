@@ -8,6 +8,7 @@ import (
 
 func TestRefinementResultCarriesDecisions(t *testing.T) {
 	res := RefinementResult{
+		Level:      AnalysisLevel{Name: "refinement"},
 		Signals:    []detector.Signal{{ID: 1}},
 		Decisions:  []SignalDecision{{ShouldRecord: true}},
 		Candidates: []Candidate{{ID: 1}},

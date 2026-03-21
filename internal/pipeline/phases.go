@@ -43,6 +43,7 @@ type RefinementInput struct {
 }
 
 type RefinementResult struct {
+	Level      AnalysisLevel     `json:"level"`
 	Signals    []detector.Signal `json:"signals"`
 	Decisions  []SignalDecision  `json:"decisions,omitempty"`
 	Candidates []Candidate       `json:"candidates,omitempty"`
