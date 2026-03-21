@@ -239,16 +239,27 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 	windows := make([]pipeline.RefinementWindow, 0, len(scheduled))
 	for _, sc := range scheduled {
 		span := sc.Candidate.BandwidthHz
+		windowSource := "candidate"
+		if policy.RefinementAutoSpan && (span <= 0 || span < 2000 || span > 400000) {
+			autoSpan, autoSource := pipeline.AutoSpanForHint(sc.Candidate.Hint)
+			if autoSpan > 0 {
+				span = autoSpan
+				windowSource = autoSource
+			}
+		}
 		if policy.RefinementMinSpanHz > 0 && span < policy.RefinementMinSpanHz {
 			span = policy.RefinementMinSpanHz
 		}
 		if policy.RefinementMaxSpanHz > 0 && span > policy.RefinementMaxSpanHz {
 			span = policy.RefinementMaxSpanHz
 		}
+		if span <= 0 {
+			span = 12000
+		}
 		windows = append(windows, pipeline.RefinementWindow{
 			CenterHz: sc.Candidate.CenterHz,
 			SpanHz:   span,
-			Source:   "candidate",
+			Source:   windowSource,
 		})
 	}
 	input := pipeline.RefinementInput{

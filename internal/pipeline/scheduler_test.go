@@ -44,6 +44,21 @@ func TestBuildRefinementPlanTracksDrops(t *testing.T) {
 	}
 }
 
+func TestAutoSpanForHint(t *testing.T) {
+	span, source := AutoSpanForHint("WFM_STEREO")
+	if span < 150000 || source == "" {
+		t.Fatalf("expected WFM span, got %.0f (%s)", span, source)
+	}
+	span, source = AutoSpanForHint("CW")
+	if span != 500 || source == "" {
+		t.Fatalf("expected CW span, got %.0f (%s)", span, source)
+	}
+	span, source = AutoSpanForHint("")
+	if span != 0 || source != "" {
+		t.Fatalf("expected empty span for unknown hint, got %.0f (%s)", span, source)
+	}
+}
+
 func TestScheduleCandidatesPriorityBoost(t *testing.T) {
 	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0, SignalPriorities: []string{"digital"}}
 	got := ScheduleCandidates([]Candidate{

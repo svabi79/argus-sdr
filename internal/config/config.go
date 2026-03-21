@@ -99,6 +99,7 @@ type RefinementConfig struct {
 	MinCandidateSNRDb float64 `yaml:"min_candidate_snr_db" json:"min_candidate_snr_db"`
 	MinSpanHz         float64 `yaml:"min_span_hz" json:"min_span_hz"`
 	MaxSpanHz         float64 `yaml:"max_span_hz" json:"max_span_hz"`
+	AutoSpan          bool    `yaml:"auto_span" json:"auto_span"`
 }
 
 type ResourceConfig struct {
@@ -177,6 +178,7 @@ func Default() Config {
 			MinCandidateSNRDb: 0,
 			MinSpanHz:         0,
 			MaxSpanHz:         0,
+			AutoSpan:          true,
 		},
 		Resources: ResourceConfig{
 			PreferGPU:           true,

@@ -71,6 +71,7 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `refinement.max_concurrent` — refinement budget hint
 - `refinement.min_candidate_snr_db` — floor for future scheduling decisions
 - `refinement.min_span_hz` / `refinement.max_span_hz` — clamp refinement window span (0 = no clamp)
+- `refinement.auto_span` — use mod-type heuristics when candidate bandwidth is missing/odd
 - `resources.prefer_gpu` — GPU preference hint
 - `resources.max_refinement_jobs` — processing budget hint
 - `resources.max_recording_streams` — recording/streaming budget hint
