@@ -850,7 +850,10 @@ function updateHeroMetrics() {
     const decisionSummary = refinementInfo.decision_summary || {};
     const recOn = decisionSummary.record_enabled ?? 0;
     const decOn = decisionSummary.decode_enabled ?? 0;
-    healthRefinePlan.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} · drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0} · rec ${recOn} dec ${decOn}`;
+    const reasonCounts = decisionSummary.reasons || {};
+    const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0];
+    const reasonText = topReason ? `· ${topReason[0]}` : '';
+    healthRefinePlan.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} · drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0} · rec ${recOn} dec ${decOn} ${reasonText}`;
   }
   if (healthRefineWindows) {
     const stats = refinementInfo.window_stats || null;
