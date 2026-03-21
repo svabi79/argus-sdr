@@ -11,10 +11,14 @@ type ScheduledCandidate struct {
 // Current heuristic is intentionally simple and deterministic; later phases can add
 // richer scoring (novelty, persistence, profile-aware band priorities, decoder value).
 func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
+	budget := policy.MaxRefinementJobs
+	if policy.RefinementMaxConcurrent > 0 && (budget <= 0 || policy.RefinementMaxConcurrent < budget) {
+		budget = policy.RefinementMaxConcurrent
+	}
 	plan := RefinementPlan{
 		TotalCandidates:   len(candidates),
 		MinCandidateSNRDb: policy.MinCandidateSNRDb,
-		Budget:            policy.MaxRefinementJobs,
+		Budget:            budget,
 	}
 	if len(candidates) == 0 {
 		return plan
@@ -40,7 +44,7 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 		}
 		return scored[i].Priority > scored[j].Priority
 	})
-	limit := policy.MaxRefinementJobs
+	limit := plan.Budget
 	if limit <= 0 || limit > len(scored) {
 		limit = len(scored)
 	}

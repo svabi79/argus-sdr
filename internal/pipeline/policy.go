@@ -3,48 +3,50 @@ package pipeline
 import "sdr-wideband-suite/internal/config"
 
 type Policy struct {
-	Mode                string   `json:"mode"`
-	Intent              string   `json:"intent"`
-	MonitorStartHz      float64  `json:"monitor_start_hz,omitempty"`
-	MonitorEndHz        float64  `json:"monitor_end_hz,omitempty"`
-	MonitorSpanHz       float64  `json:"monitor_span_hz,omitempty"`
-	SignalPriorities    []string `json:"signal_priorities,omitempty"`
-	AutoRecordClasses   []string `json:"auto_record_classes,omitempty"`
-	AutoDecodeClasses   []string `json:"auto_decode_classes,omitempty"`
-	SurveillanceFFTSize int      `json:"surveillance_fft_size"`
-	SurveillanceFPS     int      `json:"surveillance_fps"`
-	DisplayBins         int      `json:"display_bins"`
-	DisplayFPS          int      `json:"display_fps"`
-	RefinementEnabled   bool     `json:"refinement_enabled"`
-	MaxRefinementJobs   int      `json:"max_refinement_jobs"`
-	MinCandidateSNRDb   float64  `json:"min_candidate_snr_db"`
-	RefinementMinSpanHz float64  `json:"refinement_min_span_hz"`
-	RefinementMaxSpanHz float64  `json:"refinement_max_span_hz"`
-	RefinementAutoSpan  bool     `json:"refinement_auto_span"`
-	PreferGPU           bool     `json:"prefer_gpu"`
+	Mode                    string   `json:"mode"`
+	Intent                  string   `json:"intent"`
+	MonitorStartHz          float64  `json:"monitor_start_hz,omitempty"`
+	MonitorEndHz            float64  `json:"monitor_end_hz,omitempty"`
+	MonitorSpanHz           float64  `json:"monitor_span_hz,omitempty"`
+	SignalPriorities        []string `json:"signal_priorities,omitempty"`
+	AutoRecordClasses       []string `json:"auto_record_classes,omitempty"`
+	AutoDecodeClasses       []string `json:"auto_decode_classes,omitempty"`
+	SurveillanceFFTSize     int      `json:"surveillance_fft_size"`
+	SurveillanceFPS         int      `json:"surveillance_fps"`
+	DisplayBins             int      `json:"display_bins"`
+	DisplayFPS              int      `json:"display_fps"`
+	RefinementEnabled       bool     `json:"refinement_enabled"`
+	MaxRefinementJobs       int      `json:"max_refinement_jobs"`
+	RefinementMaxConcurrent int      `json:"refinement_max_concurrent"`
+	MinCandidateSNRDb       float64  `json:"min_candidate_snr_db"`
+	RefinementMinSpanHz     float64  `json:"refinement_min_span_hz"`
+	RefinementMaxSpanHz     float64  `json:"refinement_max_span_hz"`
+	RefinementAutoSpan      bool     `json:"refinement_auto_span"`
+	PreferGPU               bool     `json:"prefer_gpu"`
 }
 
 func PolicyFromConfig(cfg config.Config) Policy {
 	return Policy{
-		Mode:                cfg.Pipeline.Mode,
-		Intent:              cfg.Pipeline.Goals.Intent,
-		MonitorStartHz:      cfg.Pipeline.Goals.MonitorStartHz,
-		MonitorEndHz:        cfg.Pipeline.Goals.MonitorEndHz,
-		MonitorSpanHz:       cfg.Pipeline.Goals.MonitorSpanHz,
-		SignalPriorities:    append([]string(nil), cfg.Pipeline.Goals.SignalPriorities...),
-		AutoRecordClasses:   append([]string(nil), cfg.Pipeline.Goals.AutoRecordClasses...),
-		AutoDecodeClasses:   append([]string(nil), cfg.Pipeline.Goals.AutoDecodeClasses...),
-		SurveillanceFFTSize: cfg.Surveillance.AnalysisFFTSize,
-		SurveillanceFPS:     cfg.Surveillance.FrameRate,
-		DisplayBins:         cfg.Surveillance.DisplayBins,
-		DisplayFPS:          cfg.Surveillance.DisplayFPS,
-		RefinementEnabled:   cfg.Refinement.Enabled,
-		MaxRefinementJobs:   cfg.Resources.MaxRefinementJobs,
-		MinCandidateSNRDb:   cfg.Refinement.MinCandidateSNRDb,
-		RefinementMinSpanHz: cfg.Refinement.MinSpanHz,
-		RefinementMaxSpanHz: cfg.Refinement.MaxSpanHz,
-		RefinementAutoSpan:  config.BoolValue(cfg.Refinement.AutoSpan, true),
-		PreferGPU:           cfg.Resources.PreferGPU,
+		Mode:                    cfg.Pipeline.Mode,
+		Intent:                  cfg.Pipeline.Goals.Intent,
+		MonitorStartHz:          cfg.Pipeline.Goals.MonitorStartHz,
+		MonitorEndHz:            cfg.Pipeline.Goals.MonitorEndHz,
+		MonitorSpanHz:           cfg.Pipeline.Goals.MonitorSpanHz,
+		SignalPriorities:        append([]string(nil), cfg.Pipeline.Goals.SignalPriorities...),
+		AutoRecordClasses:       append([]string(nil), cfg.Pipeline.Goals.AutoRecordClasses...),
+		AutoDecodeClasses:       append([]string(nil), cfg.Pipeline.Goals.AutoDecodeClasses...),
+		SurveillanceFFTSize:     cfg.Surveillance.AnalysisFFTSize,
+		SurveillanceFPS:         cfg.Surveillance.FrameRate,
+		DisplayBins:             cfg.Surveillance.DisplayBins,
+		DisplayFPS:              cfg.Surveillance.DisplayFPS,
+		RefinementEnabled:       cfg.Refinement.Enabled,
+		MaxRefinementJobs:       cfg.Resources.MaxRefinementJobs,
+		RefinementMaxConcurrent: cfg.Refinement.MaxConcurrent,
+		MinCandidateSNRDb:       cfg.Refinement.MinCandidateSNRDb,
+		RefinementMinSpanHz:     cfg.Refinement.MinSpanHz,
+		RefinementMaxSpanHz:     cfg.Refinement.MaxSpanHz,
+		RefinementAutoSpan:      config.BoolValue(cfg.Refinement.AutoSpan, true),
+		PreferGPU:               cfg.Resources.PreferGPU,
 	}
 }
 

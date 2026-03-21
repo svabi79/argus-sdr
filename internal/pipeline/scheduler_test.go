@@ -44,6 +44,22 @@ func TestBuildRefinementPlanTracksDrops(t *testing.T) {
 	}
 }
 
+func TestBuildRefinementPlanRespectsMaxConcurrent(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 5, RefinementMaxConcurrent: 2, MinCandidateSNRDb: 0}
+	cands := []Candidate{
+		{ID: 1, CenterHz: 100, SNRDb: 9},
+		{ID: 2, CenterHz: 200, SNRDb: 8},
+		{ID: 3, CenterHz: 300, SNRDb: 7},
+	}
+	plan := BuildRefinementPlan(cands, policy)
+	if plan.Budget != 2 {
+		t.Fatalf("expected budget 2, got %d", plan.Budget)
+	}
+	if len(plan.Selected) != 2 {
+		t.Fatalf("expected 2 selected, got %d", len(plan.Selected))
+	}
+}
+
 func TestAutoSpanForHint(t *testing.T) {
 	span, source := AutoSpanForHint("WFM_STEREO")
 	if span < 150000 || source == "" {
