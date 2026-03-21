@@ -840,7 +840,10 @@ function updateHeroMetrics() {
   healthFps.textContent = `${renderFps.toFixed(0)} fps`;
   if (healthRefinePlan) {
     const plan = refinementInfo.plan || {};
-    healthRefinePlan.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} · drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0}`;
+    const decisionSummary = refinementInfo.decision_summary || {};
+    const recOn = decisionSummary.record_enabled ?? 0;
+    const decOn = decisionSummary.decode_enabled ?? 0;
+    healthRefinePlan.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} · drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0} · rec ${recOn} dec ${decOn}`;
   }
   if (healthRefineWindows) {
     const stats = refinementInfo.window_stats || null;
