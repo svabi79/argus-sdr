@@ -219,9 +219,11 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, extractMgr *extracti
 	policy := pipeline.PolicyFromConfig(rt.cfg)
 	candidates := pipeline.CandidatesFromSignals(art.detected, "surveillance-detector")
 	scheduled := pipeline.ScheduleCandidates(candidates, policy)
-	selected := make([]detector.Signal, 0, len(scheduled))
+	selectedCandidates := make([]pipeline.Candidate, 0, len(scheduled))
+	selectedSignals := make([]detector.Signal, 0, len(scheduled))
 	for _, sc := range scheduled {
-		selected = append(selected, detector.Signal{
+		selectedCandidates = append(selectedCandidates, sc.Candidate)
+		selectedSignals = append(selectedSignals, detector.Signal{
 			ID:       sc.Candidate.ID,
 			FirstBin: sc.Candidate.FirstBin,
 			LastBin:  sc.Candidate.LastBin,
@@ -232,14 +234,21 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, extractMgr *extracti
 			NoiseDb:  sc.Candidate.NoiseDb,
 		})
 	}
-	snips, snipRates := extractSignalIQBatch(extractMgr, art.iq, rt.cfg.SampleRate, rt.cfg.CenterHz, selected)
-	refined := pipeline.RefineCandidates(pipeline.CandidatesFromSignals(selected, "scheduled-candidate"), art.spectrum, rt.cfg.SampleRate, rt.cfg.FFTSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
+	snips, snipRates := extractSignalIQBatch(extractMgr, art.iq, rt.cfg.SampleRate, rt.cfg.CenterHz, selectedSignals)
+	refined := pipeline.RefineCandidates(selectedCandidates, art.spectrum, rt.cfg.SampleRate, rt.cfg.FFTSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
 	signals := make([]detector.Signal, 0, len(refined))
 	for i, ref := range refined {
 		sig := ref.Signal
 		signals = append(signals, sig)
 		cls := sig.Class
 		snipRate := ref.SnippetRate
+		decision := pipeline.DecideSignalAction(policy, ref.Candidate, cls)
+		if decision.ShouldAutoDecode && rec != nil {
+			rt.cfg.Recorder.AutoDecode = true
+		}
+		if decision.ShouldRecord && rec != nil {
+			rt.cfg.Recorder.Enabled = true
+		}
 		if cls != nil {
 			pll := classifier.PLLResult{}
 			if i < len(snips) && snips[i] != nil && len(snips[i]) > 256 {
