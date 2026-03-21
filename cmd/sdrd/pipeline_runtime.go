@@ -236,10 +236,19 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 	if len(scheduled) == 0 && len(plan.Selected) > 0 {
 		scheduled = append([]pipeline.ScheduledCandidate(nil), plan.Selected...)
 	}
+	windows := make([]pipeline.RefinementWindow, 0, len(scheduled))
+	for _, sc := range scheduled {
+		windows = append(windows, pipeline.RefinementWindow{
+			CenterHz: sc.Candidate.CenterHz,
+			SpanHz:   sc.Candidate.BandwidthHz,
+			Source:   "candidate",
+		})
+	}
 	input := pipeline.RefinementInput{
 		Candidates: append([]pipeline.Candidate(nil), surv.Candidates...),
 		Scheduled:  scheduled,
 		Plan:       plan,
+		Windows:    windows,
 		SampleRate: rt.cfg.SampleRate,
 		FFTSize:    rt.cfg.FFTSize,
 		CenterHz:   rt.cfg.CenterHz,
@@ -284,7 +293,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 		centerHz = rt.cfg.CenterHz
 	}
 	snips, snipRates := extractSignalIQBatch(extractMgr, art.iq, sampleRate, centerHz, selectedSignals)
-	refined := pipeline.RefineCandidates(selectedCandidates, art.spectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
+	refined := pipeline.RefineCandidates(selectedCandidates, input.Windows, art.spectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
 	signals := make([]detector.Signal, 0, len(refined))
 	decisions := make([]pipeline.SignalDecision, 0, len(refined))
 	for i, ref := range refined {

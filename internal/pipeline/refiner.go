@@ -7,7 +7,7 @@ import (
 
 // RefineCandidates upgrades coarse detector candidates into refined signals
 // by attaching local IQ-derived classification and PLL metadata.
-func RefineCandidates(candidates []Candidate, spectrum []float64, sampleRate int, fftSize int, snippets [][]complex64, snippetRates []int, mode classifier.ClassifierMode) []Refinement {
+func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectrum []float64, sampleRate int, fftSize int, snippets [][]complex64, snippetRates []int, mode classifier.ClassifierMode) []Refinement {
 	out := make([]Refinement, 0, len(candidates))
 	for i, c := range candidates {
 		sig := detector.Signal{
@@ -44,8 +44,13 @@ func RefineCandidates(candidates []Candidate, spectrum []float64, sampleRate int
 				cls.ModType = classifier.ClassWFMStereo
 			}
 		}
+		var window RefinementWindow
+		if i < len(windows) {
+			window = windows[i]
+		}
 		out = append(out, Refinement{
 			Candidate:   c,
+			Window:      window,
 			Signal:      sig,
 			SnippetRate: snipRate,
 			Class:       cls,

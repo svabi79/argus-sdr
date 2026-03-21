@@ -24,6 +24,7 @@ type RefinementInput struct {
 	Candidates []Candidate          `json:"candidates,omitempty"`
 	Scheduled  []ScheduledCandidate `json:"scheduled,omitempty"`
 	Plan       RefinementPlan       `json:"plan,omitempty"`
+	Windows    []RefinementWindow   `json:"windows,omitempty"`
 	SampleRate int                  `json:"sample_rate"`
 	FFTSize    int                  `json:"fft_size"`
 	CenterHz   float64              `json:"center_hz"`
