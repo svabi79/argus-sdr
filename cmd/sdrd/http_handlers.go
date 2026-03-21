@@ -156,14 +156,16 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		snap := phaseSnap.Snapshot()
 		windowStats := buildWindowStats(snap.refinementInput.Windows)
 		out := map[string]any{
-			"plan":             snap.refinementInput.Plan,
-			"windows":          snap.refinementInput.Windows,
-			"window_stats":     windowStats,
-			"candidates":       len(snap.refinementInput.Candidates),
-			"scheduled":        len(snap.refinementInput.Scheduled),
-			"signals":          len(snap.refinement.Signals),
-			"decisions":        len(snap.refinement.Decisions),
-			"decision_summary": summarizeDecisions(snap.refinement.Decisions),
+			"plan":               snap.refinementInput.Plan,
+			"windows":            snap.refinementInput.Windows,
+			"window_stats":       windowStats,
+			"candidates":         len(snap.refinementInput.Candidates),
+			"scheduled":          len(snap.refinementInput.Scheduled),
+			"signals":            len(snap.refinement.Signals),
+			"decisions":          len(snap.refinement.Decisions),
+			"decision_summary":   summarizeDecisions(snap.refinement.Decisions),
+			"surveillance_level": snap.surveillance.Level,
+			"refinement_level":   snap.refinementInput.Level,
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	})
