@@ -9,16 +9,42 @@ import (
 	"sdr-wideband-suite/internal/config"
 )
 
+type PipelineUpdate struct {
+	Mode *string `json:"mode"`
+}
+
+type SurveillanceUpdate struct {
+	AnalysisFFTSize *int    `json:"analysis_fft_size"`
+	FrameRate       *int    `json:"frame_rate"`
+	Strategy        *string `json:"strategy"`
+}
+
+type RefinementUpdate struct {
+	Enabled           *bool    `json:"enabled"`
+	MaxConcurrent     *int     `json:"max_concurrent"`
+	MinCandidateSNRDb *float64 `json:"min_candidate_snr_db"`
+}
+
+type ResourcesUpdate struct {
+	PreferGPU          *bool `json:"prefer_gpu"`
+	MaxRefinementJobs  *int  `json:"max_refinement_jobs"`
+	MaxRecordingStreams *int `json:"max_recording_streams"`
+}
+
 type ConfigUpdate struct {
-	CenterHz       *float64        `json:"center_hz"`
-	SampleRate     *int            `json:"sample_rate"`
-	FFTSize        *int            `json:"fft_size"`
-	GainDb         *float64        `json:"gain_db"`
-	TunerBwKHz     *int            `json:"tuner_bw_khz"`
-	UseGPUFFT      *bool           `json:"use_gpu_fft"`
-	ClassifierMode *string         `json:"classifier_mode"`
-	Detector       *DetectorUpdate `json:"detector"`
-	Recorder       *RecorderUpdate `json:"recorder"`
+	CenterHz       *float64            `json:"center_hz"`
+	SampleRate     *int                `json:"sample_rate"`
+	FFTSize        *int                `json:"fft_size"`
+	GainDb         *float64            `json:"gain_db"`
+	TunerBwKHz     *int                `json:"tuner_bw_khz"`
+	UseGPUFFT      *bool               `json:"use_gpu_fft"`
+	ClassifierMode *string             `json:"classifier_mode"`
+	Pipeline       *PipelineUpdate     `json:"pipeline"`
+	Surveillance   *SurveillanceUpdate `json:"surveillance"`
+	Refinement     *RefinementUpdate   `json:"refinement"`
+	Resources      *ResourcesUpdate    `json:"resources"`
+	Detector       *DetectorUpdate     `json:"detector"`
+	Recorder       *RecorderUpdate     `json:"recorder"`
 }
 
 type DetectorUpdate struct {
@@ -132,6 +158,64 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 			next.ClassifierMode = mode
 		default:
 			return m.cfg, errors.New("classifier_mode must be rule, math, or combined")
+		}
+	}
+	if update.Pipeline != nil && update.Pipeline.Mode != nil {
+		next.Pipeline.Mode = *update.Pipeline.Mode
+	}
+	if update.Surveillance != nil {
+		if update.Surveillance.AnalysisFFTSize != nil {
+			v := *update.Surveillance.AnalysisFFTSize
+			if v <= 0 {
+				return m.cfg, errors.New("surveillance.analysis_fft_size must be > 0")
+			}
+			if v&(v-1) != 0 {
+				return m.cfg, errors.New("surveillance.analysis_fft_size must be a power of 2")
+			}
+			next.Surveillance.AnalysisFFTSize = v
+			next.FFTSize = v
+		}
+		if update.Surveillance.FrameRate != nil {
+			v := *update.Surveillance.FrameRate
+			if v <= 0 {
+				return m.cfg, errors.New("surveillance.frame_rate must be > 0")
+			}
+			next.Surveillance.FrameRate = v
+			next.FrameRate = v
+		}
+		if update.Surveillance.Strategy != nil {
+			next.Surveillance.Strategy = *update.Surveillance.Strategy
+		}
+	}
+	if update.Refinement != nil {
+		if update.Refinement.Enabled != nil {
+			next.Refinement.Enabled = *update.Refinement.Enabled
+		}
+		if update.Refinement.MaxConcurrent != nil {
+			if *update.Refinement.MaxConcurrent <= 0 {
+				return m.cfg, errors.New("refinement.max_concurrent must be > 0")
+			}
+			next.Refinement.MaxConcurrent = *update.Refinement.MaxConcurrent
+		}
+		if update.Refinement.MinCandidateSNRDb != nil {
+			next.Refinement.MinCandidateSNRDb = *update.Refinement.MinCandidateSNRDb
+		}
+	}
+	if update.Resources != nil {
+		if update.Resources.PreferGPU != nil {
+			next.Resources.PreferGPU = *update.Resources.PreferGPU
+		}
+		if update.Resources.MaxRefinementJobs != nil {
+			if *update.Resources.MaxRefinementJobs <= 0 {
+				return m.cfg, errors.New("resources.max_refinement_jobs must be > 0")
+			}
+			next.Resources.MaxRefinementJobs = *update.Resources.MaxRefinementJobs
+		}
+		if update.Resources.MaxRecordingStreams != nil {
+			if *update.Resources.MaxRecordingStreams <= 0 {
+				return m.cfg, errors.New("resources.max_recording_streams must be > 0")
+			}
+			next.Resources.MaxRecordingStreams = *update.Resources.MaxRecordingStreams
 		}
 	}
 	if update.Detector != nil {

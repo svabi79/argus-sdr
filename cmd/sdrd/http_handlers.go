@@ -122,6 +122,11 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(gpuState.snapshot())
 	})
+	mux.HandleFunc("/api/pipeline/policy", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		cfg := cfgManager.Snapshot()
+		_ = json.NewEncoder(w).Encode(pipeline.PolicyFromConfig(cfg))
+	})
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		limit := 200

@@ -22,11 +22,17 @@ func TestApplyConfigUpdate(t *testing.T) {
 	cfarRank := 18
 	cfarScale := 5.5
 
+	mode := "wideband-balanced"
+	survFPS := 12
+	maxRefJobs := 24
 	updated, err := mgr.ApplyConfig(ConfigUpdate{
 		CenterHz:   &center,
 		SampleRate: &sampleRate,
 		FFTSize:    &fftSize,
 		TunerBwKHz: &bw,
+		Pipeline:   &PipelineUpdate{Mode: &mode},
+		Surveillance: &SurveillanceUpdate{FrameRate: &survFPS},
+		Resources: &ResourcesUpdate{MaxRefinementJobs: &maxRefJobs},
 		Detector: &DetectorUpdate{
 			ThresholdDb:    &threshold,
 			CFARMode:       &cfarMode,
@@ -75,6 +81,15 @@ func TestApplyConfigUpdate(t *testing.T) {
 	}
 	if updated.TunerBwKHz != bw {
 		t.Fatalf("tuner bw: %v", updated.TunerBwKHz)
+	}
+	if updated.Pipeline.Mode != mode {
+		t.Fatalf("pipeline mode: %v", updated.Pipeline.Mode)
+	}
+	if updated.Surveillance.FrameRate != survFPS || updated.FrameRate != survFPS {
+		t.Fatalf("surveillance frame rate: %v / %v", updated.Surveillance.FrameRate, updated.FrameRate)
+	}
+	if updated.Resources.MaxRefinementJobs != maxRefJobs {
+		t.Fatalf("max refinement jobs: %v", updated.Resources.MaxRefinementJobs)
 	}
 }
 
