@@ -48,6 +48,19 @@ func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectr
 		if i < len(windows) {
 			window = windows[i]
 		}
+		if window.CenterHz == 0 {
+			window.CenterHz = c.CenterHz
+		}
+		if window.SpanHz <= 0 {
+			if c.BandwidthHz > 0 {
+				window.SpanHz = c.BandwidthHz
+			} else {
+				window.SpanHz = 12000
+			}
+		}
+		if window.Source == "" {
+			window.Source = "candidate"
+		}
 		out = append(out, Refinement{
 			Candidate:   c,
 			Window:      window,
