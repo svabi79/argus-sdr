@@ -70,8 +70,19 @@ type DecoderConfig struct {
 	PSKCmd   string `yaml:"psk_cmd" json:"psk_cmd"`
 }
 
+type PipelineGoalConfig struct {
+	Intent              string   `yaml:"intent" json:"intent"`
+	MonitorStartHz      float64  `yaml:"monitor_start_hz" json:"monitor_start_hz"`
+	MonitorEndHz        float64  `yaml:"monitor_end_hz" json:"monitor_end_hz"`
+	MonitorSpanHz       float64  `yaml:"monitor_span_hz" json:"monitor_span_hz"`
+	SignalPriorities    []string `yaml:"signal_priorities" json:"signal_priorities"`
+	AutoRecordClasses   []string `yaml:"auto_record_classes" json:"auto_record_classes"`
+	AutoDecodeClasses   []string `yaml:"auto_decode_classes" json:"auto_decode_classes"`
+}
+
 type PipelineConfig struct {
-	Mode string `yaml:"mode" json:"mode"`
+	Mode  string             `yaml:"mode" json:"mode"`
+	Goals PipelineGoalConfig `yaml:"goals" json:"goals"`
 }
 
 type SurveillanceConfig struct {
@@ -93,8 +104,12 @@ type ResourceConfig struct {
 }
 
 type ProfileConfig struct {
-	Name        string `yaml:"name" json:"name"`
-	Description string `yaml:"description" json:"description"`
+	Name        string             `yaml:"name" json:"name"`
+	Description string             `yaml:"description" json:"description"`
+	Pipeline    *PipelineConfig    `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
+	Surveillance *SurveillanceConfig `yaml:"surveillance,omitempty" json:"surveillance,omitempty"`
+	Refinement  *RefinementConfig  `yaml:"refinement,omitempty" json:"refinement,omitempty"`
+	Resources   *ResourceConfig    `yaml:"resources,omitempty" json:"resources,omitempty"`
 }
 
 type Config struct {
@@ -141,6 +156,9 @@ func Default() Config {
 		IQBalance:  false,
 		Pipeline: PipelineConfig{
 			Mode: "legacy",
+			Goals: PipelineGoalConfig{
+				Intent: "general-monitoring",
+			},
 		},
 		Surveillance: SurveillanceConfig{
 			AnalysisFFTSize: 2048,
@@ -158,8 +176,10 @@ func Default() Config {
 			MaxRecordingStreams: 16,
 		},
 		Profiles: []ProfileConfig{
-			{Name: "legacy", Description: "Current single-band pipeline behavior"},
-			{Name: "wideband-balanced", Description: "Prepared profile for scalable wideband surveillance"},
+			{Name: "legacy", Description: "Current single-band pipeline behavior", Pipeline: &PipelineConfig{Mode: "legacy", Goals: PipelineGoalConfig{Intent: "general-monitoring"}}},
+			{Name: "wideband-balanced", Description: "Prepared baseline for scalable wideband surveillance", Pipeline: &PipelineConfig{Mode: "wideband-balanced", Goals: PipelineGoalConfig{Intent: "wideband-surveillance"}}},
+			{Name: "wideband-aggressive", Description: "Higher surveillance/refinement budgets for future broad-span monitoring", Pipeline: &PipelineConfig{Mode: "wideband-aggressive", Goals: PipelineGoalConfig{Intent: "high-density-wideband-surveillance"}}},
+			{Name: "archive", Description: "Record-first monitoring profile", Pipeline: &PipelineConfig{Mode: "archive", Goals: PipelineGoalConfig{Intent: "archive-and-triage"}}},
 		},
 		Detector: DetectorConfig{
 			ThresholdDb:     -20,
@@ -294,6 +314,12 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Pipeline.Mode == "" {
 		cfg.Pipeline.Mode = "legacy"
+	}
+	if cfg.Pipeline.Goals.Intent == "" {
+		cfg.Pipeline.Goals.Intent = "general-monitoring"
+	}
+	if cfg.Pipeline.Goals.MonitorSpanHz <= 0 && cfg.Pipeline.Goals.MonitorStartHz != 0 && cfg.Pipeline.Goals.MonitorEndHz != 0 && cfg.Pipeline.Goals.MonitorEndHz > cfg.Pipeline.Goals.MonitorStartHz {
+		cfg.Pipeline.Goals.MonitorSpanHz = cfg.Pipeline.Goals.MonitorEndHz - cfg.Pipeline.Goals.MonitorStartHz
 	}
 	if cfg.Surveillance.AnalysisFFTSize <= 0 {
 		cfg.Surveillance.AnalysisFFTSize = cfg.FFTSize

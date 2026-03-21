@@ -3,18 +3,32 @@ package pipeline
 import "sdr-wideband-suite/internal/config"
 
 type Policy struct {
-	Mode                string  `json:"mode"`
-	SurveillanceFFTSize int     `json:"surveillance_fft_size"`
-	SurveillanceFPS     int     `json:"surveillance_fps"`
-	RefinementEnabled   bool    `json:"refinement_enabled"`
-	MaxRefinementJobs   int     `json:"max_refinement_jobs"`
-	MinCandidateSNRDb   float64 `json:"min_candidate_snr_db"`
-	PreferGPU           bool    `json:"prefer_gpu"`
+	Mode                string   `json:"mode"`
+	Intent              string   `json:"intent"`
+	MonitorStartHz      float64  `json:"monitor_start_hz,omitempty"`
+	MonitorEndHz        float64  `json:"monitor_end_hz,omitempty"`
+	MonitorSpanHz       float64  `json:"monitor_span_hz,omitempty"`
+	SignalPriorities    []string `json:"signal_priorities,omitempty"`
+	AutoRecordClasses   []string `json:"auto_record_classes,omitempty"`
+	AutoDecodeClasses   []string `json:"auto_decode_classes,omitempty"`
+	SurveillanceFFTSize int      `json:"surveillance_fft_size"`
+	SurveillanceFPS     int      `json:"surveillance_fps"`
+	RefinementEnabled   bool     `json:"refinement_enabled"`
+	MaxRefinementJobs   int      `json:"max_refinement_jobs"`
+	MinCandidateSNRDb   float64  `json:"min_candidate_snr_db"`
+	PreferGPU           bool     `json:"prefer_gpu"`
 }
 
 func PolicyFromConfig(cfg config.Config) Policy {
 	return Policy{
 		Mode:                cfg.Pipeline.Mode,
+		Intent:              cfg.Pipeline.Goals.Intent,
+		MonitorStartHz:      cfg.Pipeline.Goals.MonitorStartHz,
+		MonitorEndHz:        cfg.Pipeline.Goals.MonitorEndHz,
+		MonitorSpanHz:       cfg.Pipeline.Goals.MonitorSpanHz,
+		SignalPriorities:    append([]string(nil), cfg.Pipeline.Goals.SignalPriorities...),
+		AutoRecordClasses:   append([]string(nil), cfg.Pipeline.Goals.AutoRecordClasses...),
+		AutoDecodeClasses:   append([]string(nil), cfg.Pipeline.Goals.AutoDecodeClasses...),
 		SurveillanceFFTSize: cfg.Surveillance.AnalysisFFTSize,
 		SurveillanceFPS:     cfg.Surveillance.FrameRate,
 		RefinementEnabled:   cfg.Refinement.Enabled,
@@ -31,6 +45,7 @@ func ApplyNamedProfile(cfg *config.Config, name string) {
 	switch name {
 	case "legacy":
 		cfg.Pipeline.Mode = "legacy"
+		cfg.Pipeline.Goals.Intent = "general-monitoring"
 		cfg.Surveillance.Strategy = "single-resolution"
 		cfg.Refinement.Enabled = true
 		if cfg.Resources.MaxRefinementJobs <= 0 {
@@ -38,6 +53,7 @@ func ApplyNamedProfile(cfg *config.Config, name string) {
 		}
 	case "wideband-balanced":
 		cfg.Pipeline.Mode = "wideband-balanced"
+		cfg.Pipeline.Goals.Intent = "wideband-surveillance"
 		cfg.Surveillance.Strategy = "single-resolution"
 		if cfg.Surveillance.AnalysisFFTSize < 4096 {
 			cfg.Surveillance.AnalysisFFTSize = 4096
@@ -58,6 +74,7 @@ func ApplyNamedProfile(cfg *config.Config, name string) {
 		cfg.Resources.PreferGPU = true
 	case "wideband-aggressive":
 		cfg.Pipeline.Mode = "wideband-aggressive"
+		cfg.Pipeline.Goals.Intent = "high-density-wideband-surveillance"
 		cfg.Surveillance.Strategy = "single-resolution"
 		if cfg.Surveillance.AnalysisFFTSize < 8192 {
 			cfg.Surveillance.AnalysisFFTSize = 8192
@@ -78,6 +95,7 @@ func ApplyNamedProfile(cfg *config.Config, name string) {
 		cfg.Resources.PreferGPU = true
 	case "archive":
 		cfg.Pipeline.Mode = "archive"
+		cfg.Pipeline.Goals.Intent = "archive-and-triage"
 		cfg.Refinement.Enabled = true
 		if cfg.Refinement.MaxConcurrent < 12 {
 			cfg.Refinement.MaxConcurrent = 12

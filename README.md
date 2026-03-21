@@ -56,6 +56,12 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 
 ### New phase-1 pipeline fields
 - `pipeline.mode` — operating mode label (`legacy`, `wideband-balanced`, ...)
+- `pipeline.goals.*` — declarative target/intent layer for future autonomous operation
+  - `intent`
+  - `monitor_start_hz` / `monitor_end_hz` / `monitor_span_hz`
+  - `signal_priorities`
+  - `auto_record_classes`
+  - `auto_decode_classes`
 - `surveillance.analysis_fft_size` — analysis FFT size used by the surveillance layer
 - `surveillance.frame_rate` — surveillance cadence target
 - `surveillance.strategy` — currently `single-resolution`, reserved for future multi-resolution modes
@@ -73,6 +79,9 @@ In phase 1, the engine stays backward compatible, but the config model now refle
 - local refinement
 - resource policy
 - presentation
+- operator goals / future autonomous intent
+
+The long-term target is that you describe *what the system should do* (for example broad-span monitoring intent, preferred signal families, auto-record/decode priorities), while the engine decides *how* to allocate surveillance, refinement and decoding budgets.
 
 **CFAR modes:** `OFF`, `CA`, `OS`, `GOSCA`, `CASO`
 
