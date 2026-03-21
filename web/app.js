@@ -79,6 +79,8 @@ const healthResets = qs('healthResets');
 const healthAge = qs('healthAge');
 const healthGpu = qs('healthGpu');
 const healthFps = qs('healthFps');
+const healthRefinePlan = qs('healthRefinePlan');
+const healthRefineWindows = qs('healthRefineWindows');
 
 const drawerEl = qs('eventDrawer');
 const drawerCloseBtn = qs('drawerClose');
@@ -739,6 +741,14 @@ async function loadGPU() {
   } catch {}
 }
 
+async function loadRefinement() {
+  try {
+    const res = await fetch('/api/refinement');
+    if (!res.ok) return;
+    refinementInfo = await res.json();
+  } catch {}
+}
+
 function queueConfigUpdate(partial) {
   if (isSyncingConfig) return;
   pendingConfigUpdate = { ...(pendingConfigUpdate || {}), ...partial };
@@ -827,6 +837,21 @@ function updateHeroMetrics() {
   healthAge.textContent = stats.last_sample_ago_ms >= 0 ? `${stats.last_sample_ago_ms} ms` : 'n/a';
   healthGpu.textContent = gpuInfo.error ? `${gpuInfo.active ? 'ON' : 'OFF'} · ${gpuInfo.error}` : (gpuInfo.active ? 'ON' : (gpuInfo.available ? 'Ready' : 'N/A'));
   healthFps.textContent = `${renderFps.toFixed(0)} fps`;
+  if (healthRefinePlan) {
+    const plan = refinementInfo.plan || {};
+    healthRefinePlan.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} · drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0}`;
+  }
+  if (healthRefineWindows) {
+    const windows = refinementInfo.windows || [];
+    if (!Array.isArray(windows) || windows.length === 0) {
+      healthRefineWindows.textContent = 'n/a';
+    } else {
+      const spans = windows.map(w => w.span_hz || 0).filter(v => v > 0);
+      const minSpan = spans.length ? Math.min(...spans) : 0;
+      const maxSpan = spans.length ? Math.max(...spans) : 0;
+      healthRefineWindows.textContent = spans.length ? `${fmtHz(minSpan)}–${fmtHz(maxSpan)}` : 'n/a';
+    }
+  }
 }
 
 function renderBandNavigator() {
@@ -2174,6 +2199,7 @@ window.addEventListener('keydown', (ev) => {
 loadConfig();
 loadStats();
 loadGPU();
+loadRefinement();
 fetchEvents(true);
 fetchRecordings();
 loadDecoders();
@@ -2181,6 +2207,7 @@ connect();
 requestAnimationFrame(renderLoop);
 setInterval(loadStats, 1000);
 setInterval(loadGPU, 1000);
+setInterval(loadRefinement, 1500);
 setInterval(() => fetchEvents(false), 2000);
 setInterval(fetchRecordings, 5000);
 setInterval(loadSignals, 1500);
