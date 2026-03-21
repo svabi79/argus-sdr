@@ -111,6 +111,7 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 			return m.cfg, errors.New("fft_size must be a power of 2")
 		}
 		next.FFTSize = *update.FFTSize
+		next.Surveillance.AnalysisFFTSize = *update.FFTSize
 	}
 	if update.GainDb != nil {
 		next.GainDb = *update.GainDb

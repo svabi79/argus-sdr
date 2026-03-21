@@ -70,26 +70,58 @@ type DecoderConfig struct {
 	PSKCmd   string `yaml:"psk_cmd" json:"psk_cmd"`
 }
 
+type PipelineConfig struct {
+	Mode string `yaml:"mode" json:"mode"`
+}
+
+type SurveillanceConfig struct {
+	AnalysisFFTSize int    `yaml:"analysis_fft_size" json:"analysis_fft_size"`
+	FrameRate       int    `yaml:"frame_rate" json:"frame_rate"`
+	Strategy        string `yaml:"strategy" json:"strategy"`
+}
+
+type RefinementConfig struct {
+	Enabled             bool `yaml:"enabled" json:"enabled"`
+	MaxConcurrent       int  `yaml:"max_concurrent" json:"max_concurrent"`
+	MinCandidateSNRDb   float64 `yaml:"min_candidate_snr_db" json:"min_candidate_snr_db"`
+}
+
+type ResourceConfig struct {
+	PreferGPU             bool `yaml:"prefer_gpu" json:"prefer_gpu"`
+	MaxRefinementJobs     int  `yaml:"max_refinement_jobs" json:"max_refinement_jobs"`
+	MaxRecordingStreams   int  `yaml:"max_recording_streams" json:"max_recording_streams"`
+}
+
+type ProfileConfig struct {
+	Name        string `yaml:"name" json:"name"`
+	Description string `yaml:"description" json:"description"`
+}
+
 type Config struct {
-	Bands          []Band         `yaml:"bands" json:"bands"`
-	CenterHz       float64        `yaml:"center_hz" json:"center_hz"`
-	SampleRate     int            `yaml:"sample_rate" json:"sample_rate"`
-	FFTSize        int            `yaml:"fft_size" json:"fft_size"`
-	GainDb         float64        `yaml:"gain_db" json:"gain_db"`
-	TunerBwKHz     int            `yaml:"tuner_bw_khz" json:"tuner_bw_khz"`
-	UseGPUFFT      bool           `yaml:"use_gpu_fft" json:"use_gpu_fft"`
-	ClassifierMode string         `yaml:"classifier_mode" json:"classifier_mode"`
-	AGC            bool           `yaml:"agc" json:"agc"`
-	DCBlock        bool           `yaml:"dc_block" json:"dc_block"`
-	IQBalance      bool           `yaml:"iq_balance" json:"iq_balance"`
-	Detector       DetectorConfig `yaml:"detector" json:"detector"`
-	Recorder       RecorderConfig `yaml:"recorder" json:"recorder"`
-	Decoder        DecoderConfig  `yaml:"decoder" json:"decoder"`
-	WebAddr        string         `yaml:"web_addr" json:"web_addr"`
-	EventPath      string         `yaml:"event_path" json:"event_path"`
-	FrameRate      int            `yaml:"frame_rate" json:"frame_rate"`
-	WaterfallLines int            `yaml:"waterfall_lines" json:"waterfall_lines"`
-	WebRoot        string         `yaml:"web_root" json:"web_root"`
+	Bands          []Band              `yaml:"bands" json:"bands"`
+	CenterHz       float64             `yaml:"center_hz" json:"center_hz"`
+	SampleRate     int                 `yaml:"sample_rate" json:"sample_rate"`
+	FFTSize        int                 `yaml:"fft_size" json:"fft_size"`
+	GainDb         float64             `yaml:"gain_db" json:"gain_db"`
+	TunerBwKHz     int                 `yaml:"tuner_bw_khz" json:"tuner_bw_khz"`
+	UseGPUFFT      bool                `yaml:"use_gpu_fft" json:"use_gpu_fft"`
+	ClassifierMode string              `yaml:"classifier_mode" json:"classifier_mode"`
+	AGC            bool                `yaml:"agc" json:"agc"`
+	DCBlock        bool                `yaml:"dc_block" json:"dc_block"`
+	IQBalance      bool                `yaml:"iq_balance" json:"iq_balance"`
+	Pipeline       PipelineConfig      `yaml:"pipeline" json:"pipeline"`
+	Surveillance   SurveillanceConfig  `yaml:"surveillance" json:"surveillance"`
+	Refinement     RefinementConfig    `yaml:"refinement" json:"refinement"`
+	Resources      ResourceConfig      `yaml:"resources" json:"resources"`
+	Profiles       []ProfileConfig     `yaml:"profiles" json:"profiles"`
+	Detector       DetectorConfig      `yaml:"detector" json:"detector"`
+	Recorder       RecorderConfig      `yaml:"recorder" json:"recorder"`
+	Decoder        DecoderConfig       `yaml:"decoder" json:"decoder"`
+	WebAddr        string              `yaml:"web_addr" json:"web_addr"`
+	EventPath      string              `yaml:"event_path" json:"event_path"`
+	FrameRate      int                 `yaml:"frame_rate" json:"frame_rate"`
+	WaterfallLines int                 `yaml:"waterfall_lines" json:"waterfall_lines"`
+	WebRoot        string              `yaml:"web_root" json:"web_root"`
 }
 
 func Default() Config {
@@ -107,6 +139,28 @@ func Default() Config {
 		AGC:        false,
 		DCBlock:    false,
 		IQBalance:  false,
+		Pipeline: PipelineConfig{
+			Mode: "legacy",
+		},
+		Surveillance: SurveillanceConfig{
+			AnalysisFFTSize: 2048,
+			FrameRate:       15,
+			Strategy:        "single-resolution",
+		},
+		Refinement: RefinementConfig{
+			Enabled:           true,
+			MaxConcurrent:     8,
+			MinCandidateSNRDb: 0,
+		},
+		Resources: ResourceConfig{
+			PreferGPU:           true,
+			MaxRefinementJobs:   8,
+			MaxRecordingStreams: 16,
+		},
+		Profiles: []ProfileConfig{
+			{Name: "legacy", Description: "Current single-band pipeline behavior"},
+			{Name: "wideband-balanced", Description: "Prepared profile for scalable wideband surveillance"},
+		},
 		Detector: DetectorConfig{
 			ThresholdDb:     -20,
 			MinDurationMs:   250,
@@ -238,6 +292,33 @@ func applyDefaults(cfg Config) Config {
 	if cfg.Detector.ClassSwitchRatio <= 0 || cfg.Detector.ClassSwitchRatio > 1 {
 		cfg.Detector.ClassSwitchRatio = 0.6
 	}
+	if cfg.Pipeline.Mode == "" {
+		cfg.Pipeline.Mode = "legacy"
+	}
+	if cfg.Surveillance.AnalysisFFTSize <= 0 {
+		cfg.Surveillance.AnalysisFFTSize = cfg.FFTSize
+	}
+	if cfg.Surveillance.FrameRate <= 0 {
+		cfg.Surveillance.FrameRate = cfg.FrameRate
+	}
+	if cfg.Surveillance.Strategy == "" {
+		cfg.Surveillance.Strategy = "single-resolution"
+	}
+	if !cfg.Refinement.Enabled {
+		// keep explicit false if user disabled it; enable by default only when unset-like zero config
+		if cfg.Refinement.MaxConcurrent == 0 && cfg.Refinement.MinCandidateSNRDb == 0 {
+			cfg.Refinement.Enabled = true
+		}
+	}
+	if cfg.Refinement.MaxConcurrent <= 0 {
+		cfg.Refinement.MaxConcurrent = 8
+	}
+	if cfg.Resources.MaxRefinementJobs <= 0 {
+		cfg.Resources.MaxRefinementJobs = cfg.Refinement.MaxConcurrent
+	}
+	if cfg.Resources.MaxRecordingStreams <= 0 {
+		cfg.Resources.MaxRecordingStreams = 16
+	}
 	if cfg.FrameRate <= 0 {
 		cfg.FrameRate = 15
 	}
@@ -266,6 +347,11 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.FFTSize <= 0 {
 		cfg.FFTSize = 2048
+	}
+	if cfg.Surveillance.AnalysisFFTSize > 0 {
+		cfg.FFTSize = cfg.Surveillance.AnalysisFFTSize
+	} else {
+		cfg.Surveillance.AnalysisFFTSize = cfg.FFTSize
 	}
 	if cfg.TunerBwKHz <= 0 {
 		cfg.TunerBwKHz = 1536

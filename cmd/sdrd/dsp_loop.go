@@ -21,6 +21,7 @@ import (
 	"sdr-visual-suite/internal/fft/gpufft"
 	"sdr-visual-suite/internal/rds"
 	"sdr-visual-suite/internal/recorder"
+	"sdr-visual-suite/internal/pipeline"
 )
 
 func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot, extractMgr *extractionManager) {
@@ -141,6 +142,12 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			dcBlocker.Reset()
 			ticker.Reset(cfg.FrameInterval())
 		case <-ticker.C:
+			// Pipeline phases:
+			// 1) ingest IQ
+			// 2) build surveillance spectrum
+			// 3) detect coarse candidates
+			// 4) refine locally with IQ snippets + classification
+			// 5) update tracking / events / recorder / presentation
 			// Read all available IQ data — not just one FFT block.
 			// This ensures the ring buffer captures 100% of IQ for recording/demod.
 			available := cfg.FFTSize
@@ -214,31 +221,29 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 			}
 			now := time.Now()
-			finished, signals := det.Process(now, spectrum, cfg.CenterHz)
+			finished, detectedSignals := det.Process(now, spectrum, cfg.CenterHz)
+			candidates := pipeline.CandidatesFromSignals(detectedSignals, "surveillance-detector")
 			thresholds := det.LastThresholds()
 			noiseFloor := det.LastNoiseFloor()
 			var displaySignals []detector.Signal
 			if len(iq) > 0 {
-				snips, snipRates := extractSignalIQBatch(extractMgr, iq, cfg.SampleRate, cfg.CenterHz, signals)
-				for i := range signals {
-					var snip []complex64
-					if i < len(snips) {
-						snip = snips[i]
-					}
-					// Determine actual sample rate of the extracted snippet
-					snipRate := cfg.SampleRate
-					if i < len(snipRates) && snipRates[i] > 0 {
-						snipRate = snipRates[i]
-					}
-					cls := classifier.Classify(classifier.SignalInput{FirstBin: signals[i].FirstBin, LastBin: signals[i].LastBin, SNRDb: signals[i].SNRDb, CenterHz: signals[i].CenterHz, BWHz: signals[i].BWHz}, spectrum, cfg.SampleRate, cfg.FFTSize, snip, classifier.ClassifierMode(cfg.ClassifierMode))
-					signals[i].Class = cls
-					if cls != nil && snip != nil && len(snip) > 256 {
-						pll := classifier.EstimateExactFrequency(snip, snipRate, signals[i].CenterHz, cls.ModType)
-						cls.PLL = &pll
-						signals[i].PLL = &pll
-						// Upgrade WFM → WFM_STEREO if stereo pilot detected
-						if cls.ModType == classifier.ClassWFM && pll.Stereo {
-							cls.ModType = classifier.ClassWFMStereo
+				snips, snipRates := extractSignalIQBatch(extractMgr, iq, cfg.SampleRate, cfg.CenterHz, detectedSignals)
+				refined := pipeline.RefineCandidates(candidates, spectrum, cfg.SampleRate, cfg.FFTSize, snips, snipRates, classifier.ClassifierMode(cfg.ClassifierMode))
+				signals := make([]detector.Signal, 0, len(refined))
+				for i, ref := range refined {
+					sig := ref.Signal
+					signals = append(signals, sig)
+					cls := sig.Class
+					snipRate := ref.SnippetRate
+					if cls != nil {
+						pll := classifier.PLLResult{}
+						if i < len(snips) && snips[i] != nil && len(snips[i]) > 256 {
+							pll = classifier.EstimateExactFrequency(snips[i], snipRate, signals[i].CenterHz, cls.ModType)
+							cls.PLL = &pll
+							signals[i].PLL = &pll
+							if cls.ModType == classifier.ClassWFM && pll.Stereo {
+								cls.ModType = classifier.ClassWFMStereo
+							}
 						}
 						// RDS decode for WFM — async, uses ring buffer for continuous IQ
 						if (cls.ModType == classifier.ClassWFM || cls.ModType == classifier.ClassWFMStereo) && rec != nil {

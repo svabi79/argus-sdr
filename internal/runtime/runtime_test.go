@@ -49,6 +49,9 @@ func TestApplyConfigUpdate(t *testing.T) {
 	if updated.FFTSize != fftSize {
 		t.Fatalf("fft size: %v", updated.FFTSize)
 	}
+	if updated.Surveillance.AnalysisFFTSize != fftSize {
+		t.Fatalf("analysis fft size: %v", updated.Surveillance.AnalysisFFTSize)
+	}
 	if updated.Detector.ThresholdDb != threshold {
 		t.Fatalf("threshold: %v", updated.Detector.ThresholdDb)
 	}

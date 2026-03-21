@@ -15,6 +15,7 @@ import (
 	"sdr-visual-suite/internal/config"
 	"sdr-visual-suite/internal/detector"
 	"sdr-visual-suite/internal/events"
+	"sdr-visual-suite/internal/pipeline"
 	fftutil "sdr-visual-suite/internal/fft"
 	"sdr-visual-suite/internal/recorder"
 	"sdr-visual-suite/internal/runtime"
@@ -155,6 +156,15 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			return
 		}
 		_ = json.NewEncoder(w).Encode(sigSnap.get())
+	})
+	mux.HandleFunc("/api/candidates", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if sigSnap == nil {
+			_ = json.NewEncoder(w).Encode([]pipeline.Candidate{})
+			return
+		}
+		sigs := sigSnap.get()
+		_ = json.NewEncoder(w).Encode(pipeline.CandidatesFromSignals(sigs, "tracked-signal-snapshot"))
 	})
 	mux.HandleFunc("/api/decoders", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -1,17 +1,18 @@
-# SDR Visual Suite
+# SDR Wideband Suite
 
-Go-based SDRplay RSP1b live spectrum + waterfall visualizer with event tracking, classifier, and demod/recording pipeline.
+Go-based SDR analysis engine and live spectrum/waterfall UI, evolved from the original `sdr-visual-suite` into a more scalable foundation for wideband monitoring, candidate-driven refinement, classification, and demod/recording.
 
 ## Features
 - Live spectrum + waterfall web UI (WebSocket streaming)
 - Event timeline view (time vs frequency) + detail drawer
 - Live signal list + classifier insights
-- Runtime UI controls: center, span, sample rate, tuner bandwidth, FFT size, gain, AGC, DC block, IQ balance, detector settings
+- Runtime UI controls: center, span, sample rate, tuner bandwidth, analysis FFT size, gain, AGC, DC block, IQ balance, detector settings
 - Optional GPU FFT (cuFFT) + `/api/gpu`
 - IQ/audio recording + recordings list
 - Live demod endpoint + WebSocket live-listen audio
 - WFM stereo + RDS baseband
 - Mock mode for testing without hardware
+- Phase-1 wideband architecture foundation: explicit pipeline/surveillance/refinement/resources config model and candidate/refinement pipeline scaffolding
 
 ---
 
@@ -46,12 +47,32 @@ Open `http://localhost:8080`.
 ## Configuration
 Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 
-Common fields:
+### Legacy-compatible core fields
 - `center_hz`, `sample_rate`, `fft_size`, `gain_db`, `tuner_bw_khz`
 - `use_gpu_fft`, `agc`, `dc_block`, `iq_balance`
-- `detector.*` (e.g. `threshold_db`, `cfar_mode`, `cfar_guard_hz`, `cfar_train_hz`, `min_duration_ms`, `hold_ms`, ...)
-- `recorder.*` (enable IQ/audio recording, output path, ring buffer, etc.)
-- `decoder.*` (external decoder commands)
+- `detector.*`
+- `recorder.*`
+- `decoder.*`
+
+### New phase-1 pipeline fields
+- `pipeline.mode` — operating mode label (`legacy`, `wideband-balanced`, ...)
+- `surveillance.analysis_fft_size` — analysis FFT size used by the surveillance layer
+- `surveillance.frame_rate` — surveillance cadence target
+- `surveillance.strategy` — currently `single-resolution`, reserved for future multi-resolution modes
+- `refinement.enabled` — enables explicit candidate refinement stage
+- `refinement.max_concurrent` — refinement budget hint
+- `refinement.min_candidate_snr_db` — floor for future scheduling decisions
+- `resources.prefer_gpu` — GPU preference hint
+- `resources.max_refinement_jobs` — processing budget hint
+- `resources.max_recording_streams` — recording/streaming budget hint
+- `profiles[]` — named operating profiles/intent metadata
+
+In phase 1, the engine stays backward compatible, but the config model now reflects the intended separation between:
+- acquisition
+- surveillance analysis
+- local refinement
+- resource policy
+- presentation
 
 **CFAR modes:** `OFF`, `CA`, `OS`, `GOSCA`, `CASO`
 

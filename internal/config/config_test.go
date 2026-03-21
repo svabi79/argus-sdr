@@ -23,11 +23,23 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.CenterHz != 100.0e6 {
 		t.Fatalf("center hz: %v", cfg.CenterHz)
 	}
-	if cfg.FFTSize != 1024 {
+	if cfg.FFTSize != 2048 {
 		t.Fatalf("fft size: %v", cfg.FFTSize)
+	}
+	if cfg.Surveillance.AnalysisFFTSize != 2048 {
+		t.Fatalf("analysis fft size: %v", cfg.Surveillance.AnalysisFFTSize)
 	}
 	if cfg.FrameRate <= 0 {
 		t.Fatalf("frame rate default not applied")
+	}
+	if cfg.Surveillance.AnalysisFFTSize != cfg.FFTSize {
+		t.Fatalf("analysis fft size not aligned: %d vs %d", cfg.Surveillance.AnalysisFFTSize, cfg.FFTSize)
+	}
+	if cfg.Pipeline.Mode == "" {
+		t.Fatalf("pipeline mode default not applied")
+	}
+	if !cfg.Refinement.Enabled {
+		t.Fatalf("refinement default not applied")
 	}
 	if cfg.EventPath == "" {
 		t.Fatalf("event path default not applied")
