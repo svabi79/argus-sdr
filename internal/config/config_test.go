@@ -45,3 +45,20 @@ func TestLoadConfig(t *testing.T) {
 		t.Fatalf("event path default not applied")
 	}
 }
+
+func TestProfileDefaultsPresent(t *testing.T) {
+	cfg := Default()
+	if len(cfg.Profiles) < 2 {
+		t.Fatalf("expected built-in profiles")
+	}
+	found := false
+	for _, p := range cfg.Profiles {
+		if p.Name == "wideband-balanced" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing wideband-balanced profile")
+	}
+}

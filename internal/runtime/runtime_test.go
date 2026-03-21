@@ -23,6 +23,7 @@ func TestApplyConfigUpdate(t *testing.T) {
 	cfarScale := 5.5
 
 	mode := "wideband-balanced"
+	profile := "wideband-balanced"
 	survFPS := 12
 	maxRefJobs := 24
 	updated, err := mgr.ApplyConfig(ConfigUpdate{
@@ -30,7 +31,7 @@ func TestApplyConfigUpdate(t *testing.T) {
 		SampleRate: &sampleRate,
 		FFTSize:    &fftSize,
 		TunerBwKHz: &bw,
-		Pipeline:   &PipelineUpdate{Mode: &mode},
+		Pipeline:   &PipelineUpdate{Mode: &mode, Profile: &profile},
 		Surveillance: &SurveillanceUpdate{FrameRate: &survFPS},
 		Resources: &ResourcesUpdate{MaxRefinementJobs: &maxRefJobs},
 		Detector: &DetectorUpdate{

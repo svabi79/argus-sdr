@@ -39,6 +39,12 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			if update.Pipeline != nil && update.Pipeline.Profile != nil {
+				if prof, ok := pipeline.ResolveProfile(next, *update.Pipeline.Profile); ok {
+					pipeline.MergeProfile(&next, prof)
+					cfgManager.Replace(next)
+				}
+			}
 			sourceChanged := prev.CenterHz != next.CenterHz || prev.SampleRate != next.SampleRate || prev.GainDb != next.GainDb || prev.AGC != next.AGC || prev.TunerBwKHz != next.TunerBwKHz
 			if sourceChanged {
 				if err := srcMgr.ApplyConfig(next); err != nil {

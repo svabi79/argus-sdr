@@ -10,7 +10,8 @@ import (
 )
 
 type PipelineUpdate struct {
-	Mode *string `json:"mode"`
+	Mode    *string `json:"mode"`
+	Profile *string `json:"profile"`
 }
 
 type SurveillanceUpdate struct {
