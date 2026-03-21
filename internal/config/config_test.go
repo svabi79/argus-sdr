@@ -62,3 +62,13 @@ func TestProfileDefaultsPresent(t *testing.T) {
 		t.Fatalf("missing wideband-balanced profile")
 	}
 }
+
+func TestRefinementSpanDefaults(t *testing.T) {
+	cfg := Default()
+	cfg.Refinement.MinSpanHz = 20000
+	cfg.Refinement.MaxSpanHz = 10000
+	cfg = applyDefaults(cfg)
+	if cfg.Refinement.MaxSpanHz != cfg.Refinement.MinSpanHz {
+		t.Fatalf("expected max span to clamp to min when inverted: %+v", cfg.Refinement)
+	}
+}

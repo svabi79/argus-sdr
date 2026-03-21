@@ -359,6 +359,9 @@ func applyDefaults(cfg Config) Config {
 	if cfg.Refinement.MaxSpanHz < 0 {
 		cfg.Refinement.MaxSpanHz = 0
 	}
+	if cfg.Refinement.MaxSpanHz > 0 && cfg.Refinement.MinSpanHz > cfg.Refinement.MaxSpanHz {
+		cfg.Refinement.MaxSpanHz = cfg.Refinement.MinSpanHz
+	}
 	if cfg.Resources.MaxRefinementJobs <= 0 {
 		cfg.Resources.MaxRefinementJobs = cfg.Refinement.MaxConcurrent
 	}

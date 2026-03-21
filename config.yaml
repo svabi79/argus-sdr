@@ -31,6 +31,8 @@ refinement:
   enabled: true
   max_concurrent: 8
   min_candidate_snr_db: 0
+  min_span_hz: 0
+  max_span_hz: 0
 resources:
   prefer_gpu: true
   max_refinement_jobs: 8
