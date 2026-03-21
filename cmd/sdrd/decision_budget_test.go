@@ -2,19 +2,21 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"sdr-wideband-suite/internal/pipeline"
 )
 
 func TestEnforceDecisionBudgets(t *testing.T) {
 	decisions := []pipeline.SignalDecision{
-		{Candidate: pipeline.Candidate{SNRDb: 5}, ShouldRecord: true, ShouldAutoDecode: true},
-		{Candidate: pipeline.Candidate{SNRDb: 15}, ShouldRecord: true, ShouldAutoDecode: true},
-		{Candidate: pipeline.Candidate{SNRDb: 10}, ShouldRecord: true, ShouldAutoDecode: false},
+		{Candidate: pipeline.Candidate{ID: 1, SNRDb: 5}, ShouldRecord: true, ShouldAutoDecode: true},
+		{Candidate: pipeline.Candidate{ID: 2, SNRDb: 15}, ShouldRecord: true, ShouldAutoDecode: true},
+		{Candidate: pipeline.Candidate{ID: 3, SNRDb: 10}, ShouldRecord: true, ShouldAutoDecode: false},
 	}
-	recorded, decoded := enforceDecisionBudgets(decisions, 1, 1)
-	if recorded != 1 || decoded != 1 {
-		t.Fatalf("unexpected counts: record=%d decode=%d", recorded, decoded)
+	q := newDecisionQueues()
+	stats := q.Apply(decisions, 1, 1, time.Now())
+	if stats.RecordSelected != 1 || stats.DecodeSelected != 1 {
+		t.Fatalf("unexpected counts: record=%d decode=%d", stats.RecordSelected, stats.DecodeSelected)
 	}
 	if !decisions[1].ShouldRecord || !decisions[1].ShouldAutoDecode {
 		t.Fatalf("expected highest SNR decision to remain allowed")

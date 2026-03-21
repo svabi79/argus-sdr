@@ -159,6 +159,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"plan":               snap.refinementInput.Plan,
 			"windows":            snap.refinementInput.Windows,
 			"window_stats":       windowStats,
+			"queue_stats":        snap.queueStats,
 			"candidates":         len(snap.refinementInput.Candidates),
 			"scheduled":          len(snap.refinementInput.Scheduled),
 			"signals":            len(snap.refinement.Signals),
@@ -167,6 +168,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"decision_items":     compactDecisions(snap.refinement.Decisions),
 			"surveillance_level": snap.surveillance.Level,
 			"refinement_level":   snap.refinementInput.Level,
+			"presentation_level": snap.presentation,
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	})

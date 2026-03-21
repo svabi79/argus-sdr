@@ -92,6 +92,15 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				state.refinement = pipeline.RefinementResult{}
 				displaySignals = rt.det.StableSignals()
 			}
+			state.queueStats = rt.queueStats
+			state.presentation = pipeline.AnalysisLevel{
+				Name:       "presentation",
+				SampleRate: rt.cfg.SampleRate,
+				FFTSize:    rt.cfg.Surveillance.DisplayBins,
+				CenterHz:   rt.cfg.CenterHz,
+				SpanHz:     float64(rt.cfg.SampleRate),
+				Source:     "display",
+			}
 			if phaseSnap != nil {
 				phaseSnap.Set(*state)
 			}

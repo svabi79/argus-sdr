@@ -39,6 +39,8 @@ type dspRuntime struct {
 	rdsMap           map[int64]*rdsState
 	streamPhaseState map[int64]*streamExtractState
 	streamOverlap    *streamIQOverlap
+	decisionQueues   *decisionQueues
+	queueStats       decisionQueueStats
 	gotSamples       bool
 }
 
@@ -356,7 +358,8 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	}
 	maxRecord := rt.cfg.Resources.MaxRecordingStreams
 	maxDecode := rt.cfg.Resources.MaxDecodeJobs
-	enforceDecisionBudgets(decisions, maxRecord, maxDecode)
+	queueStats := rt.decisionQueues.Apply(decisions, maxRecord, maxDecode, art.now)
+	rt.queueStats = queueStats
 	summary := summarizeDecisions(decisions)
 	if rec != nil {
 		if summary.RecordEnabled > 0 {
