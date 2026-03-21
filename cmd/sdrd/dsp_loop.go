@@ -85,18 +85,18 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			cfg = upd.cfg
 			if rec != nil {
 				rec.Update(cfg.SampleRate, cfg.FFTSize, recorder.Policy{
-					Enabled:     cfg.Recorder.Enabled,
-					MinSNRDb:    cfg.Recorder.MinSNRDb,
-					MinDuration: mustParseDuration(cfg.Recorder.MinDuration, 1*time.Second),
-					MaxDuration: mustParseDuration(cfg.Recorder.MaxDuration, 300*time.Second),
-					PrerollMs:   cfg.Recorder.PrerollMs,
-					RecordIQ:    cfg.Recorder.RecordIQ,
-					RecordAudio: cfg.Recorder.RecordAudio,
-					AutoDemod:   cfg.Recorder.AutoDemod,
-					AutoDecode:  cfg.Recorder.AutoDecode,
-					MaxDiskMB:   cfg.Recorder.MaxDiskMB,
-					OutputDir:   cfg.Recorder.OutputDir,
-					ClassFilter: cfg.Recorder.ClassFilter,
+					Enabled:          cfg.Recorder.Enabled,
+					MinSNRDb:         cfg.Recorder.MinSNRDb,
+					MinDuration:      mustParseDuration(cfg.Recorder.MinDuration, 1*time.Second),
+					MaxDuration:      mustParseDuration(cfg.Recorder.MaxDuration, 300*time.Second),
+					PrerollMs:        cfg.Recorder.PrerollMs,
+					RecordIQ:         cfg.Recorder.RecordIQ,
+					RecordAudio:      cfg.Recorder.RecordAudio,
+					AutoDemod:        cfg.Recorder.AutoDemod,
+					AutoDecode:       cfg.Recorder.AutoDecode,
+					MaxDiskMB:        cfg.Recorder.MaxDiskMB,
+					OutputDir:        cfg.Recorder.OutputDir,
+					ClassFilter:      cfg.Recorder.ClassFilter,
 					RingSeconds:      cfg.Recorder.RingSeconds,
 					DeemphasisUs:     cfg.Recorder.DeemphasisUs,
 					ExtractionTaps:   cfg.Recorder.ExtractionTaps,
@@ -242,7 +242,11 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						}
 						// RDS decode for WFM — async, uses ring buffer for continuous IQ
 						if (cls.ModType == classifier.ClassWFM || cls.ModType == classifier.ClassWFMStereo) && rec != nil {
-							key := int64(math.Round(signals[i].CenterHz / 500000))
+							keyHz := pll.ExactHz
+							if keyHz == 0 {
+								keyHz = signals[i].CenterHz
+							}
+							key := int64(math.Round(keyHz / 25000.0))
 							st := rdsMap[key]
 							if st == nil {
 								st = &rdsState{}
@@ -321,7 +325,11 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				if len(rdsMap) > 0 {
 					activeIDs := make(map[int64]bool, len(signals))
 					for _, s := range signals {
-						activeIDs[int64(math.Round(s.CenterHz / 500000))] = true
+						keyHz := s.CenterHz
+						if s.PLL != nil && s.PLL.ExactHz != 0 {
+							keyHz = s.PLL.ExactHz
+						}
+						activeIDs[int64(math.Round(keyHz/25000.0))] = true
 					}
 					for id := range rdsMap {
 						if !activeIDs[id] {

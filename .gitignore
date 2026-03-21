@@ -24,6 +24,8 @@ web/old/
 web/openai/
 web/*-web.zip
 sdr-visual-suite.zip
+*.zip
+*.rar
 
 # downloaded decoder binaries
 tools/downloads/
