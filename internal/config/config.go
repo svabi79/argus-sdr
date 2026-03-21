@@ -89,6 +89,8 @@ type SurveillanceConfig struct {
 	AnalysisFFTSize int    `yaml:"analysis_fft_size" json:"analysis_fft_size"`
 	FrameRate       int    `yaml:"frame_rate" json:"frame_rate"`
 	Strategy        string `yaml:"strategy" json:"strategy"`
+	DisplayBins     int    `yaml:"display_bins" json:"display_bins"`
+	DisplayFPS      int    `yaml:"display_fps" json:"display_fps"`
 }
 
 type RefinementConfig struct {
@@ -164,6 +166,8 @@ func Default() Config {
 			AnalysisFFTSize: 2048,
 			FrameRate:       15,
 			Strategy:        "single-resolution",
+			DisplayBins:     2048,
+			DisplayFPS:      15,
 		},
 		Refinement: RefinementConfig{
 			Enabled:           true,
@@ -329,6 +333,12 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Surveillance.Strategy == "" {
 		cfg.Surveillance.Strategy = "single-resolution"
+	}
+	if cfg.Surveillance.DisplayBins <= 0 {
+		cfg.Surveillance.DisplayBins = cfg.FFTSize
+	}
+	if cfg.Surveillance.DisplayFPS <= 0 {
+		cfg.Surveillance.DisplayFPS = cfg.FrameRate
 	}
 	if !cfg.Refinement.Enabled {
 		// keep explicit false if user disabled it; enable by default only when unset-like zero config

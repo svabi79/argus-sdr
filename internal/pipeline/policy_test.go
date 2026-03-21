@@ -36,12 +36,14 @@ func TestPolicyFromConfig(t *testing.T) {
 	cfg.Pipeline.Goals.SignalPriorities = []string{"broadcast-fm", "rds"}
 	cfg.Surveillance.AnalysisFFTSize = 8192
 	cfg.Surveillance.FrameRate = 9
+	cfg.Surveillance.DisplayBins = 1200
+	cfg.Surveillance.DisplayFPS = 6
 	cfg.Refinement.Enabled = true
 	cfg.Resources.MaxRefinementJobs = 5
 	cfg.Refinement.MinCandidateSNRDb = 2.5
 	cfg.Resources.PreferGPU = true
 	p := PolicyFromConfig(cfg)
-	if p.Mode != "archive" || p.Intent != "archive-and-triage" || p.SurveillanceFFTSize != 8192 || p.SurveillanceFPS != 9 {
+	if p.Mode != "archive" || p.Intent != "archive-and-triage" || p.SurveillanceFFTSize != 8192 || p.SurveillanceFPS != 9 || p.DisplayBins != 1200 || p.DisplayFPS != 6 {
 		t.Fatalf("unexpected policy: %+v", p)
 	}
 	if p.MonitorSpanHz != 20e6 || len(p.SignalPriorities) != 2 {

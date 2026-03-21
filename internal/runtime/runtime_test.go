@@ -25,6 +25,8 @@ func TestApplyConfigUpdate(t *testing.T) {
 	mode := "wideband-balanced"
 	profile := "wideband-balanced"
 	survFPS := 12
+	displayBins := 1024
+	displayFPS := 8
 	maxRefJobs := 24
 	updated, err := mgr.ApplyConfig(ConfigUpdate{
 		CenterHz:   &center,
@@ -32,7 +34,7 @@ func TestApplyConfigUpdate(t *testing.T) {
 		FFTSize:    &fftSize,
 		TunerBwKHz: &bw,
 		Pipeline:   &PipelineUpdate{Mode: &mode, Profile: &profile},
-		Surveillance: &SurveillanceUpdate{FrameRate: &survFPS},
+		Surveillance: &SurveillanceUpdate{FrameRate: &survFPS, DisplayBins: &displayBins, DisplayFPS: &displayFPS},
 		Resources: &ResourcesUpdate{MaxRefinementJobs: &maxRefJobs},
 		Detector: &DetectorUpdate{
 			ThresholdDb:    &threshold,
@@ -91,6 +93,9 @@ func TestApplyConfigUpdate(t *testing.T) {
 	}
 	if updated.Resources.MaxRefinementJobs != maxRefJobs {
 		t.Fatalf("max refinement jobs: %v", updated.Resources.MaxRefinementJobs)
+	}
+	if updated.Surveillance.DisplayBins != displayBins || updated.Surveillance.DisplayFPS != displayFPS {
+		t.Fatalf("display settings not applied: bins=%d fps=%d", updated.Surveillance.DisplayBins, updated.Surveillance.DisplayFPS)
 	}
 }
 

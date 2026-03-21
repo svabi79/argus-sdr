@@ -65,6 +65,8 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `surveillance.analysis_fft_size` — analysis FFT size used by the surveillance layer
 - `surveillance.frame_rate` — surveillance cadence target
 - `surveillance.strategy` — currently `single-resolution`, reserved for future multi-resolution modes
+- `surveillance.display_bins` — preferred presentation density for clients/UI
+- `surveillance.display_fps` — preferred presentation cadence for clients/UI
 - `refinement.enabled` — enables explicit candidate refinement stage
 - `refinement.max_concurrent` — refinement budget hint
 - `refinement.min_candidate_snr_db` — floor for future scheduling decisions

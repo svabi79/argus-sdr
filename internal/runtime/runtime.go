@@ -18,6 +18,8 @@ type SurveillanceUpdate struct {
 	AnalysisFFTSize *int    `json:"analysis_fft_size"`
 	FrameRate       *int    `json:"frame_rate"`
 	Strategy        *string `json:"strategy"`
+	DisplayBins     *int    `json:"display_bins"`
+	DisplayFPS      *int    `json:"display_fps"`
 }
 
 type RefinementUpdate struct {
@@ -186,6 +188,20 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 		}
 		if update.Surveillance.Strategy != nil {
 			next.Surveillance.Strategy = *update.Surveillance.Strategy
+		}
+		if update.Surveillance.DisplayBins != nil {
+			v := *update.Surveillance.DisplayBins
+			if v <= 0 {
+				return m.cfg, errors.New("surveillance.display_bins must be > 0")
+			}
+			next.Surveillance.DisplayBins = v
+		}
+		if update.Surveillance.DisplayFPS != nil {
+			v := *update.Surveillance.DisplayFPS
+			if v <= 0 {
+				return m.cfg, errors.New("surveillance.display_fps must be > 0")
+			}
+			next.Surveillance.DisplayFPS = v
 		}
 	}
 	if update.Refinement != nil {

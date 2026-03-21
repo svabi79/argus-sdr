@@ -13,6 +13,8 @@ type Policy struct {
 	AutoDecodeClasses   []string `json:"auto_decode_classes,omitempty"`
 	SurveillanceFFTSize int      `json:"surveillance_fft_size"`
 	SurveillanceFPS     int      `json:"surveillance_fps"`
+	DisplayBins         int      `json:"display_bins"`
+	DisplayFPS          int      `json:"display_fps"`
 	RefinementEnabled   bool     `json:"refinement_enabled"`
 	MaxRefinementJobs   int      `json:"max_refinement_jobs"`
 	MinCandidateSNRDb   float64  `json:"min_candidate_snr_db"`
@@ -31,6 +33,8 @@ func PolicyFromConfig(cfg config.Config) Policy {
 		AutoDecodeClasses:   append([]string(nil), cfg.Pipeline.Goals.AutoDecodeClasses...),
 		SurveillanceFFTSize: cfg.Surveillance.AnalysisFFTSize,
 		SurveillanceFPS:     cfg.Surveillance.FrameRate,
+		DisplayBins:         cfg.Surveillance.DisplayBins,
+		DisplayFPS:          cfg.Surveillance.DisplayFPS,
 		RefinementEnabled:   cfg.Refinement.Enabled,
 		MaxRefinementJobs:   cfg.Resources.MaxRefinementJobs,
 		MinCandidateSNRDb:   cfg.Refinement.MinCandidateSNRDb,
