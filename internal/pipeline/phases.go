@@ -11,8 +11,17 @@ type SurveillanceResult struct {
 	Thresholds []float64            `json:"thresholds,omitempty"`
 }
 
+type RefinementInput struct {
+	Candidates []Candidate          `json:"candidates,omitempty"`
+	Scheduled  []ScheduledCandidate `json:"scheduled,omitempty"`
+	SampleRate int                  `json:"sample_rate"`
+	FFTSize    int                  `json:"fft_size"`
+	CenterHz   float64              `json:"center_hz"`
+	Source     string               `json:"source,omitempty"`
+}
+
 type RefinementResult struct {
-	Signals    []detector.Signal   `json:"signals"`
-	Decisions  []SignalDecision    `json:"decisions,omitempty"`
-	Candidates []Candidate         `json:"candidates,omitempty"`
+	Signals    []detector.Signal `json:"signals"`
+	Decisions  []SignalDecision  `json:"decisions,omitempty"`
+	Candidates []Candidate       `json:"candidates,omitempty"`
 }

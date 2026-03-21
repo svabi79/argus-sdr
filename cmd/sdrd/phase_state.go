@@ -3,6 +3,7 @@ package main
 import "sdr-wideband-suite/internal/pipeline"
 
 type phaseState struct {
-	surveillance pipeline.SurveillanceResult
-	refinement   pipeline.RefinementResult
+	surveillance    pipeline.SurveillanceResult
+	refinementInput pipeline.RefinementInput
+	refinement      pipeline.RefinementResult
 }

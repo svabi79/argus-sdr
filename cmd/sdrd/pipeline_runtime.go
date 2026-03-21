@@ -43,14 +43,14 @@ type dspRuntime struct {
 }
 
 type spectrumArtifacts struct {
-	allIQ         []complex64
-	iq            []complex64
-	spectrum      []float64
-	finished      []detector.Event
-	detected      []detector.Signal
-	thresholds    []float64
-	noiseFloor    float64
-	now           time.Time
+	allIQ      []complex64
+	iq         []complex64
+	spectrum   []float64
+	finished   []detector.Event
+	detected   []detector.Signal
+	thresholds []float64
+	noiseFloor float64
+	now        time.Time
 }
 
 func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, gpuState *gpuStatus) *dspRuntime {
@@ -229,14 +229,25 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	}
 }
 
-func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, scheduled []pipeline.ScheduledCandidate, extractMgr *extractionManager, rec *recorder.Manager) pipeline.RefinementResult {
+func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pipeline.RefinementInput {
+	return pipeline.RefinementInput{
+		Candidates: append([]pipeline.Candidate(nil), surv.Candidates...),
+		Scheduled:  append([]pipeline.ScheduledCandidate(nil), surv.Scheduled...),
+		SampleRate: rt.cfg.SampleRate,
+		FFTSize:    rt.cfg.FFTSize,
+		CenterHz:   rt.cfg.CenterHz,
+		Source:     "surveillance-detector",
+	}
+}
+
+func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.RefinementInput, extractMgr *extractionManager, rec *recorder.Manager) pipeline.RefinementResult {
 	if art == nil || len(art.iq) == 0 {
 		return pipeline.RefinementResult{}
 	}
 	policy := pipeline.PolicyFromConfig(rt.cfg)
-	selectedCandidates := make([]pipeline.Candidate, 0, len(scheduled))
-	selectedSignals := make([]detector.Signal, 0, len(scheduled))
-	for _, sc := range scheduled {
+	selectedCandidates := make([]pipeline.Candidate, 0, len(input.Scheduled))
+	selectedSignals := make([]detector.Signal, 0, len(input.Scheduled))
+	for _, sc := range input.Scheduled {
 		selectedCandidates = append(selectedCandidates, sc.Candidate)
 		selectedSignals = append(selectedSignals, detector.Signal{
 			ID:       sc.Candidate.ID,

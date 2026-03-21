@@ -57,12 +57,13 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				rt.gotSamples = true
 			}
 			state.surveillance = rt.buildSurveillanceResult(art)
+			state.refinementInput = rt.buildRefinementInput(state.surveillance)
 			finished := state.surveillance.Finished
 			thresholds := state.surveillance.Thresholds
 			noiseFloor := state.surveillance.NoiseFloor
 			var displaySignals []detector.Signal
 			if len(art.iq) > 0 {
-				state.refinement = rt.refineSignals(art, state.surveillance.Scheduled, extractMgr, rec)
+				state.refinement = rt.refineSignals(art, state.refinementInput, extractMgr, rec)
 				displaySignals = state.refinement.Signals
 				if rec != nil && len(displaySignals) > 0 && len(art.allIQ) > 0 {
 					aqCfg := extractionConfig{firTaps: rt.cfg.Recorder.ExtractionTaps, bwMult: rt.cfg.Recorder.ExtractionBwMult}
