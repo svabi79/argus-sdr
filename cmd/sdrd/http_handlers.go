@@ -154,13 +154,15 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 	mux.HandleFunc("/api/refinement", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		snap := phaseSnap.Snapshot()
+		windowStats := buildWindowStats(snap.refinementInput.Windows)
 		out := map[string]any{
-			"plan":       snap.refinementInput.Plan,
-			"windows":    snap.refinementInput.Windows,
-			"candidates": len(snap.refinementInput.Candidates),
-			"scheduled":  len(snap.refinementInput.Scheduled),
-			"signals":    len(snap.refinement.Signals),
-			"decisions":  len(snap.refinement.Decisions),
+			"plan":         snap.refinementInput.Plan,
+			"windows":      snap.refinementInput.Windows,
+			"window_stats": windowStats,
+			"candidates":   len(snap.refinementInput.Candidates),
+			"scheduled":    len(snap.refinementInput.Scheduled),
+			"signals":      len(snap.refinement.Signals),
+			"decisions":    len(snap.refinement.Decisions),
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	})
