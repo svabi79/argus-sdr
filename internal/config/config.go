@@ -107,6 +107,7 @@ type ResourceConfig struct {
 	MaxRefinementJobs   int  `yaml:"max_refinement_jobs" json:"max_refinement_jobs"`
 	MaxRecordingStreams int  `yaml:"max_recording_streams" json:"max_recording_streams"`
 	MaxDecodeJobs       int  `yaml:"max_decode_jobs" json:"max_decode_jobs"`
+	DecisionHoldMs      int  `yaml:"decision_hold_ms" json:"decision_hold_ms"`
 }
 
 type ProfileConfig struct {
@@ -186,6 +187,7 @@ func Default() Config {
 			MaxRefinementJobs:   8,
 			MaxRecordingStreams: 16,
 			MaxDecodeJobs:       16,
+			DecisionHoldMs:      2000,
 		},
 		Profiles: []ProfileConfig{
 			{Name: "legacy", Description: "Current single-band pipeline behavior", Pipeline: &PipelineConfig{Mode: "legacy", Goals: PipelineGoalConfig{Intent: "general-monitoring"}}},
@@ -374,6 +376,12 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Resources.MaxRecordingStreams <= 0 {
 		cfg.Resources.MaxRecordingStreams = 16
+	}
+	if cfg.Resources.DecisionHoldMs < 0 {
+		cfg.Resources.DecisionHoldMs = 0
+	}
+	if cfg.Resources.DecisionHoldMs == 0 {
+		cfg.Resources.DecisionHoldMs = 2000
 	}
 	if cfg.FrameRate <= 0 {
 		cfg.FrameRate = 15

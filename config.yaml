@@ -70,6 +70,7 @@ resources:
   max_refinement_jobs: 8
   max_recording_streams: 16
   max_decode_jobs: 16
+  decision_hold_ms: 2000
 detector:
   threshold_db: -20
   min_duration_ms: 250

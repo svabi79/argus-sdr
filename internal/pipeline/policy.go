@@ -24,6 +24,7 @@ type Policy struct {
 	RefinementAutoSpan      bool     `json:"refinement_auto_span"`
 	PreferGPU               bool     `json:"prefer_gpu"`
 	MaxDecodeJobs           int      `json:"max_decode_jobs"`
+	DecisionHoldMs          int      `json:"decision_hold_ms"`
 }
 
 func PolicyFromConfig(cfg config.Config) Policy {
@@ -49,6 +50,7 @@ func PolicyFromConfig(cfg config.Config) Policy {
 		RefinementAutoSpan:      config.BoolValue(cfg.Refinement.AutoSpan, true),
 		PreferGPU:               cfg.Resources.PreferGPU,
 		MaxDecodeJobs:           cfg.Resources.MaxDecodeJobs,
+		DecisionHoldMs:          cfg.Resources.DecisionHoldMs,
 	}
 }
 

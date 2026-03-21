@@ -12,6 +12,8 @@ type decisionQueueStats struct {
 	DecodeQueued   int     `json:"decode_queued"`
 	RecordSelected int     `json:"record_selected"`
 	DecodeSelected int     `json:"decode_selected"`
+	RecordActive   int     `json:"record_active"`
+	DecodeActive   int     `json:"decode_active"`
 	RecordOldestS  float64 `json:"record_oldest_sec"`
 	DecodeOldestS  float64 `json:"decode_oldest_sec"`
 }
@@ -24,15 +26,22 @@ type queuedDecision struct {
 }
 
 type decisionQueues struct {
-	record map[int64]*queuedDecision
-	decode map[int64]*queuedDecision
+	record     map[int64]*queuedDecision
+	decode     map[int64]*queuedDecision
+	recordHold map[int64]time.Time
+	decodeHold map[int64]time.Time
 }
 
 func newDecisionQueues() *decisionQueues {
-	return &decisionQueues{record: map[int64]*queuedDecision{}, decode: map[int64]*queuedDecision{}}
+	return &decisionQueues{
+		record:     map[int64]*queuedDecision{},
+		decode:     map[int64]*queuedDecision{},
+		recordHold: map[int64]time.Time{},
+		decodeHold: map[int64]time.Time{},
+	}
 }
 
-func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord int, maxDecode int, now time.Time) decisionQueueStats {
+func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord int, maxDecode int, hold time.Duration, now time.Time) decisionQueueStats {
 	if dq == nil {
 		return decisionQueueStats{}
 	}
@@ -75,14 +84,19 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord i
 		}
 	}
 
-	recSelected := selectQueued(dq.record, maxRecord, now)
-	decSelected := selectQueued(dq.decode, maxDecode, now)
+	purgeExpired(dq.recordHold, now)
+	purgeExpired(dq.decodeHold, now)
+
+	recSelected := selectQueued(dq.record, dq.recordHold, maxRecord, hold, now)
+	decSelected := selectQueued(dq.decode, dq.decodeHold, maxDecode, hold, now)
 
 	stats := decisionQueueStats{
 		RecordQueued:   len(dq.record),
 		DecodeQueued:   len(dq.decode),
 		RecordSelected: len(recSelected),
 		DecodeSelected: len(decSelected),
+		RecordActive:   len(dq.recordHold),
+		DecodeActive:   len(dq.decodeHold),
 		RecordOldestS:  oldestAge(dq.record, now),
 		DecodeOldestS:  oldestAge(dq.decode, now),
 	}
@@ -107,7 +121,7 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, maxRecord i
 	return stats
 }
 
-func selectQueued(queue map[int64]*queuedDecision, max int, now time.Time) map[int64]struct{} {
+func selectQueued(queue map[int64]*queuedDecision, hold map[int64]time.Time, max int, holdDur time.Duration, now time.Time) map[int64]struct{} {
 	selected := map[int64]struct{}{}
 	if len(queue) == 0 {
 		return selected
@@ -132,10 +146,40 @@ func selectQueued(queue map[int64]*queuedDecision, max int, now time.Time) map[i
 	if limit <= 0 || limit > len(scoredList) {
 		limit = len(scoredList)
 	}
-	for i := 0; i < limit; i++ {
-		selected[scoredList[i].id] = struct{}{}
+	if len(hold) > 0 && len(hold) > limit {
+		limit = len(hold)
+		if limit > len(scoredList) {
+			limit = len(scoredList)
+		}
+	}
+	for id := range hold {
+		if _, ok := queue[id]; ok {
+			selected[id] = struct{}{}
+		}
+	}
+	for _, s := range scoredList {
+		if len(selected) >= limit {
+			break
+		}
+		if _, ok := selected[s.id]; ok {
+			continue
+		}
+		selected[s.id] = struct{}{}
+	}
+	if holdDur > 0 {
+		for id := range selected {
+			hold[id] = now.Add(holdDur)
+		}
 	}
 	return selected
+}
+
+func purgeExpired(hold map[int64]time.Time, now time.Time) {
+	for id, until := range hold {
+		if now.After(until) {
+			delete(hold, id)
+		}
+	}
 }
 
 func oldestAge(queue map[int64]*queuedDecision, now time.Time) float64 {

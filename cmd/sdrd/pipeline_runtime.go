@@ -368,7 +368,8 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	}
 	maxRecord := rt.cfg.Resources.MaxRecordingStreams
 	maxDecode := rt.cfg.Resources.MaxDecodeJobs
-	queueStats := rt.decisionQueues.Apply(decisions, maxRecord, maxDecode, art.now)
+	hold := time.Duration(rt.cfg.Resources.DecisionHoldMs) * time.Millisecond
+	queueStats := rt.decisionQueues.Apply(decisions, maxRecord, maxDecode, hold, art.now)
 	rt.queueStats = queueStats
 	summary := summarizeDecisions(decisions)
 	if rec != nil {
