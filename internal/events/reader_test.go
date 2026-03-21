@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"sdr-visual-suite/internal/detector"
+	"sdr-wideband-suite/internal/detector"
 )
 
 func TestReadRecent(t *testing.T) {

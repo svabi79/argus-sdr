@@ -9,7 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"sdr-visual-suite/internal/recorder"
+	"sdr-wideband-suite/internal/recorder"
 )
 
 func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {

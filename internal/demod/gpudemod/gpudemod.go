@@ -74,8 +74,8 @@ import (
 	"math"
 	"unsafe"
 
-	"sdr-visual-suite/internal/demod"
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/demod"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 type DemodType int

@@ -5,7 +5,7 @@ package gpudemod
 import (
 	"testing"
 
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 func TestValidateFreqShiftRejectsMismatchedLength(t *testing.T) {

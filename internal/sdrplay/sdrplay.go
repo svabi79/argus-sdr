@@ -77,7 +77,7 @@ import (
 	"time"
 	"unsafe"
 
-	"sdr-visual-suite/internal/sdr"
+	"sdr-wideband-suite/internal/sdr"
 )
 
 type Source struct {

@@ -12,7 +12,7 @@ import (
 	"math"
 	"unsafe"
 
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 type slotBuffers struct {

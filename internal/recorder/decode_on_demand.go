@@ -3,7 +3,7 @@ package recorder
 import (
 	"errors"
 
-	"sdr-visual-suite/internal/decoder"
+	"sdr-wideband-suite/internal/decoder"
 )
 
 func DecodeOnDemand(cmd string, iqPath string, sampleRate int, audioPath string) (decoder.Result, error) {

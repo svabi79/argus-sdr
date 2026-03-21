@@ -5,9 +5,9 @@ import (
 	"log"
 	"path/filepath"
 
-	"sdr-visual-suite/internal/classifier"
-	"sdr-visual-suite/internal/demod"
-	"sdr-visual-suite/internal/detector"
+	"sdr-wideband-suite/internal/classifier"
+	"sdr-wideband-suite/internal/demod"
+	"sdr-wideband-suite/internal/detector"
 )
 
 func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, files map[string]any) error {

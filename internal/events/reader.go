@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"sdr-visual-suite/internal/detector"
+	"sdr-wideband-suite/internal/detector"
 )
 
 const (

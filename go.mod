@@ -1,4 +1,4 @@
-module sdr-visual-suite
+module sdr-wideband-suite
 
 go 1.22
 

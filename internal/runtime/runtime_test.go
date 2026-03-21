@@ -3,7 +3,7 @@ package runtime
 import (
 	"testing"
 
-	"sdr-visual-suite/internal/config"
+	"sdr-wideband-suite/internal/config"
 )
 
 func TestApplyConfigUpdate(t *testing.T) {

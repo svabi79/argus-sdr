@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"sdr-visual-suite/internal/classifier"
-	"sdr-visual-suite/internal/demod"
-	"sdr-visual-suite/internal/detector"
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/classifier"
+	"sdr-wideband-suite/internal/demod"
+	"sdr-wideband-suite/internal/detector"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 // ---------------------------------------------------------------------------

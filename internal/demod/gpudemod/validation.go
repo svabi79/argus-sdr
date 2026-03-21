@@ -5,7 +5,7 @@ package gpudemod
 import (
 	"math/cmplx"
 
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 // ValidateFreqShift compares a candidate shifted IQ stream against the CPU DSP

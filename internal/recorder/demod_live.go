@@ -7,7 +7,7 @@ import (
 	"math"
 	"time"
 
-	"sdr-visual-suite/internal/demod"
+	"sdr-wideband-suite/internal/demod"
 )
 
 // DemodLive demodulates a recent window and returns WAV bytes.

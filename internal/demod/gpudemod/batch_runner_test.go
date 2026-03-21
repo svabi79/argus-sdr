@@ -5,7 +5,7 @@ import (
 	"math/cmplx"
 	"testing"
 
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 func TestMixedBandwidthBatch(t *testing.T) {

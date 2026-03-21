@@ -5,9 +5,9 @@ import (
 	"sort"
 	"time"
 
-	"sdr-visual-suite/internal/cfar"
-	"sdr-visual-suite/internal/classifier"
-	"sdr-visual-suite/internal/config"
+	"sdr-wideband-suite/internal/cfar"
+	"sdr-wideband-suite/internal/classifier"
+	"sdr-wideband-suite/internal/config"
 )
 
 type Event struct {

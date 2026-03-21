@@ -5,7 +5,7 @@ package gpudemod
 import (
 	"math/cmplx"
 
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 func ValidateFIR(iq []complex64, taps []float32, filtered []complex64, tol float64) bool {

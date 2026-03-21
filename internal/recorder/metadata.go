@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"sdr-visual-suite/internal/classifier"
-	"sdr-visual-suite/internal/detector"
+	"sdr-wideband-suite/internal/classifier"
+	"sdr-wideband-suite/internal/detector"
 )
 
 type Meta struct {

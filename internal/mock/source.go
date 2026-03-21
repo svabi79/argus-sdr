@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"sdr-visual-suite/internal/sdr"
+	"sdr-wideband-suite/internal/sdr"
 )
 
 type Source struct {

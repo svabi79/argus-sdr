@@ -3,8 +3,8 @@ package recorder
 import (
 	"math"
 
-	"sdr-visual-suite/internal/demod"
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/demod"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 func demodAudioCPU(d demod.Demodulator, iq []complex64, sampleRate int, offset float64, bw float64) ([]float32, int) {

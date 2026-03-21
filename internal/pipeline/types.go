@@ -1,8 +1,8 @@
 package pipeline
 
 import (
-	"sdr-visual-suite/internal/classifier"
-	"sdr-visual-suite/internal/detector"
+	"sdr-wideband-suite/internal/classifier"
+	"sdr-wideband-suite/internal/detector"
 )
 
 // Candidate is the coarse output of the surveillance detector.

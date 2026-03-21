@@ -13,15 +13,15 @@ import (
 	"syscall"
 	"time"
 
-	"sdr-visual-suite/internal/config"
-	"sdr-visual-suite/internal/detector"
-	fftutil "sdr-visual-suite/internal/fft"
-	"sdr-visual-suite/internal/fft/gpufft"
-	"sdr-visual-suite/internal/mock"
-	"sdr-visual-suite/internal/recorder"
-	"sdr-visual-suite/internal/runtime"
-	"sdr-visual-suite/internal/sdr"
-	"sdr-visual-suite/internal/sdrplay"
+	"sdr-wideband-suite/internal/config"
+	"sdr-wideband-suite/internal/detector"
+	fftutil "sdr-wideband-suite/internal/fft"
+	"sdr-wideband-suite/internal/fft/gpufft"
+	"sdr-wideband-suite/internal/mock"
+	"sdr-wideband-suite/internal/recorder"
+	"sdr-wideband-suite/internal/runtime"
+	"sdr-wideband-suite/internal/sdr"
+	"sdr-wideband-suite/internal/sdrplay"
 )
 
 func main() {

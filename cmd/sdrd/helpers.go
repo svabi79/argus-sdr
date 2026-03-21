@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"sdr-visual-suite/internal/config"
-	"sdr-visual-suite/internal/demod/gpudemod"
-	"sdr-visual-suite/internal/detector"
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/config"
+	"sdr-wideband-suite/internal/demod/gpudemod"
+	"sdr-wideband-suite/internal/detector"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 func mustParseDuration(raw string, fallback time.Duration) time.Duration {

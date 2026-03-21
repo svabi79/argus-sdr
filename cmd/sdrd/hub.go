@@ -7,7 +7,7 @@ import (
 	"math"
 	"time"
 
-	"sdr-visual-suite/internal/detector"
+	"sdr-wideband-suite/internal/detector"
 )
 
 func (s *signalSnapshot) set(sig []detector.Signal) {

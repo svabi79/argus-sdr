@@ -3,7 +3,7 @@ package recorder
 import (
 	"log"
 
-	"sdr-visual-suite/internal/demod/gpudemod"
+	"sdr-wideband-suite/internal/demod/gpudemod"
 )
 
 func tryGPUAudio(gpu *gpudemod.Engine, label string, iq []complex64, offset float64, bw float64, gpuMode gpudemod.DemodType) ([]float32, int, bool) {

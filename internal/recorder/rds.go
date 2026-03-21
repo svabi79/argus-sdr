@@ -1,6 +1,6 @@
 package recorder
 
-import "sdr-visual-suite/internal/rds"
+import "sdr-wideband-suite/internal/rds"
 
 type rdsdecoder struct{ rds.Decoder }
 

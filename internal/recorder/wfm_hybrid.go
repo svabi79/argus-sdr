@@ -3,8 +3,8 @@ package recorder
 import (
 	"log"
 
-	"sdr-visual-suite/internal/demod"
-	"sdr-visual-suite/internal/demod/gpudemod"
+	"sdr-wideband-suite/internal/demod"
+	"sdr-wideband-suite/internal/demod/gpudemod"
 )
 
 type wfmHybridResult struct {

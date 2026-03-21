@@ -3,7 +3,7 @@ package demod
 import (
 	"math"
 
-	"sdr-visual-suite/internal/dsp"
+	"sdr-wideband-suite/internal/dsp"
 )
 
 type NFM struct{}

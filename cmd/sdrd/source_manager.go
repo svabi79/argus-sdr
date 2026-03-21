@@ -1,8 +1,8 @@
 package main
 
 import (
-	"sdr-visual-suite/internal/config"
-	"sdr-visual-suite/internal/sdr"
+	"sdr-wideband-suite/internal/config"
+	"sdr-wideband-suite/internal/sdr"
 )
 
 func (m *sourceManager) Restart(cfg config.Config) error {

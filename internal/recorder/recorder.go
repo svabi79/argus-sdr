@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"sdr-visual-suite/internal/demod/gpudemod"
-	"sdr-visual-suite/internal/detector"
+	"sdr-wideband-suite/internal/demod/gpudemod"
+	"sdr-wideband-suite/internal/detector"
 )
 
 type Policy struct {

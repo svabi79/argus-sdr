@@ -1,6 +1,6 @@
 package recorder
 
-import "sdr-visual-suite/internal/demod/gpudemod"
+import "sdr-wideband-suite/internal/demod/gpudemod"
 
 func gpuModeFor(name string) (gpudemod.DemodType, bool) {
 	switch name {

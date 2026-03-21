@@ -12,13 +12,13 @@ import (
 	"sync"
 	"time"
 
-	"sdr-visual-suite/internal/config"
-	"sdr-visual-suite/internal/detector"
-	"sdr-visual-suite/internal/events"
-	"sdr-visual-suite/internal/pipeline"
-	fftutil "sdr-visual-suite/internal/fft"
-	"sdr-visual-suite/internal/recorder"
-	"sdr-visual-suite/internal/runtime"
+	"sdr-wideband-suite/internal/config"
+	"sdr-wideband-suite/internal/detector"
+	"sdr-wideband-suite/internal/events"
+	"sdr-wideband-suite/internal/pipeline"
+	fftutil "sdr-wideband-suite/internal/fft"
+	"sdr-wideband-suite/internal/recorder"
+	"sdr-wideband-suite/internal/runtime"
 )
 
 func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime.Manager, srcMgr *sourceManager, dspUpdates chan dspUpdate, gpuState *gpuStatus, recMgr *recorder.Manager, sigSnap *signalSnapshot, eventMu *sync.RWMutex) {

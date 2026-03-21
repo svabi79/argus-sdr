@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"sdr-visual-suite/internal/config"
+	"sdr-wideband-suite/internal/config"
 )
 
 type ConfigUpdate struct {

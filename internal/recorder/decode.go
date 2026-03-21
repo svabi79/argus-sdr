@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 
-	"sdr-visual-suite/internal/decoder"
+	"sdr-wideband-suite/internal/decoder"
 )
 
 func (m *Manager) runDecodeIfConfigured(mod string, iqPath string, sampleRate int, files map[string]any, dir string) {

@@ -1,8 +1,8 @@
 package pipeline
 
 import (
-	"sdr-visual-suite/internal/classifier"
-	"sdr-visual-suite/internal/detector"
+	"sdr-wideband-suite/internal/classifier"
+	"sdr-wideband-suite/internal/detector"
 )
 
 // RefineCandidates upgrades coarse detector candidates into refined signals

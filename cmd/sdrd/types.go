@@ -6,10 +6,10 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"sdr-visual-suite/internal/config"
-	"sdr-visual-suite/internal/demod/gpudemod"
-	"sdr-visual-suite/internal/detector"
-	"sdr-visual-suite/internal/sdr"
+	"sdr-wideband-suite/internal/config"
+	"sdr-wideband-suite/internal/demod/gpudemod"
+	"sdr-wideband-suite/internal/detector"
+	"sdr-wideband-suite/internal/sdr"
 )
 
 type SpectrumDebug struct {

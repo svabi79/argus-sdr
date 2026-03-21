@@ -12,16 +12,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"sdr-visual-suite/internal/classifier"
-	"sdr-visual-suite/internal/config"
-	"sdr-visual-suite/internal/demod"
-	"sdr-visual-suite/internal/detector"
-	"sdr-visual-suite/internal/dsp"
-	fftutil "sdr-visual-suite/internal/fft"
-	"sdr-visual-suite/internal/fft/gpufft"
-	"sdr-visual-suite/internal/rds"
-	"sdr-visual-suite/internal/recorder"
-	"sdr-visual-suite/internal/pipeline"
+	"sdr-wideband-suite/internal/classifier"
+	"sdr-wideband-suite/internal/config"
+	"sdr-wideband-suite/internal/demod"
+	"sdr-wideband-suite/internal/detector"
+	"sdr-wideband-suite/internal/dsp"
+	fftutil "sdr-wideband-suite/internal/fft"
+	"sdr-wideband-suite/internal/fft/gpufft"
+	"sdr-wideband-suite/internal/rds"
+	"sdr-wideband-suite/internal/recorder"
+	"sdr-wideband-suite/internal/pipeline"
 )
 
 func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot, extractMgr *extractionManager) {
