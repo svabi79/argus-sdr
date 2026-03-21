@@ -71,6 +71,7 @@ const resMaxRecord = qs('resMaxRecord');
 const resMaxDecode = qs('resMaxDecode');
 
 const signalList = qs('signalList');
+const signalDecisionSummary = qs('signalDecisionSummary');
 const eventList = qs('eventList');
 const recordingList = qs('recordingList');
 const signalCountBadge = qs('signalCountBadge');
@@ -760,6 +761,7 @@ async function loadRefinement() {
     items.forEach(item => {
       if (item && item.id != null) decisionIndex.set(String(item.id), item);
     });
+    updateSignalDecisionSummary(window._selectedSignal?.id);
   } catch {}
 }
 
@@ -1349,6 +1351,22 @@ function renderDetailSpectrogram() {
 
 let _lastEventListKey = '';
 
+function updateSignalDecisionSummary(id) {
+  if (!signalDecisionSummary) return;
+  if (!id) {
+    signalDecisionSummary.textContent = 'Decision: -';
+    return;
+  }
+  const dec = decisionIndex.get(String(id));
+  if (!dec) {
+    signalDecisionSummary.textContent = 'Decision: -';
+    return;
+  }
+  const flags = `${dec.record ? 'REC' : ''}${dec.decode ? (dec.record ? '+DEC' : 'DEC') : ''}` || 'none';
+  const reason = dec.reason ? ` · ${dec.reason}` : '';
+  signalDecisionSummary.textContent = `Decision: ${flags}${reason}`;
+}
+
 function _createSignalItem(s) {
   const btn = document.createElement('button');
   btn.className = 'list-item signal-item';
@@ -1487,6 +1505,8 @@ function renderLists() {
       `).join('');
     }
   }
+
+  updateSignalDecisionSummary(window._selectedSignal?.id);
 }
 
 function normalizeEvent(ev) {
@@ -2023,6 +2043,10 @@ if (resMaxDecode) resMaxDecode.addEventListener('change', () => {
   const v = parseInt(resMaxDecode.value || '0', 10);
   queueConfigUpdate({ resources: { max_decode_jobs: v } });
 });
+if (resDecisionHold) resDecisionHold.addEventListener('change', () => {
+  const v = parseInt(resDecisionHold.value || '0', 10);
+  queueConfigUpdate({ resources: { decision_hold_ms: v } });
+});
 
 avgSelect.addEventListener('change', () => {
   avgAlpha = parseFloat(avgSelect.value) || 0;
@@ -2141,10 +2165,12 @@ signalList.addEventListener('click', (ev) => {
   target.classList.add('active');
   // Store selected signal data for Live Listen button
   window._selectedSignal = {
+    id: target.dataset.id || null,
     freq: parseFloat(target.dataset.center),
     bw: parseFloat(target.dataset.bw || '12000'),
     mode: target.dataset.class || ''
   };
+  updateSignalDecisionSummary(window._selectedSignal.id);
 });
 
 if (liveListenBtn) {

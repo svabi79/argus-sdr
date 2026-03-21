@@ -246,6 +246,7 @@
                 <label class="field"><span>Max Refinement</span><input id="resMaxRefine" type="number" step="1" min="0" /></label>
                 <label class="field"><span>Max Record</span><input id="resMaxRecord" type="number" step="1" min="0" /></label>
                 <label class="field"><span>Max Decode</span><input id="resMaxDecode" type="number" step="1" min="0" /></label>
+                <label class="field"><span>Decision Hold (ms)</span><input id="resDecisionHold" type="number" step="250" min="0" /></label>
               </div>
               <div class="panel-sub">Budgets applied to refinement selection, recording, and decode decisions.</div>
             </div>
@@ -270,6 +271,7 @@
           <section class="tab-panel" data-panel="signals">
             <div class="list-head"><span class="grp-title">Detected carriers</span><span class="count-pill" id="signalCountBadge">0 live</span></div>
             <div class="signal-list" id="signalList"><div class="empty-state">No live signals yet.</div></div>
+            <div class="panel-sub" id="signalDecisionSummary">Decision: -</div>
             <div class="field-pair">
               <label class="field"><span>Listen sec</span><input id="listenSeconds" type="number" min="1" max="10" step="1" value="2" /></label>
               <label class="field"><span>Listen mode</span>

@@ -80,6 +80,7 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `resources.max_refinement_jobs` — processing budget hint
 - `resources.max_recording_streams` — recording/streaming budget hint
 - `resources.max_decode_jobs` — decode budget hint
+- `resources.decision_hold_ms` — hold time for queue slots before churn
 - `profiles[]` — named operating profiles/intent metadata
 
 In phase 1, the engine stays backward compatible, but the config model now reflects the intended separation between:
