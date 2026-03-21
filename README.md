@@ -1,19 +1,39 @@
 # SDR Visual Suite
 
-Go-based SDRplay RSP1b live spectrum + waterfall visualizer with an event recorder, classifier, and demod/recording pipeline.
+Go-based SDRplay RSP1b live spectrum + waterfall visualizer with event tracking, classifier, and demod/recording pipeline.
 
 ## Features
 - Live spectrum + waterfall web UI (WebSocket streaming)
-- Event timeline view (time vs frequency) with detail drawer
-- Event JSONL output (`data/events.jsonl`)
-- Runtime UI controls for center frequency, span, sample rate, tuner bandwidth, FFT size, gain, AGC, DC block, IQ balance, detector threshold
-- Optional GPU FFT (cuFFT) with toggle + `/api/gpu`
+- Event timeline view (time vs frequency) + detail drawer
+- Live signal list + classifier insights
+- Runtime UI controls: center, span, sample rate, tuner bandwidth, FFT size, gain, AGC, DC block, IQ balance, detector settings
+- Optional GPU FFT (cuFFT) + `/api/gpu`
 - IQ/audio recording + recordings list
-- Live demod endpoint
+- Live demod endpoint + WebSocket live-listen audio
 - WFM stereo + RDS baseband
 - Mock mode for testing without hardware
 
-## Quick Start (Mock)
+---
+
+## Requirements
+**Core**
+- Go **1.22** (see `go.mod`)
+
+**Optional (real device)**
+- SDRplay API (`sdrplay_api.h` + library)
+
+**Optional (GPU)**
+- CUDA toolkit (cuFFT)
+- `nvcc` for kernel build (Linux) or `build-gpudemod-dll.ps1` (Windows)
+
+**Windows build prerequisites (real device + GPU)**
+- MSYS2 MinGW64 (`C:\msys64\mingw64\bin\gcc.exe` / `g++.exe`) for CGO
+- SDRplay API installed (default path in scripts)
+- CUDA toolkit (default paths in scripts)
+
+---
+
+## Quick Start (Mock Mode)
 ```bash
 # From repo root
 
@@ -21,10 +41,30 @@ go run ./cmd/sdrd --mock
 ```
 Open `http://localhost:8080`.
 
-## SDRplay Build/Run (Real Device)
-This project uses the SDRplay API via cgo (`sdrplay_api.h`). Ensure the SDRplay API is installed.
+---
 
-### Windows
+## Configuration
+Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
+
+Common fields:
+- `center_hz`, `sample_rate`, `fft_size`, `gain_db`, `tuner_bw_khz`
+- `use_gpu_fft`, `agc`, `dc_block`, `iq_balance`
+- `detector.*` (e.g. `threshold_db`, `cfar_mode`, `cfar_guard_hz`, `cfar_train_hz`, `min_duration_ms`, `hold_ms`, ...)
+- `recorder.*` (enable IQ/audio recording, output path, ring buffer, etc.)
+- `decoder.*` (external decoder commands)
+
+**CFAR modes:** `OFF`, `CA`, `OS`, `GOSCA`, `CASO`
+
+---
+
+## Build & Run (Windows)
+### Mock / No SDRplay
+```powershell
+go build ./cmd/sdrd
+.\sdrd.exe --mock
+```
+
+### SDRplay (Real Device)
 ```powershell
 $env:CGO_CFLAGS='-IC:\Program Files\SDRplay\API\inc'
 $env:CGO_LDFLAGS='-LC:\Program Files\SDRplay\API\x64 -lsdrplay_api'
@@ -33,29 +73,25 @@ go build -tags sdrplay ./cmd/sdrd
 .\sdrd.exe -config config.yaml
 ```
 
-#### Windows (GPU / CUDA + SDRplay)
-The only supported Windows build path in this repository is:
-
+### Windows (GPU + SDRplay) — recommended path
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build-cuda-windows.ps1
 powershell -ExecutionPolicy Bypass -File .\build-sdrplay.ps1
 ```
+This path:
+- Builds `gpudemod_kernels.dll` (MSVC/nvcc)
+- Builds Go app with MinGW64 CGO + tags `sdrplay,cufft`
+- Copies CUDA runtime DLLs next to `sdrd.exe`
 
-This path uses:
-- `nvcc` + MSVC to build `gpudemod_kernels.dll`
-- MinGW GCC/G++ for the Go/CGO application build
-- runtime DLL loading for the Windows `gpudemod` path
+Notes:
+- `build-sdrplay.ps1` expects MinGW at `C:\msys64\mingw64\bin`
+- CUDA DLLs are copied if found (see script for exact paths)
+- Override the GPU DLL path with `GPUMOD_DLL=C:\path\to\gpudemod_kernels.dll`
 
-Important:
-- `gpudemod_kernels.dll` is copied next to `sdrd.exe` by `build-sdrplay.ps1`
-- `build-sdrplay.ps1` prepares the runtime DLL placement and PATH setup for SDRplay + CUDA DLLs
-- the gpudemod DLL is built with `-cudart=hybrid`
-- GPU validation is disabled by default for performance; enable it with `SDR_GPU_VALIDATE=1` when debugging
-- you can override DLL lookup with `GPUMOD_DLL=C:\path\to\gpudemod_kernels.dll`
-- Windows builds may still show a harmless `__cdecl redefined` warning from CUDA headers
-- older experimental Windows build scripts were removed to avoid confusion
+---
 
-### Linux
+## Build & Run (Linux)
+### SDRplay (Real Device)
 ```bash
 export CGO_CFLAGS='-I/opt/sdrplay_api/include'
 export CGO_LDFLAGS='-L/opt/sdrplay_api/lib -lsdrplay_api'
@@ -64,61 +100,53 @@ go build -tags sdrplay ./cmd/sdrd
 ./cmd/sdrd/sdrd -config config.yaml
 ```
 
-## Configuration
-Edit `config.yaml`:
-- `bands`: list of band ranges
-- `center_hz`: center frequency
-- `sample_rate`: sample rate
-- `fft_size`: FFT size
-- `gain_db`: device gain (gain reduction)
-- `tuner_bw_khz`: tuner bandwidth (200/300/600/1536/5000/6000/7000/8000)
-- `use_gpu_fft`: enable GPU FFT (requires CUDA + cufft build tag)
-- `agc`: enable automatic gain control
-- `dc_block`: enable DC blocking filter
-- `iq_balance`: enable basic IQ imbalance correction
-- `detector.threshold_db`: power threshold in dB (fallback if CFAR disabled)
-- `detector.cfar_enabled`: enable OS-CFAR detection
-- `detector.cfar_guard_cells`, `detector.cfar_train_cells`, `detector.cfar_rank`, `detector.cfar_scale_db`: OS-CFAR window + ordered-statistic parameters
-- `detector.min_duration_ms`, `detector.hold_ms`: debounce/merge
-- `recorder.*`: enable IQ/audio recording, preroll, output_dir, max_disk_mb
-- `decoder.*`: external decode commands (use `{iq}`, `{audio}`, `{sr}` placeholders)
+### CUDA kernel build (GPU demod)
+```bash
+./build-cuda-linux.sh
+```
+
+---
 
 ## APIs
-### Config API
+### Config
 - `GET /api/config`
 - `POST /api/config`
 - `POST /api/sdr/settings`
 - `GET /api/gpu`
 
-### Events API
-`/api/events` reads from the JSONL event log:
-- `limit` (optional): max number of events (default 200, max 2000)
-- `since` (optional): Unix milliseconds or RFC3339 timestamp
+### Signals / Events
+- `GET /api/signals` → current live signals
+- `GET /api/events?limit=&since=` → recent events
 
-### Signals API
-- `GET /api/signals` → current live signals (latest snapshot)
-
-### Recordings API
+### Recordings
 - `GET /api/recordings`
 - `GET /api/recordings/:id` (meta.json)
 - `GET /api/recordings/:id/iq`
 - `GET /api/recordings/:id/audio`
 - `GET /api/recordings/:id/decode?mode=FT8|WSPR|DMR|D-STAR|FSK|PSK`
 
-### Live Demod API
+### Live Demod / Listen
 - `GET /api/demod?freq=...&bw=...&mode=...&sec=...` → audio/wav
+- `WS /ws/audio?freq=...&bw=...&mode=...` → live PCM audio stream
+
+---
 
 ## Decoder Tools
 Put external decoder binaries/scripts under `tools/` and configure `decoder.*` in `config.yaml`.
+Placeholders: `{iq}`, `{audio}`, `{sr}`.
 See `tools/README.md` for examples.
+
+---
 
 ## Tests
 ```bash
-
 go test ./...
 ```
 
+---
+
 ## Troubleshooting
-- If you see `sdrplay support not built`, rebuild with `-tags sdrplay`.
-- If the SDRplay library is not found, ensure `CGO_CFLAGS` and `CGO_LDFLAGS` point to the API headers and library.
+- `sdrplay support not built` → rebuild with `-tags sdrplay`.
+- SDRplay library not found → check `CGO_CFLAGS` / `CGO_LDFLAGS`.
+- GPU demod not loading → verify `gpudemod_kernels.dll` / `cudart64_13.dll` next to `sdrd.exe` (Windows).
 - Use `--mock` to run without hardware.
