@@ -105,7 +105,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				rec.OnEvents(evCopy)
 			}
 			var debugInfo *SpectrumDebug
-			if len(thresholds) > 0 || len(displaySignals) > 0 || noiseFloor != 0 {
+			plan := state.refinementInput.Plan
+			hasPlan := plan.TotalCandidates > 0 || plan.Budget > 0 || plan.DroppedBySNR > 0 || plan.DroppedByBudget > 0
+			if len(thresholds) > 0 || len(displaySignals) > 0 || noiseFloor != 0 || hasPlan {
 				scoreDebug := make([]map[string]any, 0, len(displaySignals))
 				for _, s := range displaySignals {
 					if s.Class == nil || len(s.Class.Scores) == 0 {
@@ -125,6 +127,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					})
 				}
 				debugInfo = &SpectrumDebug{Thresholds: thresholds, NoiseFloor: noiseFloor, Scores: scoreDebug}
+				if hasPlan {
+					debugInfo.RefinementPlan = &plan
+				}
 			}
 			h.broadcast(SpectrumFrame{Timestamp: art.now.UnixMilli(), CenterHz: rt.cfg.CenterHz, SampleHz: rt.cfg.SampleRate, FFTSize: rt.cfg.FFTSize, Spectrum: art.spectrum, Signals: displaySignals, Debug: debugInfo})
 		}

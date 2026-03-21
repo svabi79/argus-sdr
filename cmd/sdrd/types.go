@@ -9,13 +9,15 @@ import (
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/demod/gpudemod"
 	"sdr-wideband-suite/internal/detector"
+	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/sdr"
 )
 
 type SpectrumDebug struct {
-	Thresholds []float64        `json:"thresholds,omitempty"`
-	NoiseFloor float64          `json:"noise_floor,omitempty"`
-	Scores     []map[string]any `json:"scores,omitempty"`
+	Thresholds     []float64                `json:"thresholds,omitempty"`
+	NoiseFloor     float64                  `json:"noise_floor,omitempty"`
+	Scores         []map[string]any         `json:"scores,omitempty"`
+	RefinementPlan *pipeline.RefinementPlan `json:"refinement_plan,omitempty"`
 }
 
 type SpectrumFrame struct {
