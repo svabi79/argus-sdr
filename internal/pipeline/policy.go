@@ -81,6 +81,12 @@ func ApplyNamedProfile(cfg *config.Config, name string) {
 		if cfg.Resources.MaxRefinementJobs < 16 {
 			cfg.Resources.MaxRefinementJobs = 16
 		}
+		if cfg.Refinement.MinSpanHz <= 0 {
+			cfg.Refinement.MinSpanHz = 4000
+		}
+		if cfg.Refinement.MaxSpanHz <= 0 {
+			cfg.Refinement.MaxSpanHz = 200000
+		}
 		cfg.Resources.PreferGPU = true
 	case "wideband-aggressive":
 		cfg.Pipeline.Mode = "wideband-aggressive"
@@ -101,6 +107,12 @@ func ApplyNamedProfile(cfg *config.Config, name string) {
 		}
 		if cfg.Resources.MaxRefinementJobs < 32 {
 			cfg.Resources.MaxRefinementJobs = 32
+		}
+		if cfg.Refinement.MinSpanHz <= 0 {
+			cfg.Refinement.MinSpanHz = 6000
+		}
+		if cfg.Refinement.MaxSpanHz <= 0 {
+			cfg.Refinement.MaxSpanHz = 250000
 		}
 		cfg.Resources.PreferGPU = true
 	case "archive":

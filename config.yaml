@@ -34,6 +34,37 @@ refinement:
   min_span_hz: 0
   max_span_hz: 0
   auto_span: true
+profiles:
+  - name: legacy
+    description: Current single-band pipeline behavior
+    pipeline:
+      mode: legacy
+      goals:
+        intent: general-monitoring
+  - name: wideband-balanced
+    description: Prepared baseline for scalable wideband surveillance
+    refinement:
+      min_span_hz: 4000
+      max_span_hz: 200000
+    pipeline:
+      mode: wideband-balanced
+      goals:
+        intent: wideband-surveillance
+  - name: wideband-aggressive
+    description: Higher surveillance/refinement budgets for future broad-span monitoring
+    refinement:
+      min_span_hz: 6000
+      max_span_hz: 250000
+    pipeline:
+      mode: wideband-aggressive
+      goals:
+        intent: high-density-wideband-surveillance
+  - name: archive
+    description: Record-first monitoring profile
+    pipeline:
+      mode: archive
+      goals:
+        intent: archive-and-triage
 resources:
   prefer_gpu: true
   max_refinement_jobs: 8
