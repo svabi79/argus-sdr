@@ -153,6 +153,7 @@ go build -tags sdrplay ./cmd/sdrd
 - `GET /api/gpu`
 - `GET /api/pipeline/policy`
 - `GET /api/pipeline/recommendations`
+- `GET /api/refinement` → latest refinement plan/windows snapshot
 
 ### Signals / Events
 - `GET /api/signals` → current live signals
