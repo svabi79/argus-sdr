@@ -230,7 +230,8 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 }
 
 func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pipeline.RefinementInput {
-	return pipeline.RefinementInput{
+	policy := pipeline.PolicyFromConfig(rt.cfg)
+	input := pipeline.RefinementInput{
 		Candidates: append([]pipeline.Candidate(nil), surv.Candidates...),
 		Scheduled:  append([]pipeline.ScheduledCandidate(nil), surv.Scheduled...),
 		SampleRate: rt.cfg.SampleRate,
@@ -238,10 +239,14 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 		CenterHz:   rt.cfg.CenterHz,
 		Source:     "surveillance-detector",
 	}
+	if !policy.RefinementEnabled {
+		input.Scheduled = nil
+	}
+	return input
 }
 
 func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.RefinementInput, extractMgr *extractionManager, rec *recorder.Manager) pipeline.RefinementResult {
-	if art == nil || len(art.iq) == 0 {
+	if art == nil || len(art.iq) == 0 || len(input.Scheduled) == 0 {
 		return pipeline.RefinementResult{}
 	}
 	policy := pipeline.PolicyFromConfig(rt.cfg)
@@ -260,8 +265,20 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 			NoiseDb:  sc.Candidate.NoiseDb,
 		})
 	}
-	snips, snipRates := extractSignalIQBatch(extractMgr, art.iq, rt.cfg.SampleRate, rt.cfg.CenterHz, selectedSignals)
-	refined := pipeline.RefineCandidates(selectedCandidates, art.spectrum, rt.cfg.SampleRate, rt.cfg.FFTSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
+	sampleRate := input.SampleRate
+	fftSize := input.FFTSize
+	centerHz := input.CenterHz
+	if sampleRate <= 0 {
+		sampleRate = rt.cfg.SampleRate
+	}
+	if fftSize <= 0 {
+		fftSize = rt.cfg.FFTSize
+	}
+	if centerHz == 0 {
+		centerHz = rt.cfg.CenterHz
+	}
+	snips, snipRates := extractSignalIQBatch(extractMgr, art.iq, sampleRate, centerHz, selectedSignals)
+	refined := pipeline.RefineCandidates(selectedCandidates, art.spectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
 	signals := make([]detector.Signal, 0, len(refined))
 	decisions := make([]pipeline.SignalDecision, 0, len(refined))
 	for i, ref := range refined {
