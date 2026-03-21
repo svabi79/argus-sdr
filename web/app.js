@@ -118,6 +118,7 @@ let latest = null;
 let currentConfig = null;
 let liveAudio = null;
 let liveListenWS = null; // WebSocket-based live listen
+let liveListenTarget = null; // { freq, bw, mode }
 let stats = { buffer_samples: 0, dropped: 0, resets: 0, last_sample_ago_ms: -1 };
 
 // ---------------------------------------------------------------------------
@@ -260,6 +261,68 @@ class LiveListenWS {
     this.nextTime += audioBuffer.duration;
   }
 }
+
+function resolveListenMode(detectedMode) {
+  const manual = listenModeSelect?.value || '';
+  if (manual) return manual;
+  return detectedMode || 'NFM';
+}
+
+function setLiveListenUI(active) {
+  if (liveListenBtn) {
+    liveListenBtn.textContent = active ? '■ Stop' : 'Live Listen';
+    liveListenBtn.classList.toggle('active', active);
+  }
+  if (liveListenEventBtn) {
+    liveListenEventBtn.textContent = active ? '■ Stop' : 'Listen';
+    liveListenEventBtn.classList.toggle('active', active);
+  }
+}
+
+function stopLiveListen() {
+  if (liveListenWS) {
+    liveListenWS.onStop(() => {});
+    liveListenWS.stop();
+    liveListenWS = null;
+  }
+  liveListenTarget = null;
+  setLiveListenUI(false);
+}
+
+function startLiveListen(freq, bw, detectedMode) {
+  if (!Number.isFinite(freq)) return;
+  const mode = resolveListenMode(detectedMode);
+  const width = Number.isFinite(bw) && bw > 0 ? bw : 12000;
+
+  // Stop any old HTTP audio
+  if (liveAudio) { liveAudio.pause(); liveAudio = null; }
+
+  // Switch on the fly if already listening
+  if (liveListenWS) {
+    liveListenWS.onStop(() => {});
+    liveListenWS.stop();
+    liveListenWS = null;
+  }
+
+  liveListenTarget = { freq, bw: width, mode };
+
+  liveListenWS = new LiveListenWS(freq, width, mode);
+  liveListenWS.onStop(() => {
+    liveListenWS = null;
+    liveListenTarget = null;
+    setLiveListenUI(false);
+  });
+  liveListenWS.start();
+  setLiveListenUI(true);
+}
+
+function matchesListenTarget(signal) {
+  if (!liveListenTarget || !signal) return false;
+  const bw = signal.bw_hz || liveListenTarget.bw || 0;
+  const tol = Math.max(500, bw * 0.5);
+  return Math.abs((signal.center_hz || 0) - liveListenTarget.freq) <= tol;
+}
+
 let gpuInfo = { available: false, active: false, error: '' };
 
 let zoom = 1;
@@ -934,6 +997,12 @@ function renderSpectrum() {
       ctx.fillRect(x1, 10, boxW, h - 28);
       ctx.strokeRect(x1, 10, boxW, h - 28);
 
+      if (matchesListenTarget(s)) {
+        ctx.strokeStyle = 'rgba(255, 92, 92, 0.95)';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(x1 - 1, 9, boxW + 2, h - 26);
+      }
+
       // Label badges with dark background for readability
       const labelX = Math.max(4, x1 + 4);
       const baseY = 14;
@@ -1216,6 +1285,7 @@ function _createSignalItem(s) {
   btn.style.borderLeftColor = mc.label;
   btn.style.borderLeftWidth = '3px';
   btn.style.borderLeftStyle = 'solid';
+  if (matchesListenTarget(s)) btn.classList.add('listening');
   return btn;
 }
 
@@ -1245,6 +1315,7 @@ function _patchSignalItem(el, s) {
   el.dataset.bw = s.bw_hz || 0;
   el.dataset.class = mod;
   el.style.borderLeftColor = mc.label;
+  el.classList.toggle('listening', matchesListenTarget(s));
 }
 
 function renderLists() {
@@ -1607,7 +1678,17 @@ function handleSpectrumClick(ev) {
   for (let i = liveSignalRects.length - 1; i >= 0; i--) {
     const r = liveSignalRects[i];
     if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
-      tuneToFrequency(r.signal.center_hz);
+      const sig = r.signal;
+      const freq = sig.center_hz;
+      const bw = sig.bw_hz || 12000;
+      const mode = sig.class?.mod_type || '';
+      startLiveListen(freq, bw, mode);
+      window._selectedSignal = { freq, bw, mode };
+      // Update selected signal in list
+      signalList.querySelectorAll('.signal-item').forEach(el => {
+        const elFreq = parseFloat(el.dataset.center || '0');
+        el.classList.toggle('active', Math.abs(elFreq - freq) < Math.max(500, bw * 0.5));
+      });
       return;
     }
   }
@@ -1896,30 +1977,14 @@ if (liveListenEventBtn) {
 
     // Toggle off if already listening
     if (liveListenWS && liveListenWS.playing) {
-      liveListenWS.stop();
-      liveListenWS = null;
-      liveListenEventBtn.textContent = 'Listen';
-      liveListenEventBtn.classList.remove('active');
-      if (liveListenBtn) { liveListenBtn.textContent = 'Live Listen'; liveListenBtn.classList.remove('active'); }
+      stopLiveListen();
       return;
     }
 
     const freq = ev.center_hz;
     const bw = ev.bandwidth_hz || 12000;
-    const mode = (listenModeSelect?.value || ev.class?.mod_type || 'NFM');
-
-    if (liveAudio) { liveAudio.pause(); liveAudio = null; }
-
-    liveListenWS = new LiveListenWS(freq, bw, mode);
-    liveListenWS.onStop(() => {
-      liveListenEventBtn.textContent = 'Listen';
-      liveListenEventBtn.classList.remove('active');
-      if (liveListenBtn) { liveListenBtn.textContent = 'Live Listen'; liveListenBtn.classList.remove('active'); }
-      liveListenWS = null;
-    });
-    liveListenWS.start();
-    liveListenEventBtn.textContent = '■ Stop';
-    liveListenEventBtn.classList.add('active');
+    const mode = ev.class?.mod_type || 'NFM';
+    startLiveListen(freq, bw, mode);
   });
 }
 if (decodeEventBtn) {
@@ -1980,10 +2045,7 @@ if (liveListenBtn) {
   liveListenBtn.addEventListener('click', async () => {
     // Toggle: if already listening, stop
     if (liveListenWS && liveListenWS.playing) {
-      liveListenWS.stop();
-      liveListenWS = null;
-      liveListenBtn.textContent = 'Live Listen';
-      liveListenBtn.classList.remove('active');
+      stopLiveListen();
       return;
     }
 
@@ -2001,20 +2063,8 @@ if (liveListenBtn) {
       mode = first.dataset.class || '';
     }
     if (!Number.isFinite(freq)) return;
-    mode = (listenModeSelect?.value === 'Auto' || listenModeSelect?.value === '') ? (mode || 'NFM') : listenModeSelect.value;
 
-    // Stop any old HTTP audio
-    if (liveAudio) { liveAudio.pause(); liveAudio = null; }
-
-    liveListenWS = new LiveListenWS(freq, bw, mode);
-    liveListenWS.onStop(() => {
-      liveListenBtn.textContent = 'Live Listen';
-      liveListenBtn.classList.remove('active');
-      liveListenWS = null;
-    });
-    liveListenWS.start();
-    liveListenBtn.textContent = '■ Stop';
-    liveListenBtn.classList.add('active');
+    startLiveListen(freq, bw, mode);
   });
 }
 
