@@ -802,7 +802,16 @@ function updateHeroMetrics() {
   const thresholdInfo = Array.isArray(debug.thresholds) && debug.thresholds.length
     ? `CFAR ${showDebugOverlay ? 'on' : 'hidden'} · noise ${(Number.isFinite(debug.noise_floor) ? debug.noise_floor.toFixed(1) : 'n/a')} dB`
     : `CFAR off · noise ${(Number.isFinite(debug.noise_floor) ? debug.noise_floor.toFixed(1) : 'n/a')} dB`;
-  metaLine.textContent = `${fmtMHz(latest.center_hz, 3)} · ${fmtHz(span)} span · ${thresholdInfo} · ${gpuText}`;
+  const plan = debug.refinement_plan || null;
+  const windows = debug.refinement_windows || null;
+  const refineInfo = plan && showDebugOverlay
+    ? `refine ${plan.selected?.length || 0}/${plan.budget || 0} drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0}`
+    : '';
+  const windowInfo = windows && showDebugOverlay
+    ? `win ${windows.count || 0} span ${fmtHz(windows.min_span_hz || 0)}–${fmtHz(windows.max_span_hz || 0)}`
+    : '';
+  const extras = [refineInfo, windowInfo].filter(Boolean).join(' · ');
+  metaLine.textContent = `${fmtMHz(latest.center_hz, 3)} · ${fmtHz(span)} span · ${thresholdInfo}${extras ? ' · ' + extras : ''} · ${gpuText}`;
   heroSubtitle.textContent = `${latest.signals?.length || 0} live signals · ${events.length} recent events tracked`;
 
   healthBuffer.textContent = String(stats.buffer_samples ?? '-');
