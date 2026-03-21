@@ -43,7 +43,7 @@ func PolicyFromConfig(cfg config.Config) Policy {
 		MinCandidateSNRDb:   cfg.Refinement.MinCandidateSNRDb,
 		RefinementMinSpanHz: cfg.Refinement.MinSpanHz,
 		RefinementMaxSpanHz: cfg.Refinement.MaxSpanHz,
-		RefinementAutoSpan:  cfg.Refinement.AutoSpan,
+		RefinementAutoSpan:  config.BoolValue(cfg.Refinement.AutoSpan, true),
 		PreferGPU:           cfg.Resources.PreferGPU,
 	}
 }

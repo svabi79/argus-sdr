@@ -99,7 +99,7 @@ type RefinementConfig struct {
 	MinCandidateSNRDb float64 `yaml:"min_candidate_snr_db" json:"min_candidate_snr_db"`
 	MinSpanHz         float64 `yaml:"min_span_hz" json:"min_span_hz"`
 	MaxSpanHz         float64 `yaml:"max_span_hz" json:"max_span_hz"`
-	AutoSpan          bool    `yaml:"auto_span" json:"auto_span"`
+	AutoSpan          *bool   `yaml:"auto_span" json:"auto_span"`
 }
 
 type ResourceConfig struct {
@@ -178,7 +178,7 @@ func Default() Config {
 			MinCandidateSNRDb: 0,
 			MinSpanHz:         0,
 			MaxSpanHz:         0,
-			AutoSpan:          true,
+			AutoSpan:          boolPtr(true),
 		},
 		Resources: ResourceConfig{
 			PreferGPU:           true,
@@ -363,6 +363,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Refinement.MaxSpanHz > 0 && cfg.Refinement.MinSpanHz > cfg.Refinement.MaxSpanHz {
 		cfg.Refinement.MaxSpanHz = cfg.Refinement.MinSpanHz
+	}
+	if cfg.Refinement.AutoSpan == nil {
+		cfg.Refinement.AutoSpan = boolPtr(true)
 	}
 	if cfg.Resources.MaxRefinementJobs <= 0 {
 		cfg.Resources.MaxRefinementJobs = cfg.Refinement.MaxConcurrent

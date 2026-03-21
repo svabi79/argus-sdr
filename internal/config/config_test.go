@@ -41,6 +41,9 @@ func TestLoadConfig(t *testing.T) {
 	if !cfg.Refinement.Enabled {
 		t.Fatalf("refinement default not applied")
 	}
+	if cfg.Refinement.AutoSpan == nil || !*cfg.Refinement.AutoSpan {
+		t.Fatalf("refinement auto_span default not applied")
+	}
 	if cfg.EventPath == "" {
 		t.Fatalf("event path default not applied")
 	}
