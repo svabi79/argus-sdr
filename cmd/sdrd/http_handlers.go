@@ -156,19 +156,21 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		snap := phaseSnap.Snapshot()
 		windowStats := buildWindowStats(snap.refinementInput.Windows)
 		out := map[string]any{
-			"plan":               snap.refinementInput.Plan,
-			"windows":            snap.refinementInput.Windows,
-			"window_stats":       windowStats,
-			"queue_stats":        snap.queueStats,
-			"candidates":         len(snap.refinementInput.Candidates),
-			"scheduled":          len(snap.refinementInput.Scheduled),
-			"signals":            len(snap.refinement.Signals),
-			"decisions":          len(snap.refinement.Decisions),
-			"decision_summary":   summarizeDecisions(snap.refinement.Decisions),
-			"decision_items":     compactDecisions(snap.refinement.Decisions),
-			"surveillance_level": snap.surveillance.Level,
-			"refinement_level":   snap.refinementInput.Level,
-			"presentation_level": snap.presentation,
+			"plan":                snap.refinementInput.Plan,
+			"windows":             snap.refinementInput.Windows,
+			"window_stats":        windowStats,
+			"queue_stats":         snap.queueStats,
+			"candidates":          len(snap.refinementInput.Candidates),
+			"scheduled":           len(snap.refinementInput.Scheduled),
+			"signals":             len(snap.refinement.Signals),
+			"decisions":           len(snap.refinement.Decisions),
+			"decision_summary":    summarizeDecisions(snap.refinement.Decisions),
+			"decision_items":      compactDecisions(snap.refinement.Decisions),
+			"surveillance_level":  snap.surveillance.Level,
+			"surveillance_levels": snap.surveillance.Levels,
+			"display_level":       snap.surveillance.DisplayLevel,
+			"refinement_level":    snap.refinementInput.Level,
+			"presentation_level":  snap.presentation,
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	})
