@@ -164,6 +164,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"signals":            len(snap.refinement.Signals),
 			"decisions":          len(snap.refinement.Decisions),
 			"decision_summary":   summarizeDecisions(snap.refinement.Decisions),
+			"decision_items":     compactDecisions(snap.refinement.Decisions),
 			"surveillance_level": snap.surveillance.Level,
 			"refinement_level":   snap.refinementInput.Level,
 		}
