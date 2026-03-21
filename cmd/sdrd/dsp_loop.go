@@ -106,8 +106,10 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			var debugInfo *SpectrumDebug
 			plan := state.refinementInput.Plan
+			windowStats := buildWindowStats(state.refinementInput.Windows)
 			hasPlan := plan.TotalCandidates > 0 || plan.Budget > 0 || plan.DroppedBySNR > 0 || plan.DroppedByBudget > 0
-			if len(thresholds) > 0 || len(displaySignals) > 0 || noiseFloor != 0 || hasPlan {
+			hasWindows := windowStats != nil && windowStats.Count > 0
+			if len(thresholds) > 0 || len(displaySignals) > 0 || noiseFloor != 0 || hasPlan || hasWindows {
 				scoreDebug := make([]map[string]any, 0, len(displaySignals))
 				for _, s := range displaySignals {
 					if s.Class == nil || len(s.Class.Scores) == 0 {
@@ -129,6 +131,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				debugInfo = &SpectrumDebug{Thresholds: thresholds, NoiseFloor: noiseFloor, Scores: scoreDebug}
 				if hasPlan {
 					debugInfo.RefinementPlan = &plan
+				}
+				if hasWindows {
+					debugInfo.Windows = windowStats
 				}
 			}
 			h.broadcast(SpectrumFrame{Timestamp: art.now.UnixMilli(), CenterHz: rt.cfg.CenterHz, SampleHz: rt.cfg.SampleRate, FFTSize: rt.cfg.FFTSize, Spectrum: art.spectrum, Signals: displaySignals, Debug: debugInfo})

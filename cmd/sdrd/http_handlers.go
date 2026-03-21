@@ -15,8 +15,8 @@ import (
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/events"
-	"sdr-wideband-suite/internal/pipeline"
 	fftutil "sdr-wideband-suite/internal/fft"
+	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/recorder"
 	"sdr-wideband-suite/internal/runtime"
 )
@@ -138,13 +138,16 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		cfg := cfgManager.Snapshot()
 		policy := pipeline.PolicyFromConfig(cfg)
 		recommend := map[string]any{
-			"mode":                policy.Mode,
-			"intent":              policy.Intent,
-			"monitor_span_hz":     policy.MonitorSpanHz,
-			"signal_priorities":   policy.SignalPriorities,
-			"auto_record_classes": policy.AutoRecordClasses,
-			"auto_decode_classes": policy.AutoDecodeClasses,
-			"refinement_jobs":     policy.MaxRefinementJobs,
+			"mode":                   policy.Mode,
+			"intent":                 policy.Intent,
+			"monitor_span_hz":        policy.MonitorSpanHz,
+			"signal_priorities":      policy.SignalPriorities,
+			"auto_record_classes":    policy.AutoRecordClasses,
+			"auto_decode_classes":    policy.AutoDecodeClasses,
+			"refinement_jobs":        policy.MaxRefinementJobs,
+			"refinement_auto_span":   policy.RefinementAutoSpan,
+			"refinement_min_span_hz": policy.RefinementMinSpanHz,
+			"refinement_max_span_hz": policy.RefinementMaxSpanHz,
 		}
 		_ = json.NewEncoder(w).Encode(recommend)
 	})

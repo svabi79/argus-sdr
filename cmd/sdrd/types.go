@@ -18,6 +18,15 @@ type SpectrumDebug struct {
 	NoiseFloor     float64                  `json:"noise_floor,omitempty"`
 	Scores         []map[string]any         `json:"scores,omitempty"`
 	RefinementPlan *pipeline.RefinementPlan `json:"refinement_plan,omitempty"`
+	Windows        *RefinementWindowStats   `json:"refinement_windows,omitempty"`
+}
+
+type RefinementWindowStats struct {
+	Count   int            `json:"count"`
+	MinSpan float64        `json:"min_span_hz"`
+	MaxSpan float64        `json:"max_span_hz"`
+	AvgSpan float64        `json:"avg_span_hz"`
+	Sources map[string]int `json:"sources,omitempty"`
 }
 
 type SpectrumFrame struct {
