@@ -364,7 +364,7 @@ input[type="range"]::-moz-range-thumb {
 .list-item:hover, .list-item.active { border-color: rgba(0, 255, 200, 0.28); }
 .item-top, .item-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .item-top { margin-bottom: 3px; }
-.item-title { font-family: var(--mono); font-size: 0.82rem; font-weight: 700; }
+.item-title { font-family: var(--mono); font-size: 0.82rem; font-weight: 700; color: #e7f1ff; }
 .item-meta { font-family: var(--mono); font-size: 0.68rem; color: var(--text-dim); }
 .item-badge {
   font-family: var(--mono); font-size: 0.64rem; font-weight: 600;
