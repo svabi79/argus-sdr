@@ -11,9 +11,19 @@ type SurveillanceResult struct {
 	Thresholds []float64            `json:"thresholds,omitempty"`
 }
 
+type RefinementPlan struct {
+	TotalCandidates   int                  `json:"total_candidates"`
+	MinCandidateSNRDb float64              `json:"min_candidate_snr_db"`
+	Budget            int                  `json:"budget"`
+	DroppedBySNR      int                  `json:"dropped_by_snr"`
+	DroppedByBudget   int                  `json:"dropped_by_budget"`
+	Selected          []ScheduledCandidate `json:"selected,omitempty"`
+}
+
 type RefinementInput struct {
 	Candidates []Candidate          `json:"candidates,omitempty"`
 	Scheduled  []ScheduledCandidate `json:"scheduled,omitempty"`
+	Plan       RefinementPlan       `json:"plan,omitempty"`
 	SampleRate int                  `json:"sample_rate"`
 	FFTSize    int                  `json:"fft_size"`
 	CenterHz   float64              `json:"center_hz"`

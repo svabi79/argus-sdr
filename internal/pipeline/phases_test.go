@@ -31,6 +31,10 @@ func TestRefinementInputCarriesScheduledCandidates(t *testing.T) {
 	res := RefinementInput{
 		Candidates: []Candidate{{ID: 2}},
 		Scheduled:  []ScheduledCandidate{{Candidate: Candidate{ID: 2}, Priority: 4}},
+		Plan: RefinementPlan{
+			TotalCandidates: 1,
+			Budget:          4,
+		},
 		SampleRate: 2048000,
 		FFTSize:    2048,
 		CenterHz:   7.1e6,
@@ -41,5 +45,8 @@ func TestRefinementInputCarriesScheduledCandidates(t *testing.T) {
 	}
 	if res.SampleRate != 2048000 || res.FFTSize != 2048 || res.CenterHz != 7.1e6 {
 		t.Fatalf("unexpected refinement input fields: %+v", res)
+	}
+	if res.Plan.TotalCandidates != 1 || res.Plan.Budget != 4 {
+		t.Fatalf("unexpected refinement plan fields: %+v", res.Plan)
 	}
 }

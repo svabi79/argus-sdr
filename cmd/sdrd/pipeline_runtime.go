@@ -231,9 +231,15 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 
 func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pipeline.RefinementInput {
 	policy := pipeline.PolicyFromConfig(rt.cfg)
+	plan := pipeline.BuildRefinementPlan(surv.Candidates, policy)
+	scheduled := append([]pipeline.ScheduledCandidate(nil), surv.Scheduled...)
+	if len(scheduled) == 0 && len(plan.Selected) > 0 {
+		scheduled = append([]pipeline.ScheduledCandidate(nil), plan.Selected...)
+	}
 	input := pipeline.RefinementInput{
 		Candidates: append([]pipeline.Candidate(nil), surv.Candidates...),
-		Scheduled:  append([]pipeline.ScheduledCandidate(nil), surv.Scheduled...),
+		Scheduled:  scheduled,
+		Plan:       plan,
 		SampleRate: rt.cfg.SampleRate,
 		FFTSize:    rt.cfg.FFTSize,
 		CenterHz:   rt.cfg.CenterHz,

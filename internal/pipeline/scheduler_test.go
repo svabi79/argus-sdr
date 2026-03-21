@@ -22,6 +22,28 @@ func TestScheduleCandidates(t *testing.T) {
 	}
 }
 
+func TestBuildRefinementPlanTracksDrops(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 10}
+	cands := []Candidate{
+		{ID: 1, CenterHz: 100, SNRDb: 4, BandwidthHz: 10000, PeakDb: 1},
+		{ID: 2, CenterHz: 200, SNRDb: 12, BandwidthHz: 50000, PeakDb: 3},
+		{ID: 3, CenterHz: 300, SNRDb: 11, BandwidthHz: 25000, PeakDb: 2},
+	}
+	plan := BuildRefinementPlan(cands, policy)
+	if plan.TotalCandidates != 3 {
+		t.Fatalf("expected total candidates 3, got %d", plan.TotalCandidates)
+	}
+	if plan.DroppedBySNR != 1 {
+		t.Fatalf("expected 1 dropped by SNR, got %d", plan.DroppedBySNR)
+	}
+	if plan.DroppedByBudget != 1 {
+		t.Fatalf("expected 1 dropped by budget, got %d", plan.DroppedByBudget)
+	}
+	if len(plan.Selected) != 1 || plan.Selected[0].Candidate.ID != 2 {
+		t.Fatalf("unexpected plan selection: %+v", plan.Selected)
+	}
+}
+
 func TestScheduleCandidatesPriorityBoost(t *testing.T) {
 	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0, SignalPriorities: []string{"digital"}}
 	got := ScheduleCandidates([]Candidate{
