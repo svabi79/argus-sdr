@@ -239,6 +239,20 @@
               <label class="field"><span>Max Disk (MB)</span><input id="recMaxDisk" type="number" step="256" min="0" /></label>
               <label class="field"><span>Class Filter (CSV)</span><input id="recClassFilter" type="text" placeholder="e.g. NFM,USB" /></label>
             </div>
+
+            <div class="form-group">
+              <div class="grp-title">Refinement Windows</div>
+              <label class="field"><span>Auto Span</span>
+                <select id="refineAutoSpan" class="ctrl-select">
+                  <option value="true">Auto</option>
+                  <option value="false">Manual</option>
+                </select>
+              </label>
+              <div class="field-pair">
+                <label class="field"><span>Min Span (Hz)</span><input id="refineMinSpan" type="number" step="500" min="0" /></label>
+                <label class="field"><span>Max Span (Hz)</span><input id="refineMaxSpan" type="number" step="500" min="0" /></label>
+              </div>
+            </div>
           </section>
 
           <!-- ── Signals Tab ── -->

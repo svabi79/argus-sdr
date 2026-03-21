@@ -62,6 +62,10 @@ const recMinSNR = qs('recMinSNR');
 const recMaxDisk = qs('recMaxDisk');
 const recClassFilter = qs('recClassFilter');
 
+const refineAutoSpan = qs('refineAutoSpan');
+const refineMinSpan = qs('refineMinSpan');
+const refineMaxSpan = qs('refineMaxSpan');
+
 const signalList = qs('signalList');
 const eventList = qs('eventList');
 const recordingList = qs('recordingList');
@@ -668,6 +672,9 @@ function applyConfigToUI(cfg) {
     if (recMaxDisk) recMaxDisk.value = cfg.recorder.max_disk_mb ?? 0;
     if (recClassFilter) recClassFilter.value = (cfg.recorder.class_filter || []).join(', ');
   }
+  if (refineAutoSpan) refineAutoSpan.value = String(cfg.refinement?.auto_span ?? true);
+  if (refineMinSpan) refineMinSpan.value = cfg.refinement?.min_span_hz ?? 0;
+  if (refineMaxSpan) refineMaxSpan.value = cfg.refinement?.max_span_hz ?? 0;
   spanInput.value = (cfg.sample_rate / zoom / 1e6).toFixed(3);
   isSyncingConfig = false;
 }
@@ -1925,6 +1932,17 @@ if (recClassFilter) recClassFilter.addEventListener('change', () => {
     .map(s => s.trim())
     .filter(Boolean);
   queueConfigUpdate({ recorder: { class_filter: list } });
+});
+if (refineAutoSpan) refineAutoSpan.addEventListener('change', () => {
+  queueConfigUpdate({ refinement: { auto_span: refineAutoSpan.value === 'true' } });
+});
+if (refineMinSpan) refineMinSpan.addEventListener('change', () => {
+  const v = parseFloat(refineMinSpan.value);
+  if (Number.isFinite(v)) queueConfigUpdate({ refinement: { min_span_hz: v } });
+});
+if (refineMaxSpan) refineMaxSpan.addEventListener('change', () => {
+  const v = parseFloat(refineMaxSpan.value);
+  if (Number.isFinite(v)) queueConfigUpdate({ refinement: { max_span_hz: v } });
 });
 
 avgSelect.addEventListener('change', () => {
