@@ -69,6 +69,7 @@ resources:
   prefer_gpu: true
   max_refinement_jobs: 8
   max_recording_streams: 16
+  max_decode_jobs: 16
 profiles:
   - name: legacy
     description: Current single-band legacy behavior

@@ -23,6 +23,7 @@ type Policy struct {
 	RefinementMaxSpanHz     float64  `json:"refinement_max_span_hz"`
 	RefinementAutoSpan      bool     `json:"refinement_auto_span"`
 	PreferGPU               bool     `json:"prefer_gpu"`
+	MaxDecodeJobs           int      `json:"max_decode_jobs"`
 }
 
 func PolicyFromConfig(cfg config.Config) Policy {
@@ -47,6 +48,7 @@ func PolicyFromConfig(cfg config.Config) Policy {
 		RefinementMaxSpanHz:     cfg.Refinement.MaxSpanHz,
 		RefinementAutoSpan:      config.BoolValue(cfg.Refinement.AutoSpan, true),
 		PreferGPU:               cfg.Resources.PreferGPU,
+		MaxDecodeJobs:           cfg.Resources.MaxDecodeJobs,
 	}
 }
 

@@ -79,6 +79,7 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `wideband-aggressive`: min_span_hz=6000, max_span_hz=250000
 - `resources.max_refinement_jobs` — processing budget hint
 - `resources.max_recording_streams` — recording/streaming budget hint
+- `resources.max_decode_jobs` — decode budget hint
 - `profiles[]` — named operating profiles/intent metadata
 
 In phase 1, the engine stays backward compatible, but the config model now reflects the intended separation between:

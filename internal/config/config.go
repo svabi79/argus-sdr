@@ -106,6 +106,7 @@ type ResourceConfig struct {
 	PreferGPU           bool `yaml:"prefer_gpu" json:"prefer_gpu"`
 	MaxRefinementJobs   int  `yaml:"max_refinement_jobs" json:"max_refinement_jobs"`
 	MaxRecordingStreams int  `yaml:"max_recording_streams" json:"max_recording_streams"`
+	MaxDecodeJobs       int  `yaml:"max_decode_jobs" json:"max_decode_jobs"`
 }
 
 type ProfileConfig struct {
@@ -184,6 +185,7 @@ func Default() Config {
 			PreferGPU:           true,
 			MaxRefinementJobs:   8,
 			MaxRecordingStreams: 16,
+			MaxDecodeJobs:       16,
 		},
 		Profiles: []ProfileConfig{
 			{Name: "legacy", Description: "Current single-band pipeline behavior", Pipeline: &PipelineConfig{Mode: "legacy", Goals: PipelineGoalConfig{Intent: "general-monitoring"}}},
