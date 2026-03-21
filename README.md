@@ -73,6 +73,10 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `refinement.min_span_hz` / `refinement.max_span_hz` — clamp refinement window span (0 = no clamp)
 - `refinement.auto_span` — use mod-type heuristics when candidate bandwidth is missing/odd
 - `resources.prefer_gpu` — GPU preference hint
+
+**Profile defaults (wideband)**
+- `wideband-balanced`: min_span_hz=4000, max_span_hz=200000
+- `wideband-aggressive`: min_span_hz=6000, max_span_hz=250000
 - `resources.max_refinement_jobs` — processing budget hint
 - `resources.max_recording_streams` — recording/streaming budget hint
 - `profiles[]` — named operating profiles/intent metadata
