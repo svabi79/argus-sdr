@@ -339,12 +339,6 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 		snipRate := ref.SnippetRate
 		decision := pipeline.DecideSignalAction(policy, ref.Candidate, cls)
 		decisions = append(decisions, decision)
-		if decision.ShouldAutoDecode && rec != nil {
-			rt.cfg.Recorder.AutoDecode = true
-		}
-		if decision.ShouldRecord && rec != nil {
-			rt.cfg.Recorder.Enabled = true
-		}
 		if cls != nil {
 			pll := classifier.PLLResult{}
 			if i < len(snips) && snips[i] != nil && len(snips[i]) > 256 {
@@ -363,6 +357,15 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	maxRecord := rt.cfg.Resources.MaxRecordingStreams
 	maxDecode := rt.cfg.Resources.MaxDecodeJobs
 	enforceDecisionBudgets(decisions, maxRecord, maxDecode)
+	summary := summarizeDecisions(decisions)
+	if rec != nil {
+		if summary.RecordEnabled > 0 {
+			rt.cfg.Recorder.Enabled = true
+		}
+		if summary.DecodeEnabled > 0 {
+			rt.cfg.Recorder.AutoDecode = true
+		}
+	}
 	rt.det.UpdateClasses(signals)
 	return pipeline.RefinementResult{Level: input.Level, Signals: signals, Decisions: decisions, Candidates: selectedCandidates}
 }
