@@ -29,6 +29,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 	defer logTicker.Stop()
 	enc := json.NewEncoder(eventFile)
 	dcBlocker := dsp.NewDCBlocker(0.995)
+	state := &phaseState{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -55,12 +56,14 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				log.Printf("received IQ samples")
 				rt.gotSamples = true
 			}
-			finished := art.finished
-			thresholds := art.thresholds
-			noiseFloor := art.noiseFloor
+			state.surveillance = rt.buildSurveillanceResult(art)
+			finished := state.surveillance.Finished
+			thresholds := state.surveillance.Thresholds
+			noiseFloor := state.surveillance.NoiseFloor
 			var displaySignals []detector.Signal
 			if len(art.iq) > 0 {
-				displaySignals = rt.refineSignals(art, extractMgr, rec)
+				state.refinement = rt.refineSignals(art, extractMgr, rec)
+				displaySignals = state.refinement.Signals
 				if rec != nil && len(displaySignals) > 0 && len(art.allIQ) > 0 {
 					aqCfg := extractionConfig{firTaps: rt.cfg.Recorder.ExtractionTaps, bwMult: rt.cfg.Recorder.ExtractionBwMult}
 					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, displaySignals, rt.streamPhaseState, rt.streamOverlap, aqCfg)

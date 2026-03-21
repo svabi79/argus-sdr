@@ -212,9 +212,22 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	}, nil
 }
 
-func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, extractMgr *extractionManager, rec *recorder.Manager) []detector.Signal {
+func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.SurveillanceResult {
+	if art == nil {
+		return pipeline.SurveillanceResult{}
+	}
+	return pipeline.SurveillanceResult{
+		Candidates: pipeline.CandidatesFromSignals(art.detected, "surveillance-detector"),
+		Finished:   art.finished,
+		Signals:    art.detected,
+		NoiseFloor: art.noiseFloor,
+		Thresholds: art.thresholds,
+	}
+}
+
+func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, extractMgr *extractionManager, rec *recorder.Manager) pipeline.RefinementResult {
 	if art == nil || len(art.iq) == 0 {
-		return nil
+		return pipeline.RefinementResult{}
 	}
 	policy := pipeline.PolicyFromConfig(rt.cfg)
 	candidates := pipeline.CandidatesFromSignals(art.detected, "surveillance-detector")
@@ -237,12 +250,14 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, extractMgr *extracti
 	snips, snipRates := extractSignalIQBatch(extractMgr, art.iq, rt.cfg.SampleRate, rt.cfg.CenterHz, selectedSignals)
 	refined := pipeline.RefineCandidates(selectedCandidates, art.spectrum, rt.cfg.SampleRate, rt.cfg.FFTSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
 	signals := make([]detector.Signal, 0, len(refined))
+	decisions := make([]pipeline.SignalDecision, 0, len(refined))
 	for i, ref := range refined {
 		sig := ref.Signal
 		signals = append(signals, sig)
 		cls := sig.Class
 		snipRate := ref.SnippetRate
 		decision := pipeline.DecideSignalAction(policy, ref.Candidate, cls)
+		decisions = append(decisions, decision)
 		if decision.ShouldAutoDecode && rec != nil {
 			rt.cfg.Recorder.AutoDecode = true
 		}
@@ -265,7 +280,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, extractMgr *extracti
 		}
 	}
 	rt.det.UpdateClasses(signals)
-	return signals
+	return pipeline.RefinementResult{Signals: signals, Decisions: decisions}
 }
 
 func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, sig *detector.Signal, cls *classifier.Classification) {
