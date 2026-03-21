@@ -238,9 +238,16 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 	}
 	windows := make([]pipeline.RefinementWindow, 0, len(scheduled))
 	for _, sc := range scheduled {
+		span := sc.Candidate.BandwidthHz
+		if policy.RefinementMinSpanHz > 0 && span < policy.RefinementMinSpanHz {
+			span = policy.RefinementMinSpanHz
+		}
+		if policy.RefinementMaxSpanHz > 0 && span > policy.RefinementMaxSpanHz {
+			span = policy.RefinementMaxSpanHz
+		}
 		windows = append(windows, pipeline.RefinementWindow{
 			CenterHz: sc.Candidate.CenterHz,
-			SpanHz:   sc.Candidate.BandwidthHz,
+			SpanHz:   span,
 			Source:   "candidate",
 		})
 	}

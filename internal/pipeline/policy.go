@@ -18,6 +18,8 @@ type Policy struct {
 	RefinementEnabled   bool     `json:"refinement_enabled"`
 	MaxRefinementJobs   int      `json:"max_refinement_jobs"`
 	MinCandidateSNRDb   float64  `json:"min_candidate_snr_db"`
+	RefinementMinSpanHz float64  `json:"refinement_min_span_hz"`
+	RefinementMaxSpanHz float64  `json:"refinement_max_span_hz"`
 	PreferGPU           bool     `json:"prefer_gpu"`
 }
 
@@ -38,6 +40,8 @@ func PolicyFromConfig(cfg config.Config) Policy {
 		RefinementEnabled:   cfg.Refinement.Enabled,
 		MaxRefinementJobs:   cfg.Resources.MaxRefinementJobs,
 		MinCandidateSNRDb:   cfg.Refinement.MinCandidateSNRDb,
+		RefinementMinSpanHz: cfg.Refinement.MinSpanHz,
+		RefinementMaxSpanHz: cfg.Refinement.MaxSpanHz,
 		PreferGPU:           cfg.Resources.PreferGPU,
 	}
 }

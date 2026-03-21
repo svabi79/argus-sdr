@@ -15,25 +15,25 @@ type Band struct {
 }
 
 type DetectorConfig struct {
-	ThresholdDb     float64 `yaml:"threshold_db" json:"threshold_db"`
-	MinDurationMs   int     `yaml:"min_duration_ms" json:"min_duration_ms"`
-	HoldMs          int     `yaml:"hold_ms" json:"hold_ms"`
-	EmaAlpha        float64 `yaml:"ema_alpha" json:"ema_alpha"`
-	HysteresisDb    float64 `yaml:"hysteresis_db" json:"hysteresis_db"`
-	MinStableFrames int     `yaml:"min_stable_frames" json:"min_stable_frames"`
-	GapToleranceMs  int     `yaml:"gap_tolerance_ms" json:"gap_tolerance_ms"`
-	CFARMode        string  `yaml:"cfar_mode" json:"cfar_mode"`
-	CFARGuardHz     float64 `yaml:"cfar_guard_hz" json:"cfar_guard_hz"`
-	CFARTrainHz     float64 `yaml:"cfar_train_hz" json:"cfar_train_hz"`
-	CFARGuardCells  int     `yaml:"cfar_guard_cells,omitempty" json:"cfar_guard_cells,omitempty"`
-	CFARTrainCells  int     `yaml:"cfar_train_cells,omitempty" json:"cfar_train_cells,omitempty"`
-	CFARRank        int     `yaml:"cfar_rank" json:"cfar_rank"`
-	CFARScaleDb     float64 `yaml:"cfar_scale_db" json:"cfar_scale_db"`
-	CFARWrapAround  bool    `yaml:"cfar_wrap_around" json:"cfar_wrap_around"`
-	EdgeMarginDb    float64 `yaml:"edge_margin_db" json:"edge_margin_db"`
-	MaxSignalBwHz   float64 `yaml:"max_signal_bw_hz" json:"max_signal_bw_hz"`
-	MergeGapHz      float64 `yaml:"merge_gap_hz" json:"merge_gap_hz"`
-	ClassHistorySize int    `yaml:"class_history_size" json:"class_history_size"`
+	ThresholdDb      float64 `yaml:"threshold_db" json:"threshold_db"`
+	MinDurationMs    int     `yaml:"min_duration_ms" json:"min_duration_ms"`
+	HoldMs           int     `yaml:"hold_ms" json:"hold_ms"`
+	EmaAlpha         float64 `yaml:"ema_alpha" json:"ema_alpha"`
+	HysteresisDb     float64 `yaml:"hysteresis_db" json:"hysteresis_db"`
+	MinStableFrames  int     `yaml:"min_stable_frames" json:"min_stable_frames"`
+	GapToleranceMs   int     `yaml:"gap_tolerance_ms" json:"gap_tolerance_ms"`
+	CFARMode         string  `yaml:"cfar_mode" json:"cfar_mode"`
+	CFARGuardHz      float64 `yaml:"cfar_guard_hz" json:"cfar_guard_hz"`
+	CFARTrainHz      float64 `yaml:"cfar_train_hz" json:"cfar_train_hz"`
+	CFARGuardCells   int     `yaml:"cfar_guard_cells,omitempty" json:"cfar_guard_cells,omitempty"`
+	CFARTrainCells   int     `yaml:"cfar_train_cells,omitempty" json:"cfar_train_cells,omitempty"`
+	CFARRank         int     `yaml:"cfar_rank" json:"cfar_rank"`
+	CFARScaleDb      float64 `yaml:"cfar_scale_db" json:"cfar_scale_db"`
+	CFARWrapAround   bool    `yaml:"cfar_wrap_around" json:"cfar_wrap_around"`
+	EdgeMarginDb     float64 `yaml:"edge_margin_db" json:"edge_margin_db"`
+	MaxSignalBwHz    float64 `yaml:"max_signal_bw_hz" json:"max_signal_bw_hz"`
+	MergeGapHz       float64 `yaml:"merge_gap_hz" json:"merge_gap_hz"`
+	ClassHistorySize int     `yaml:"class_history_size" json:"class_history_size"`
 	ClassSwitchRatio float64 `yaml:"class_switch_ratio" json:"class_switch_ratio"`
 
 	// Deprecated (backward compatibility)
@@ -56,7 +56,7 @@ type RecorderConfig struct {
 	RingSeconds int      `yaml:"ring_seconds" json:"ring_seconds"`
 
 	// Audio quality settings (AQ-2, AQ-3, AQ-5)
-	DeemphasisUs     float64 `yaml:"deemphasis_us" json:"deemphasis_us"`         // De-emphasis time constant in µs. 50=Europe, 75=US/Japan, 0=disabled. Default: 50
+	DeemphasisUs     float64 `yaml:"deemphasis_us" json:"deemphasis_us"`             // De-emphasis time constant in µs. 50=Europe, 75=US/Japan, 0=disabled. Default: 50
 	ExtractionTaps   int     `yaml:"extraction_fir_taps" json:"extraction_fir_taps"` // FIR tap count for extraction filter. Default: 101, max 301
 	ExtractionBwMult float64 `yaml:"extraction_bw_mult" json:"extraction_bw_mult"`   // BW multiplier for extraction. Default: 1.2 (20% wider than detected)
 }
@@ -71,13 +71,13 @@ type DecoderConfig struct {
 }
 
 type PipelineGoalConfig struct {
-	Intent              string   `yaml:"intent" json:"intent"`
-	MonitorStartHz      float64  `yaml:"monitor_start_hz" json:"monitor_start_hz"`
-	MonitorEndHz        float64  `yaml:"monitor_end_hz" json:"monitor_end_hz"`
-	MonitorSpanHz       float64  `yaml:"monitor_span_hz" json:"monitor_span_hz"`
-	SignalPriorities    []string `yaml:"signal_priorities" json:"signal_priorities"`
-	AutoRecordClasses   []string `yaml:"auto_record_classes" json:"auto_record_classes"`
-	AutoDecodeClasses   []string `yaml:"auto_decode_classes" json:"auto_decode_classes"`
+	Intent            string   `yaml:"intent" json:"intent"`
+	MonitorStartHz    float64  `yaml:"monitor_start_hz" json:"monitor_start_hz"`
+	MonitorEndHz      float64  `yaml:"monitor_end_hz" json:"monitor_end_hz"`
+	MonitorSpanHz     float64  `yaml:"monitor_span_hz" json:"monitor_span_hz"`
+	SignalPriorities  []string `yaml:"signal_priorities" json:"signal_priorities"`
+	AutoRecordClasses []string `yaml:"auto_record_classes" json:"auto_record_classes"`
+	AutoDecodeClasses []string `yaml:"auto_decode_classes" json:"auto_decode_classes"`
 }
 
 type PipelineConfig struct {
@@ -94,51 +94,53 @@ type SurveillanceConfig struct {
 }
 
 type RefinementConfig struct {
-	Enabled             bool `yaml:"enabled" json:"enabled"`
-	MaxConcurrent       int  `yaml:"max_concurrent" json:"max_concurrent"`
-	MinCandidateSNRDb   float64 `yaml:"min_candidate_snr_db" json:"min_candidate_snr_db"`
+	Enabled           bool    `yaml:"enabled" json:"enabled"`
+	MaxConcurrent     int     `yaml:"max_concurrent" json:"max_concurrent"`
+	MinCandidateSNRDb float64 `yaml:"min_candidate_snr_db" json:"min_candidate_snr_db"`
+	MinSpanHz         float64 `yaml:"min_span_hz" json:"min_span_hz"`
+	MaxSpanHz         float64 `yaml:"max_span_hz" json:"max_span_hz"`
 }
 
 type ResourceConfig struct {
-	PreferGPU             bool `yaml:"prefer_gpu" json:"prefer_gpu"`
-	MaxRefinementJobs     int  `yaml:"max_refinement_jobs" json:"max_refinement_jobs"`
-	MaxRecordingStreams   int  `yaml:"max_recording_streams" json:"max_recording_streams"`
+	PreferGPU           bool `yaml:"prefer_gpu" json:"prefer_gpu"`
+	MaxRefinementJobs   int  `yaml:"max_refinement_jobs" json:"max_refinement_jobs"`
+	MaxRecordingStreams int  `yaml:"max_recording_streams" json:"max_recording_streams"`
 }
 
 type ProfileConfig struct {
-	Name        string             `yaml:"name" json:"name"`
-	Description string             `yaml:"description" json:"description"`
-	Pipeline    *PipelineConfig    `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
+	Name         string              `yaml:"name" json:"name"`
+	Description  string              `yaml:"description" json:"description"`
+	Pipeline     *PipelineConfig     `yaml:"pipeline,omitempty" json:"pipeline,omitempty"`
 	Surveillance *SurveillanceConfig `yaml:"surveillance,omitempty" json:"surveillance,omitempty"`
-	Refinement  *RefinementConfig  `yaml:"refinement,omitempty" json:"refinement,omitempty"`
-	Resources   *ResourceConfig    `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Refinement   *RefinementConfig   `yaml:"refinement,omitempty" json:"refinement,omitempty"`
+	Resources    *ResourceConfig     `yaml:"resources,omitempty" json:"resources,omitempty"`
 }
 
 type Config struct {
-	Bands          []Band              `yaml:"bands" json:"bands"`
-	CenterHz       float64             `yaml:"center_hz" json:"center_hz"`
-	SampleRate     int                 `yaml:"sample_rate" json:"sample_rate"`
-	FFTSize        int                 `yaml:"fft_size" json:"fft_size"`
-	GainDb         float64             `yaml:"gain_db" json:"gain_db"`
-	TunerBwKHz     int                 `yaml:"tuner_bw_khz" json:"tuner_bw_khz"`
-	UseGPUFFT      bool                `yaml:"use_gpu_fft" json:"use_gpu_fft"`
-	ClassifierMode string              `yaml:"classifier_mode" json:"classifier_mode"`
-	AGC            bool                `yaml:"agc" json:"agc"`
-	DCBlock        bool                `yaml:"dc_block" json:"dc_block"`
-	IQBalance      bool                `yaml:"iq_balance" json:"iq_balance"`
-	Pipeline       PipelineConfig      `yaml:"pipeline" json:"pipeline"`
-	Surveillance   SurveillanceConfig  `yaml:"surveillance" json:"surveillance"`
-	Refinement     RefinementConfig    `yaml:"refinement" json:"refinement"`
-	Resources      ResourceConfig      `yaml:"resources" json:"resources"`
-	Profiles       []ProfileConfig     `yaml:"profiles" json:"profiles"`
-	Detector       DetectorConfig      `yaml:"detector" json:"detector"`
-	Recorder       RecorderConfig      `yaml:"recorder" json:"recorder"`
-	Decoder        DecoderConfig       `yaml:"decoder" json:"decoder"`
-	WebAddr        string              `yaml:"web_addr" json:"web_addr"`
-	EventPath      string              `yaml:"event_path" json:"event_path"`
-	FrameRate      int                 `yaml:"frame_rate" json:"frame_rate"`
-	WaterfallLines int                 `yaml:"waterfall_lines" json:"waterfall_lines"`
-	WebRoot        string              `yaml:"web_root" json:"web_root"`
+	Bands          []Band             `yaml:"bands" json:"bands"`
+	CenterHz       float64            `yaml:"center_hz" json:"center_hz"`
+	SampleRate     int                `yaml:"sample_rate" json:"sample_rate"`
+	FFTSize        int                `yaml:"fft_size" json:"fft_size"`
+	GainDb         float64            `yaml:"gain_db" json:"gain_db"`
+	TunerBwKHz     int                `yaml:"tuner_bw_khz" json:"tuner_bw_khz"`
+	UseGPUFFT      bool               `yaml:"use_gpu_fft" json:"use_gpu_fft"`
+	ClassifierMode string             `yaml:"classifier_mode" json:"classifier_mode"`
+	AGC            bool               `yaml:"agc" json:"agc"`
+	DCBlock        bool               `yaml:"dc_block" json:"dc_block"`
+	IQBalance      bool               `yaml:"iq_balance" json:"iq_balance"`
+	Pipeline       PipelineConfig     `yaml:"pipeline" json:"pipeline"`
+	Surveillance   SurveillanceConfig `yaml:"surveillance" json:"surveillance"`
+	Refinement     RefinementConfig   `yaml:"refinement" json:"refinement"`
+	Resources      ResourceConfig     `yaml:"resources" json:"resources"`
+	Profiles       []ProfileConfig    `yaml:"profiles" json:"profiles"`
+	Detector       DetectorConfig     `yaml:"detector" json:"detector"`
+	Recorder       RecorderConfig     `yaml:"recorder" json:"recorder"`
+	Decoder        DecoderConfig      `yaml:"decoder" json:"decoder"`
+	WebAddr        string             `yaml:"web_addr" json:"web_addr"`
+	EventPath      string             `yaml:"event_path" json:"event_path"`
+	FrameRate      int                `yaml:"frame_rate" json:"frame_rate"`
+	WaterfallLines int                `yaml:"waterfall_lines" json:"waterfall_lines"`
+	WebRoot        string             `yaml:"web_root" json:"web_root"`
 }
 
 func Default() Config {
@@ -146,16 +148,16 @@ func Default() Config {
 		Bands: []Band{
 			{Name: "example", StartHz: 99.5e6, EndHz: 100.5e6},
 		},
-		CenterHz:   100.0e6,
-		SampleRate: 2_048_000,
-		FFTSize:    2048,
-		GainDb:     30,
-		TunerBwKHz: 1536,
-		UseGPUFFT:  false,
+		CenterHz:       100.0e6,
+		SampleRate:     2_048_000,
+		FFTSize:        2048,
+		GainDb:         30,
+		TunerBwKHz:     1536,
+		UseGPUFFT:      false,
 		ClassifierMode: "combined",
-		AGC:        false,
-		DCBlock:    false,
-		IQBalance:  false,
+		AGC:            false,
+		DCBlock:        false,
+		IQBalance:      false,
 		Pipeline: PipelineConfig{
 			Mode: "legacy",
 			Goals: PipelineGoalConfig{
@@ -173,6 +175,8 @@ func Default() Config {
 			Enabled:           true,
 			MaxConcurrent:     8,
 			MinCandidateSNRDb: 0,
+			MinSpanHz:         0,
+			MaxSpanHz:         0,
 		},
 		Resources: ResourceConfig{
 			PreferGPU:           true,
@@ -186,39 +190,39 @@ func Default() Config {
 			{Name: "archive", Description: "Record-first monitoring profile", Pipeline: &PipelineConfig{Mode: "archive", Goals: PipelineGoalConfig{Intent: "archive-and-triage"}}},
 		},
 		Detector: DetectorConfig{
-			ThresholdDb:     -20,
-			MinDurationMs:   250,
-			HoldMs:          500,
-			EmaAlpha:        0.2,
-			HysteresisDb:    3,
-			MinStableFrames: 3,
-			GapToleranceMs:  500,
-			CFARMode:        "GOSCA",
-			CFARGuardHz:     500,
-			CFARTrainHz:     5000,
-			CFARGuardCells:  3,
-			CFARTrainCells:  24,
-			CFARRank:        36,
-			CFARScaleDb:     6,
-			CFARWrapAround:  true,
-			EdgeMarginDb:    3.0,
-			MaxSignalBwHz:   150000,
-			MergeGapHz:      5000,
+			ThresholdDb:      -20,
+			MinDurationMs:    250,
+			HoldMs:           500,
+			EmaAlpha:         0.2,
+			HysteresisDb:     3,
+			MinStableFrames:  3,
+			GapToleranceMs:   500,
+			CFARMode:         "GOSCA",
+			CFARGuardHz:      500,
+			CFARTrainHz:      5000,
+			CFARGuardCells:   3,
+			CFARTrainCells:   24,
+			CFARRank:         36,
+			CFARScaleDb:      6,
+			CFARWrapAround:   true,
+			EdgeMarginDb:     3.0,
+			MaxSignalBwHz:    150000,
+			MergeGapHz:       5000,
 			ClassHistorySize: 10,
 			ClassSwitchRatio: 0.6,
 		},
 		Recorder: RecorderConfig{
-			Enabled:     false,
-			MinSNRDb:    10,
-			MinDuration: "1s",
-			MaxDuration: "300s",
-			PrerollMs:   500,
-			RecordIQ:    true,
-			RecordAudio: false,
-			AutoDemod:   true,
-			AutoDecode:  false,
-			MaxDiskMB:   0,
-			OutputDir:   "data/recordings",
+			Enabled:          false,
+			MinSNRDb:         10,
+			MinDuration:      "1s",
+			MaxDuration:      "300s",
+			PrerollMs:        500,
+			RecordIQ:         true,
+			RecordAudio:      false,
+			AutoDemod:        true,
+			AutoDecode:       false,
+			MaxDiskMB:        0,
+			OutputDir:        "data/recordings",
 			RingSeconds:      8,
 			DeemphasisUs:     50,
 			ExtractionTaps:   101,
@@ -348,6 +352,12 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Refinement.MaxConcurrent <= 0 {
 		cfg.Refinement.MaxConcurrent = 8
+	}
+	if cfg.Refinement.MinSpanHz < 0 {
+		cfg.Refinement.MinSpanHz = 0
+	}
+	if cfg.Refinement.MaxSpanHz < 0 {
+		cfg.Refinement.MaxSpanHz = 0
 	}
 	if cfg.Resources.MaxRefinementJobs <= 0 {
 		cfg.Resources.MaxRefinementJobs = cfg.Refinement.MaxConcurrent
