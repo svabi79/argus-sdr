@@ -77,6 +77,23 @@ func TestBuildRefinementPlanAppliesMonitorSpan(t *testing.T) {
 	}
 }
 
+func TestBuildRefinementPlanAppliesMonitorSpanCentered(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 5, MinCandidateSNRDb: 0, MonitorCenterHz: 300, MonitorSpanHz: 200}
+	cands := []Candidate{
+		{ID: 1, CenterHz: 100, BandwidthHz: 20},
+		{ID: 2, CenterHz: 250, BandwidthHz: 50},
+		{ID: 3, CenterHz: 300, BandwidthHz: 100},
+		{ID: 4, CenterHz: 420, BandwidthHz: 50},
+	}
+	plan := BuildRefinementPlan(cands, policy)
+	if plan.DroppedByMonitor != 1 {
+		t.Fatalf("expected 1 dropped by monitor, got %d", plan.DroppedByMonitor)
+	}
+	if len(plan.Selected) != 3 {
+		t.Fatalf("expected 3 selected within monitor, got %d", len(plan.Selected))
+	}
+}
+
 func TestAutoSpanForHint(t *testing.T) {
 	span, source := AutoSpanForHint("WFM_STEREO")
 	if span < 150000 || source == "" {

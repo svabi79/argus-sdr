@@ -10,8 +10,15 @@ import (
 )
 
 type PipelineUpdate struct {
-	Mode    *string `json:"mode"`
-	Profile *string `json:"profile"`
+	Mode              *string   `json:"mode"`
+	Profile           *string   `json:"profile"`
+	Intent            *string   `json:"intent"`
+	MonitorStartHz    *float64  `json:"monitor_start_hz"`
+	MonitorEndHz      *float64  `json:"monitor_end_hz"`
+	MonitorSpanHz     *float64  `json:"monitor_span_hz"`
+	SignalPriorities  *[]string `json:"signal_priorities"`
+	AutoRecordClasses *[]string `json:"auto_record_classes"`
+	AutoDecodeClasses *[]string `json:"auto_decode_classes"`
 }
 
 type SurveillanceUpdate struct {
@@ -26,12 +33,17 @@ type RefinementUpdate struct {
 	Enabled           *bool    `json:"enabled"`
 	MaxConcurrent     *int     `json:"max_concurrent"`
 	MinCandidateSNRDb *float64 `json:"min_candidate_snr_db"`
+	MinSpanHz         *float64 `json:"min_span_hz"`
+	MaxSpanHz         *float64 `json:"max_span_hz"`
+	AutoSpan          *bool    `json:"auto_span"`
 }
 
 type ResourcesUpdate struct {
-	PreferGPU          *bool `json:"prefer_gpu"`
-	MaxRefinementJobs  *int  `json:"max_refinement_jobs"`
-	MaxRecordingStreams *int `json:"max_recording_streams"`
+	PreferGPU           *bool `json:"prefer_gpu"`
+	MaxRefinementJobs   *int  `json:"max_refinement_jobs"`
+	MaxRecordingStreams *int  `json:"max_recording_streams"`
+	MaxDecodeJobs       *int  `json:"max_decode_jobs"`
+	DecisionHoldMs      *int  `json:"decision_hold_ms"`
 }
 
 type ConfigUpdate struct {
@@ -163,8 +175,40 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 			return m.cfg, errors.New("classifier_mode must be rule, math, or combined")
 		}
 	}
-	if update.Pipeline != nil && update.Pipeline.Mode != nil {
-		next.Pipeline.Mode = *update.Pipeline.Mode
+	if update.Pipeline != nil {
+		if update.Pipeline.Mode != nil {
+			next.Pipeline.Mode = *update.Pipeline.Mode
+		}
+		if update.Pipeline.Intent != nil {
+			next.Pipeline.Goals.Intent = *update.Pipeline.Intent
+		}
+		if update.Pipeline.MonitorStartHz != nil {
+			next.Pipeline.Goals.MonitorStartHz = *update.Pipeline.MonitorStartHz
+		}
+		if update.Pipeline.MonitorEndHz != nil {
+			next.Pipeline.Goals.MonitorEndHz = *update.Pipeline.MonitorEndHz
+		}
+		if update.Pipeline.MonitorSpanHz != nil {
+			if *update.Pipeline.MonitorSpanHz <= 0 {
+				return m.cfg, errors.New("monitor_span_hz must be > 0")
+			}
+			next.Pipeline.Goals.MonitorSpanHz = *update.Pipeline.MonitorSpanHz
+		}
+		if update.Pipeline.SignalPriorities != nil {
+			next.Pipeline.Goals.SignalPriorities = append([]string(nil), (*update.Pipeline.SignalPriorities)...)
+		}
+		if update.Pipeline.AutoRecordClasses != nil {
+			next.Pipeline.Goals.AutoRecordClasses = append([]string(nil), (*update.Pipeline.AutoRecordClasses)...)
+		}
+		if update.Pipeline.AutoDecodeClasses != nil {
+			next.Pipeline.Goals.AutoDecodeClasses = append([]string(nil), (*update.Pipeline.AutoDecodeClasses)...)
+		}
+		if next.Pipeline.Goals.MonitorStartHz != 0 && next.Pipeline.Goals.MonitorEndHz != 0 && next.Pipeline.Goals.MonitorEndHz <= next.Pipeline.Goals.MonitorStartHz {
+			return m.cfg, errors.New("monitor_end_hz must be > monitor_start_hz")
+		}
+		if next.Pipeline.Goals.MonitorSpanHz <= 0 && next.Pipeline.Goals.MonitorStartHz != 0 && next.Pipeline.Goals.MonitorEndHz != 0 && next.Pipeline.Goals.MonitorEndHz > next.Pipeline.Goals.MonitorStartHz {
+			next.Pipeline.Goals.MonitorSpanHz = next.Pipeline.Goals.MonitorEndHz - next.Pipeline.Goals.MonitorStartHz
+		}
 	}
 	if update.Surveillance != nil {
 		if update.Surveillance.AnalysisFFTSize != nil {
@@ -217,6 +261,24 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 		if update.Refinement.MinCandidateSNRDb != nil {
 			next.Refinement.MinCandidateSNRDb = *update.Refinement.MinCandidateSNRDb
 		}
+		if update.Refinement.MinSpanHz != nil {
+			if *update.Refinement.MinSpanHz < 0 {
+				return m.cfg, errors.New("refinement.min_span_hz must be >= 0")
+			}
+			next.Refinement.MinSpanHz = *update.Refinement.MinSpanHz
+		}
+		if update.Refinement.MaxSpanHz != nil {
+			if *update.Refinement.MaxSpanHz < 0 {
+				return m.cfg, errors.New("refinement.max_span_hz must be >= 0")
+			}
+			next.Refinement.MaxSpanHz = *update.Refinement.MaxSpanHz
+		}
+		if update.Refinement.AutoSpan != nil {
+			next.Refinement.AutoSpan = update.Refinement.AutoSpan
+		}
+		if next.Refinement.MaxSpanHz > 0 && next.Refinement.MinSpanHz > next.Refinement.MaxSpanHz {
+			return m.cfg, errors.New("refinement.min_span_hz must be <= refinement.max_span_hz")
+		}
 	}
 	if update.Resources != nil {
 		if update.Resources.PreferGPU != nil {
@@ -233,6 +295,18 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 				return m.cfg, errors.New("resources.max_recording_streams must be > 0")
 			}
 			next.Resources.MaxRecordingStreams = *update.Resources.MaxRecordingStreams
+		}
+		if update.Resources.MaxDecodeJobs != nil {
+			if *update.Resources.MaxDecodeJobs <= 0 {
+				return m.cfg, errors.New("resources.max_decode_jobs must be > 0")
+			}
+			next.Resources.MaxDecodeJobs = *update.Resources.MaxDecodeJobs
+		}
+		if update.Resources.DecisionHoldMs != nil {
+			if *update.Resources.DecisionHoldMs < 0 {
+				return m.cfg, errors.New("resources.decision_hold_ms must be >= 0")
+			}
+			next.Resources.DecisionHoldMs = *update.Resources.DecisionHoldMs
 		}
 	}
 	if update.Detector != nil {

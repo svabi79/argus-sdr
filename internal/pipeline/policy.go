@@ -5,6 +5,7 @@ import "sdr-wideband-suite/internal/config"
 type Policy struct {
 	Mode                    string   `json:"mode"`
 	Intent                  string   `json:"intent"`
+	MonitorCenterHz         float64  `json:"monitor_center_hz,omitempty"`
 	MonitorStartHz          float64  `json:"monitor_start_hz,omitempty"`
 	MonitorEndHz            float64  `json:"monitor_end_hz,omitempty"`
 	MonitorSpanHz           float64  `json:"monitor_span_hz,omitempty"`
@@ -32,6 +33,7 @@ func PolicyFromConfig(cfg config.Config) Policy {
 	return Policy{
 		Mode:                    cfg.Pipeline.Mode,
 		Intent:                  cfg.Pipeline.Goals.Intent,
+		MonitorCenterHz:         cfg.CenterHz,
 		MonitorStartHz:          cfg.Pipeline.Goals.MonitorStartHz,
 		MonitorEndHz:            cfg.Pipeline.Goals.MonitorEndHz,
 		MonitorSpanHz:           cfg.Pipeline.Goals.MonitorSpanHz,

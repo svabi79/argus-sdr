@@ -24,18 +24,37 @@ func TestApplyConfigUpdate(t *testing.T) {
 
 	mode := "wideband-balanced"
 	profile := "wideband-balanced"
+	intent := "wideband-surveillance"
+	monitorSpan := 500000.0
+	signalPriorities := []string{"digital", "weak"}
+	autoRecord := []string{"WFM"}
+	autoDecode := []string{"FT8"}
 	survFPS := 12
 	displayBins := 1024
 	displayFPS := 8
 	maxRefJobs := 24
+	minSpan := 4000.0
+	maxSpan := 200000.0
+	autoSpan := false
+	maxDecode := 12
+	decisionHold := 1500
 	updated, err := mgr.ApplyConfig(ConfigUpdate{
 		CenterHz:   &center,
 		SampleRate: &sampleRate,
 		FFTSize:    &fftSize,
 		TunerBwKHz: &bw,
-		Pipeline:   &PipelineUpdate{Mode: &mode, Profile: &profile},
+		Pipeline: &PipelineUpdate{
+			Mode:              &mode,
+			Profile:           &profile,
+			Intent:            &intent,
+			MonitorSpanHz:     &monitorSpan,
+			SignalPriorities:  &signalPriorities,
+			AutoRecordClasses: &autoRecord,
+			AutoDecodeClasses: &autoDecode,
+		},
 		Surveillance: &SurveillanceUpdate{FrameRate: &survFPS, DisplayBins: &displayBins, DisplayFPS: &displayFPS},
-		Resources: &ResourcesUpdate{MaxRefinementJobs: &maxRefJobs},
+		Refinement: &RefinementUpdate{MinSpanHz: &minSpan, MaxSpanHz: &maxSpan, AutoSpan: &autoSpan},
+		Resources:  &ResourcesUpdate{MaxRefinementJobs: &maxRefJobs, MaxDecodeJobs: &maxDecode, DecisionHoldMs: &decisionHold},
 		Detector: &DetectorUpdate{
 			ThresholdDb:    &threshold,
 			CFARMode:       &cfarMode,
@@ -88,14 +107,41 @@ func TestApplyConfigUpdate(t *testing.T) {
 	if updated.Pipeline.Mode != mode {
 		t.Fatalf("pipeline mode: %v", updated.Pipeline.Mode)
 	}
+	if updated.Pipeline.Goals.Intent != intent {
+		t.Fatalf("pipeline intent: %v", updated.Pipeline.Goals.Intent)
+	}
+	if updated.Pipeline.Goals.MonitorSpanHz != monitorSpan {
+		t.Fatalf("monitor span: %v", updated.Pipeline.Goals.MonitorSpanHz)
+	}
+	if len(updated.Pipeline.Goals.SignalPriorities) != len(signalPriorities) {
+		t.Fatalf("signal priorities not applied")
+	}
+	if len(updated.Pipeline.Goals.AutoRecordClasses) != len(autoRecord) {
+		t.Fatalf("auto record classes not applied")
+	}
+	if len(updated.Pipeline.Goals.AutoDecodeClasses) != len(autoDecode) {
+		t.Fatalf("auto decode classes not applied")
+	}
 	if updated.Surveillance.FrameRate != survFPS || updated.FrameRate != survFPS {
 		t.Fatalf("surveillance frame rate: %v / %v", updated.Surveillance.FrameRate, updated.FrameRate)
 	}
 	if updated.Resources.MaxRefinementJobs != maxRefJobs {
 		t.Fatalf("max refinement jobs: %v", updated.Resources.MaxRefinementJobs)
 	}
+	if updated.Resources.MaxDecodeJobs != maxDecode {
+		t.Fatalf("max decode jobs: %v", updated.Resources.MaxDecodeJobs)
+	}
+	if updated.Resources.DecisionHoldMs != decisionHold {
+		t.Fatalf("decision hold: %v", updated.Resources.DecisionHoldMs)
+	}
 	if updated.Surveillance.DisplayBins != displayBins || updated.Surveillance.DisplayFPS != displayFPS {
 		t.Fatalf("display settings not applied: bins=%d fps=%d", updated.Surveillance.DisplayBins, updated.Surveillance.DisplayFPS)
+	}
+	if updated.Refinement.MinSpanHz != minSpan || updated.Refinement.MaxSpanHz != maxSpan {
+		t.Fatalf("refinement span not applied: %v / %v", updated.Refinement.MinSpanHz, updated.Refinement.MaxSpanHz)
+	}
+	if updated.Refinement.AutoSpan == nil || *updated.Refinement.AutoSpan != autoSpan {
+		t.Fatalf("refinement auto span not applied")
 	}
 }
 

@@ -49,6 +49,9 @@ func TestPolicyFromConfig(t *testing.T) {
 	if p.MonitorSpanHz != 20e6 || len(p.SignalPriorities) != 2 {
 		t.Fatalf("unexpected policy goals: %+v", p)
 	}
+	if p.MonitorCenterHz != cfg.CenterHz {
+		t.Fatalf("unexpected monitor center: %+v", p.MonitorCenterHz)
+	}
 	if !p.RefinementEnabled || p.MaxRefinementJobs != 5 || p.MinCandidateSNRDb != 2.5 || !p.PreferGPU {
 		t.Fatalf("unexpected policy details: %+v", p)
 	}
