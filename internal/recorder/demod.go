@@ -40,7 +40,10 @@ func (m *Manager) demodAndWrite(dir string, ev detector.Event, iq []complex64, f
 	if audio == nil {
 		if name == "WFM_STEREO" {
 			log.Printf("gpudemod: WFM_STEREO using hybrid stereo/RDS post-process for event %d", ev.ID)
-			res := demodWFMStereoHybrid(m.gpuEngine(), iq, m.sampleRate, offset, bw)
+			m.mu.RLock()
+			deemphasisUs := m.policy.DeemphasisUs
+			m.mu.RUnlock()
+			res := demodWFMStereoHybrid(m.gpuEngine(), iq, m.sampleRate, offset, bw, deemphasisUs)
 			stereoHybrid = &res
 			audio = res.Audio
 			inputRate = res.AudioRate

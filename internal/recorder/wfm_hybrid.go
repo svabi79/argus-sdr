@@ -15,8 +15,8 @@ type wfmHybridResult struct {
 	RDSRate   int
 }
 
-func demodWFMStereoHybrid(gpu *gpudemod.Engine, iq []complex64, sampleRate int, offset float64, bw float64) wfmHybridResult {
-	audio, rate := demodAudioCPU(demod.Get("WFM_STEREO"), iq, sampleRate, offset, bw)
+func demodWFMStereoHybrid(gpu *gpudemod.Engine, iq []complex64, sampleRate int, offset float64, bw float64, deemphasisUs float64) wfmHybridResult {
+	audio, rate := demodWFMStereoBatchAudio(iq, sampleRate, offset, bw, deemphasisUs)
 
 	var rdsSamples []float32
 	var rdsRate int
