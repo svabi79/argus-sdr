@@ -146,6 +146,34 @@ func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *rec
 	}
 }
 
+func (rt *dspRuntime) spectrumFromIQ(iq []complex64, gpuState *gpuStatus) []float64 {
+	if len(iq) == 0 {
+		return nil
+	}
+	if rt.useGPU && rt.gpuEngine != nil {
+		gpuBuf := make([]complex64, len(iq))
+		if len(rt.window) == len(iq) {
+			for i := 0; i < len(iq); i++ {
+				v := iq[i]
+				w := float32(rt.window[i])
+				gpuBuf[i] = complex(real(v)*w, imag(v)*w)
+			}
+		} else {
+			copy(gpuBuf, iq)
+		}
+		out, err := rt.gpuEngine.Exec(gpuBuf)
+		if err != nil {
+			if gpuState != nil {
+				gpuState.set(false, err)
+			}
+			rt.useGPU = false
+			return fftutil.SpectrumWithPlan(gpuBuf, nil, rt.plan)
+		}
+		return fftutil.SpectrumFromFFT(out)
+	}
+	return fftutil.SpectrumWithPlan(iq, rt.window, rt.plan)
+}
+
 func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manager, dcBlocker *dsp.DCBlocker, gpuState *gpuStatus) (*spectrumArtifacts, error) {
 	available := rt.cfg.FFTSize
 	st := srcMgr.Stats()
@@ -172,44 +200,30 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	if rt.iqEnabled {
 		dsp.IQBalance(survIQ)
 	}
-	var spectrum []float64
-	if rt.useGPU && rt.gpuEngine != nil {
-		gpuBuf := make([]complex64, len(survIQ))
-		if len(rt.window) == len(survIQ) {
-			for i := 0; i < len(survIQ); i++ {
-				v := survIQ[i]
-				w := float32(rt.window[i])
-				gpuBuf[i] = complex(real(v)*w, imag(v)*w)
-			}
-		} else {
-			copy(gpuBuf, survIQ)
+	survSpectrum := rt.spectrumFromIQ(survIQ, gpuState)
+	for i := range survSpectrum {
+		if math.IsNaN(survSpectrum[i]) || math.IsInf(survSpectrum[i], 0) {
+			survSpectrum[i] = -200
 		}
-		out, err := rt.gpuEngine.Exec(gpuBuf)
-		if err != nil {
-			if gpuState != nil {
-				gpuState.set(false, err)
-			}
-			rt.useGPU = false
-			spectrum = fftutil.SpectrumWithPlan(gpuBuf, nil, rt.plan)
-		} else {
-			spectrum = fftutil.SpectrumFromFFT(out)
-		}
-	} else {
-		spectrum = fftutil.SpectrumWithPlan(survIQ, rt.window, rt.plan)
 	}
-	for i := range spectrum {
-		if math.IsNaN(spectrum[i]) || math.IsInf(spectrum[i], 0) {
-			spectrum[i] = -200
+	detailIQ := survIQ
+	detailSpectrum := survSpectrum
+	if !sameIQBuffer(detailIQ, survIQ) {
+		detailSpectrum = rt.spectrumFromIQ(detailIQ, gpuState)
+		for i := range detailSpectrum {
+			if math.IsNaN(detailSpectrum[i]) || math.IsInf(detailSpectrum[i], 0) {
+				detailSpectrum[i] = -200
+			}
 		}
 	}
 	now := time.Now()
-	finished, detected := rt.det.Process(now, spectrum, rt.cfg.CenterHz)
+	finished, detected := rt.det.Process(now, survSpectrum, rt.cfg.CenterHz)
 	return &spectrumArtifacts{
 		allIQ:                allIQ,
 		surveillanceIQ:       survIQ,
-		detailIQ:             survIQ,
-		surveillanceSpectrum: spectrum,
-		detailSpectrum:       spectrum,
+		detailIQ:             detailIQ,
+		surveillanceSpectrum: survSpectrum,
+		detailSpectrum:       detailSpectrum,
 		finished:             finished,
 		detected:             detected,
 		thresholds:           rt.det.LastThresholds(),
@@ -498,14 +512,20 @@ func surveillanceLevels(policy pipeline.Policy, primary pipeline.AnalysisLevel, 
 	levels := []pipeline.AnalysisLevel{primary}
 	strategy := strings.ToLower(strings.TrimSpace(policy.SurveillanceStrategy))
 	switch strategy {
-	case "", "single-resolution":
-		if secondary.SampleRate != primary.SampleRate || secondary.FFTSize != primary.FFTSize {
-			levels = append(levels, secondary)
-		}
-	default:
+	case "multi-res", "multi-resolution", "multi", "multi_res":
 		if secondary.SampleRate != primary.SampleRate || secondary.FFTSize != primary.FFTSize {
 			levels = append(levels, secondary)
 		}
 	}
 	return levels
+}
+
+func sameIQBuffer(a []complex64, b []complex64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 {
+		return true
+	}
+	return &a[0] == &b[0]
 }
