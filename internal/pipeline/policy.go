@@ -30,7 +30,7 @@ type Policy struct {
 }
 
 func PolicyFromConfig(cfg config.Config) Policy {
-	return Policy{
+	p := Policy{
 		Mode:                    cfg.Pipeline.Mode,
 		Intent:                  cfg.Pipeline.Goals.Intent,
 		MonitorCenterHz:         cfg.CenterHz,
@@ -56,6 +56,10 @@ func PolicyFromConfig(cfg config.Config) Policy {
 		MaxDecodeJobs:           cfg.Resources.MaxDecodeJobs,
 		DecisionHoldMs:          cfg.Resources.DecisionHoldMs,
 	}
+	if p.MonitorSpanHz <= 0 && p.MonitorStartHz != 0 && p.MonitorEndHz != 0 && p.MonitorEndHz > p.MonitorStartHz {
+		p.MonitorSpanHz = p.MonitorEndHz - p.MonitorStartHz
+	}
+	return p
 }
 
 func ApplyNamedProfile(cfg *config.Config, name string) {

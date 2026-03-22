@@ -140,6 +140,9 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		recommend := map[string]any{
 			"mode":                   policy.Mode,
 			"intent":                 policy.Intent,
+			"monitor_center_hz":      policy.MonitorCenterHz,
+			"monitor_start_hz":       policy.MonitorStartHz,
+			"monitor_end_hz":         policy.MonitorEndHz,
 			"monitor_span_hz":        policy.MonitorSpanHz,
 			"signal_priorities":      policy.SignalPriorities,
 			"auto_record_classes":    policy.AutoRecordClasses,

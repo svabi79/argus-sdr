@@ -119,3 +119,24 @@ func TestScheduleCandidatesPriorityBoost(t *testing.T) {
 		t.Fatalf("expected priority boost to favor digital candidate, got %+v", got)
 	}
 }
+
+func TestBuildRefinementPlanPriorityStats(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0}
+	cands := []Candidate{
+		{ID: 1, CenterHz: 100, SNRDb: 8, BandwidthHz: 10000, PeakDb: 2},
+		{ID: 2, CenterHz: 200, SNRDb: 12, BandwidthHz: 20000, PeakDb: 4},
+	}
+	plan := BuildRefinementPlan(cands, policy)
+	if plan.PriorityMax < plan.PriorityMin {
+		t.Fatalf("priority bounds invalid: %+v", plan)
+	}
+	if len(plan.Selected) != 1 {
+		t.Fatalf("expected 1 selected, got %d", len(plan.Selected))
+	}
+	if plan.PriorityCutoff != plan.Selected[0].Priority {
+		t.Fatalf("expected cutoff to match selection, got %.2f vs %.2f", plan.PriorityCutoff, plan.Selected[0].Priority)
+	}
+	if plan.Selected[0].Breakdown == nil {
+		t.Fatalf("expected breakdown on selected candidate")
+	}
+}

@@ -27,9 +27,16 @@ type RefinementPlan struct {
 	TotalCandidates   int                  `json:"total_candidates"`
 	MinCandidateSNRDb float64              `json:"min_candidate_snr_db"`
 	Budget            int                  `json:"budget"`
+	MonitorStartHz    float64              `json:"monitor_start_hz,omitempty"`
+	MonitorEndHz      float64              `json:"monitor_end_hz,omitempty"`
+	MonitorSpanHz     float64              `json:"monitor_span_hz,omitempty"`
 	DroppedByMonitor  int                  `json:"dropped_by_monitor"`
 	DroppedBySNR      int                  `json:"dropped_by_snr"`
 	DroppedByBudget   int                  `json:"dropped_by_budget"`
+	PriorityMin       float64              `json:"priority_min,omitempty"`
+	PriorityMax       float64              `json:"priority_max,omitempty"`
+	PriorityAvg       float64              `json:"priority_avg,omitempty"`
+	PriorityCutoff    float64              `json:"priority_cutoff,omitempty"`
 	Selected          []ScheduledCandidate `json:"selected,omitempty"`
 }
 
