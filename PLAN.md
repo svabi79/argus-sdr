@@ -96,6 +96,9 @@ Neue Konfig-Teile einführen:
 - `resources.*`
 - optionale `profiles.*`
 
+Zusatz:
+- `refinement.detail_fft_size` für einen eigenständigen Detailpfad (Refinement-FFT) neben der Surveillance-FFT
+
 Wichtig:
 - Abwärtskompatibilität zur bisherigen Config möglichst erhalten
 - bisherige Felder weiterhin nutzbar
@@ -110,6 +113,7 @@ Wichtig:
 - zunächst mit CPU-/bestehendem GPU-Extraction-Pfad implementieren
 - Detector bleibt vorerst Kern der Candidate-Erzeugung
 - Refiner sitzt danach explizit als eigener Schritt in der Pipeline
+- Refinement-Workitems mit expliziten Ausführungsparametern (FFT/Span/Stage)
 
 ### E. Pipeline-Orchestrierung modularisieren
 - `runDSP()` entflechten
@@ -122,6 +126,7 @@ Wichtig:
   - track
   - present
   - record
+- Gemeinsame Arbitration-/Budget-Sicht für refinement/record/decode vorbereiten
 
 ### F. Dokumentierte Betriebsprofile
 - initiale Profile definieren, z. B.:

@@ -30,6 +30,7 @@ surveillance:
 refinement:
   enabled: true
   max_concurrent: 8
+  detail_fft_size: 2048
   min_candidate_snr_db: 0
   min_span_hz: 0
   max_span_hz: 0
@@ -37,13 +38,34 @@ refinement:
 profiles:
   - name: legacy
     description: Current single-band pipeline behavior
+    surveillance:
+      analysis_fft_size: 2048
+      strategy: single-resolution
+    resources:
+      max_refinement_jobs: 8
+      max_recording_streams: 16
+      max_decode_jobs: 16
+      decision_hold_ms: 2000
+    refinement:
+      max_concurrent: 8
+      detail_fft_size: 2048
     pipeline:
       mode: legacy
       goals:
         intent: general-monitoring
   - name: wideband-balanced
     description: Prepared baseline for scalable wideband surveillance
+    surveillance:
+      analysis_fft_size: 4096
+      strategy: multi-resolution
+    resources:
+      max_refinement_jobs: 16
+      max_recording_streams: 16
+      max_decode_jobs: 12
+      decision_hold_ms: 2000
     refinement:
+      max_concurrent: 16
+      detail_fft_size: 4096
       min_span_hz: 4000
       max_span_hz: 200000
     pipeline:
@@ -52,7 +74,17 @@ profiles:
         intent: wideband-surveillance
   - name: wideband-aggressive
     description: Higher surveillance/refinement budgets for future broad-span monitoring
+    surveillance:
+      analysis_fft_size: 8192
+      strategy: multi-resolution
+    resources:
+      max_refinement_jobs: 32
+      max_recording_streams: 24
+      max_decode_jobs: 16
+      decision_hold_ms: 2000
     refinement:
+      max_concurrent: 32
+      detail_fft_size: 8192
       min_span_hz: 6000
       max_span_hz: 250000
     pipeline:
@@ -61,6 +93,19 @@ profiles:
         intent: high-density-wideband-surveillance
   - name: archive
     description: Record-first monitoring profile
+    surveillance:
+      analysis_fft_size: 4096
+      strategy: single-resolution
+    resources:
+      max_refinement_jobs: 12
+      max_recording_streams: 24
+      max_decode_jobs: 12
+      decision_hold_ms: 2500
+    refinement:
+      max_concurrent: 12
+      detail_fft_size: 4096
+      min_span_hz: 4000
+      max_span_hz: 200000
     pipeline:
       mode: archive
       goals:

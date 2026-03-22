@@ -70,15 +70,16 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `surveillance.display_fps` — preferred presentation cadence for clients/UI
 - `refinement.enabled` — enables explicit candidate refinement stage
 - `refinement.max_concurrent` — refinement budget hint
+- `refinement.detail_fft_size` — FFT size for refinement/detail path (defaults to surveillance analysis FFT)
 - `refinement.min_candidate_snr_db` — floor for future scheduling decisions
 - `refinement.min_span_hz` / `refinement.max_span_hz` — clamp refinement window span (0 = no clamp)
 - `refinement.auto_span` — use mod-type heuristics when candidate bandwidth is missing/odd
 - `resources.prefer_gpu` — GPU preference hint
 
 **Operating profiles (wideband)**
-- `wideband-balanced`: multi-resolution, 4096 FFT, refinement span 4000-200000 Hz
-- `wideband-aggressive`: multi-resolution, 8192 FFT, refinement span 6000-250000 Hz
-- `archive`: record-forward bias, higher record/decode budgets
+- `wideband-balanced`: multi-resolution, 4096 surveillance/detail FFT, refinement span 4000-200000 Hz
+- `wideband-aggressive`: multi-resolution, 8192 surveillance/detail FFT, refinement span 6000-250000 Hz
+- `archive`: record-forward bias, higher record/decode budgets, 4096 detail FFT
 - `digital-hunting`: digital-first priorities and decode bias
 - `resources.max_refinement_jobs` — processing budget hint
 - `resources.max_recording_streams` — recording/streaming budget hint
@@ -158,7 +159,7 @@ go build -tags sdrplay ./cmd/sdrd
 - `GET /api/gpu`
 - `GET /api/pipeline/policy`
 - `GET /api/pipeline/recommendations`
-- `GET /api/refinement` → latest refinement plan/windows snapshot (includes `window_stats`, `queue_stats`, `decision_summary`, `decision_items`, levels, request/context/budgets/work_items)
+- `GET /api/refinement` → latest refinement plan/windows snapshot (includes `window_stats`, `queue_stats`, `decision_summary`, `decision_items`, `arbitration`, levels, request/context/budgets/work_items)
 
 ### Signals / Events
 - `GET /api/signals` → current live signals
