@@ -173,6 +173,60 @@ func TestScheduleCandidatesEvidenceBoost(t *testing.T) {
 	if plan.Ranked[0].Breakdown == nil || plan.Ranked[0].Breakdown.EvidenceScore <= 0 {
 		t.Fatalf("expected evidence score to be populated, got %+v", plan.Ranked[0].Breakdown)
 	}
+	if plan.Ranked[0].Breakdown.EvidenceDetail == nil || !plan.Ranked[0].Breakdown.EvidenceDetail.MultiLevelConfirmed {
+		t.Fatalf("expected evidence detail for multi-level candidate, got %+v", plan.Ranked[0].Breakdown)
+	}
+}
+
+func TestScheduleCandidatesDerivedOnlyPenalty(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 2, MinCandidateSNRDb: 0}
+	primary := Candidate{
+		ID:          1,
+		SNRDb:       10,
+		BandwidthHz: 12000,
+		Evidence: []LevelEvidence{
+			{Level: AnalysisLevel{Name: "surveillance", Role: "surveillance", Truth: "surveillance"}},
+		},
+	}
+	derived := Candidate{
+		ID:          2,
+		SNRDb:       10,
+		BandwidthHz: 12000,
+		Evidence: []LevelEvidence{
+			{Level: AnalysisLevel{Name: "surveillance-lowres", Role: "surveillance-lowres", Truth: "surveillance"}},
+		},
+	}
+	plan := BuildRefinementPlan([]Candidate{derived, primary}, policy)
+	if len(plan.Ranked) != 2 {
+		t.Fatalf("expected ranked candidates, got %d", len(plan.Ranked))
+	}
+	if plan.Ranked[0].Candidate.ID != primary.ID {
+		t.Fatalf("expected primary evidence to outrank derived-only, got %+v", plan.Ranked[0])
+	}
+}
+
+func TestScheduleCandidatesDerivedOnlyStrategyBias(t *testing.T) {
+	cand := Candidate{
+		ID:          1,
+		SNRDb:       9,
+		BandwidthHz: 12000,
+		Evidence: []LevelEvidence{
+			{Level: AnalysisLevel{Name: "surveillance-lowres", Role: "surveillance-lowres", Truth: "surveillance"}},
+		},
+	}
+	singlePlan := BuildRefinementPlan([]Candidate{cand}, Policy{MinCandidateSNRDb: 0})
+	multiPlan := BuildRefinementPlan([]Candidate{cand}, Policy{MinCandidateSNRDb: 0, SurveillanceStrategy: "multi-resolution"})
+	if len(singlePlan.Ranked) == 0 || len(multiPlan.Ranked) == 0 {
+		t.Fatalf("expected ranked candidates in both plans")
+	}
+	singleScore := singlePlan.Ranked[0].Breakdown.EvidenceScore
+	multiScore := multiPlan.Ranked[0].Breakdown.EvidenceScore
+	if multiScore <= singleScore {
+		t.Fatalf("expected multi-resolution strategy to improve derived-only evidence score, got %.3f vs %.3f", multiScore, singleScore)
+	}
+	if multiPlan.Ranked[0].Breakdown.EvidenceDetail == nil || multiPlan.Ranked[0].Breakdown.EvidenceDetail.StrategyBias <= 0 {
+		t.Fatalf("expected strategy bias detail for multi-resolution, got %+v", multiPlan.Ranked[0].Breakdown.EvidenceDetail)
+	}
 }
 
 func TestBuildRefinementPlanPriorityStats(t *testing.T) {

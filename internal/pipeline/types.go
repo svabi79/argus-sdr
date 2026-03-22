@@ -8,17 +8,18 @@ import (
 // Candidate is the coarse output of the surveillance detector.
 // It intentionally stays lightweight and cheap to produce.
 type Candidate struct {
-	ID          int64           `json:"id"`
-	CenterHz    float64         `json:"center_hz"`
-	BandwidthHz float64         `json:"bandwidth_hz"`
-	PeakDb      float64         `json:"peak_db"`
-	SNRDb       float64         `json:"snr_db"`
-	FirstBin    int             `json:"first_bin"`
-	LastBin     int             `json:"last_bin"`
-	NoiseDb     float64         `json:"noise_db,omitempty"`
-	Source      string          `json:"source,omitempty"`
-	Hint        string          `json:"hint,omitempty"`
-	Evidence    []LevelEvidence `json:"evidence,omitempty"`
+	ID            int64                   `json:"id"`
+	CenterHz      float64                 `json:"center_hz"`
+	BandwidthHz   float64                 `json:"bandwidth_hz"`
+	PeakDb        float64                 `json:"peak_db"`
+	SNRDb         float64                 `json:"snr_db"`
+	FirstBin      int                     `json:"first_bin"`
+	LastBin       int                     `json:"last_bin"`
+	NoiseDb       float64                 `json:"noise_db,omitempty"`
+	Source        string                  `json:"source,omitempty"`
+	Hint          string                  `json:"hint,omitempty"`
+	Evidence      []LevelEvidence         `json:"evidence,omitempty"`
+	EvidenceState *CandidateEvidenceState `json:"evidence_state,omitempty"`
 }
 
 // LevelEvidence captures which analysis level produced a candidate.

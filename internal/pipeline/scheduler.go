@@ -20,11 +20,12 @@ type RefinementScoreModel struct {
 }
 
 type RefinementScoreDetails struct {
-	SNRScore       float64 `json:"snr_score"`
-	BandwidthScore float64 `json:"bandwidth_score"`
-	PeakScore      float64 `json:"peak_score"`
-	PolicyBoost    float64 `json:"policy_boost"`
-	EvidenceScore  float64 `json:"evidence_score"`
+	SNRScore       float64               `json:"snr_score"`
+	BandwidthScore float64               `json:"bandwidth_score"`
+	PeakScore      float64               `json:"peak_score"`
+	PolicyBoost    float64               `json:"policy_boost"`
+	EvidenceScore  float64               `json:"evidence_score"`
+	EvidenceDetail *EvidenceScoreDetails `json:"evidence_detail,omitempty"`
 }
 
 type RefinementScore struct {
@@ -114,35 +115,41 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 	scored := make([]ScheduledCandidate, 0, len(candidates))
 	workItems := make([]RefinementWorkItem, 0, len(candidates))
 	for _, c := range candidates {
-		if !candidateInMonitor(policy, c) {
+		candidate := c
+		RefreshCandidateEvidenceState(&candidate)
+		if !candidateInMonitor(policy, candidate) {
 			plan.DroppedByMonitor++
 			workItems = append(workItems, RefinementWorkItem{
-				Candidate: c,
+				Candidate: candidate,
 				Status:    RefinementStatusDropped,
 				Reason:    RefinementReasonMonitorGate,
 			})
 			continue
 		}
-		if c.SNRDb < policy.MinCandidateSNRDb {
+		if candidate.SNRDb < policy.MinCandidateSNRDb {
 			plan.DroppedBySNR++
 			workItems = append(workItems, RefinementWorkItem{
-				Candidate: c,
+				Candidate: candidate,
 				Status:    RefinementStatusDropped,
 				Reason:    RefinementReasonBelowSNR,
 			})
 			continue
 		}
-		snrScore := c.SNRDb * scoreModel.SNRWeight
+		snrScore := candidate.SNRDb * scoreModel.SNRWeight
 		bwScore := 0.0
 		peakScore := 0.0
-		policyBoost := CandidatePriorityBoost(policy, c.Hint)
-		if c.BandwidthHz > 0 {
-			bwScore = minFloat64(c.BandwidthHz/25000.0, 6) * scoreModel.BandwidthWeight
+		policyBoost := CandidatePriorityBoost(policy, candidate.Hint)
+		if candidate.BandwidthHz > 0 {
+			bwScore = minFloat64(candidate.BandwidthHz/25000.0, 6) * scoreModel.BandwidthWeight
 		}
-		if c.PeakDb > 0 {
-			peakScore = (c.PeakDb / 20.0) * scoreModel.PeakWeight
+		if candidate.PeakDb > 0 {
+			peakScore = (candidate.PeakDb / 20.0) * scoreModel.PeakWeight
 		}
-		evidenceScore := candidateEvidenceScore(c) * scoreModel.EvidenceWeight
+		rawEvidenceScore, evidenceDetail := candidateEvidenceScore(candidate, strategy)
+		evidenceDetail.Weight = scoreModel.EvidenceWeight
+		evidenceDetail.RawScore = rawEvidenceScore
+		evidenceDetail.WeightedScore = rawEvidenceScore * scoreModel.EvidenceWeight
+		evidenceScore := evidenceDetail.WeightedScore
 		priority := snrScore + bwScore + peakScore + policyBoost
 		priority += evidenceScore
 		score := &RefinementScore{
@@ -153,17 +160,18 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 				PeakScore:      peakScore,
 				PolicyBoost:    policyBoost,
 				EvidenceScore:  evidenceScore,
+				EvidenceDetail: &evidenceDetail,
 			},
 			Weights: &scoreModel,
 		}
 		scored = append(scored, ScheduledCandidate{
-			Candidate: c,
+			Candidate: candidate,
 			Priority:  priority,
 			Score:     score,
 			Breakdown: &score.Breakdown,
 		})
 		workItems = append(workItems, RefinementWorkItem{
-			Candidate: c,
+			Candidate: candidate,
 			Priority:  priority,
 			Score:     score,
 			Breakdown: &score.Breakdown,
@@ -250,12 +258,67 @@ func applyStrategyWeights(strategy string, model RefinementScoreModel) Refinemen
 	return model
 }
 
-func candidateEvidenceScore(candidate Candidate) float64 {
-	levels := CandidateEvidenceLevelCount(candidate)
-	if levels <= 1 {
-		return 0
+func candidateEvidenceScore(candidate Candidate, strategy string) (float64, EvidenceScoreDetails) {
+	state := CandidateEvidenceStateFor(candidate)
+	details := EvidenceScoreDetails{
+		DetectionLevels:     state.DetectionLevelCount,
+		PrimaryLevels:       state.PrimaryLevelCount,
+		DerivedLevels:       state.DerivedLevelCount,
+		ProvenanceCount:     len(state.Provenance),
+		DerivedOnly:         state.DerivedOnly,
+		MultiLevelConfirmed: state.MultiLevelConfirmed,
 	}
-	return float64(levels - 1)
+	score := 0.0
+	if state.MultiLevelConfirmed && state.DetectionLevelCount > 1 {
+		bonus := 0.85 * float64(state.DetectionLevelCount-1)
+		score += bonus
+		details.MultiLevelBonus = bonus
+	}
+	if len(state.Provenance) > 1 {
+		bonus := 0.15 * float64(len(state.Provenance)-1)
+		score += bonus
+		details.ProvenanceBonus = bonus
+	}
+	if state.DerivedOnly {
+		penalty := 0.35
+		score -= penalty
+		details.DerivedPenalty = -penalty
+	}
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "multi-resolution", "multi", "multi-res", "multi_res":
+		if state.DerivedOnly {
+			bias := 0.2
+			score += bias
+			details.StrategyBias = bias
+		} else if state.MultiLevelConfirmed {
+			bias := 0.1
+			score += bias
+			details.StrategyBias = bias
+		}
+	case "digital-hunting":
+		if state.DerivedOnly {
+			bias := -0.15
+			score += bias
+			details.StrategyBias = bias
+		} else if state.MultiLevelConfirmed {
+			bias := 0.05
+			score += bias
+			details.StrategyBias = bias
+		}
+	case "archive-oriented":
+		if state.DerivedOnly {
+			bias := -0.1
+			score += bias
+			details.StrategyBias = bias
+		}
+	case "single-resolution":
+		if state.MultiLevelConfirmed {
+			bias := 0.05
+			score += bias
+			details.StrategyBias = bias
+		}
+	}
+	return score, details
 }
 
 func minFloat64(a, b float64) float64 {

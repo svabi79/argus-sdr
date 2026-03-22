@@ -30,6 +30,9 @@ func TestFuseCandidatesDedup(t *testing.T) {
 	if got := CandidateEvidenceLevelCount(fused[0]); got != 2 {
 		t.Fatalf("expected 2 evidence levels after fuse, got %d", got)
 	}
+	if fused[0].EvidenceState == nil || !fused[0].EvidenceState.Fused || !fused[0].EvidenceState.MultiLevelConfirmed {
+		t.Fatalf("expected fused multi-level evidence state, got %+v", fused[0].EvidenceState)
+	}
 }
 
 func TestFuseCandidatesSingleVsMultiResolution(t *testing.T) {

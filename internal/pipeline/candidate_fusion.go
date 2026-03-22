@@ -16,10 +16,12 @@ func AddCandidateEvidence(candidate *Candidate, evidence LevelEvidence) {
 			evLevel = "unknown"
 		}
 		if evLevel == levelName && ev.Provenance == evidence.Provenance {
+			RefreshCandidateEvidenceState(candidate)
 			return
 		}
 	}
 	candidate.Evidence = append(candidate.Evidence, evidence)
+	RefreshCandidateEvidenceState(candidate)
 }
 
 func MergeCandidateEvidence(dst *Candidate, src Candidate) {
@@ -32,18 +34,8 @@ func MergeCandidateEvidence(dst *Candidate, src Candidate) {
 }
 
 func CandidateEvidenceLevelCount(candidate Candidate) int {
-	if len(candidate.Evidence) == 0 {
-		return 0
-	}
-	levels := map[string]struct{}{}
-	for _, ev := range candidate.Evidence {
-		name := ev.Level.Name
-		if name == "" {
-			name = "unknown"
-		}
-		levels[name] = struct{}{}
-	}
-	return len(levels)
+	state := CandidateEvidenceStateFor(candidate)
+	return state.DetectionLevelCount
 }
 
 func FuseCandidates(primary []Candidate, derived []Candidate) []Candidate {
@@ -73,6 +65,9 @@ func FuseCandidates(primary []Candidate, derived []Candidate) []Candidate {
 			continue
 		}
 		out = append(out, cand)
+	}
+	for i := range out {
+		RefreshCandidateEvidenceState(&out[i])
 	}
 	return out
 }
@@ -113,6 +108,9 @@ func candidateSpanHz(candidate Candidate) float64 {
 
 func candidateBinHz(candidate Candidate) float64 {
 	for _, ev := range candidate.Evidence {
+		if IsPresentationLevel(ev.Level) || !IsDetectionLevel(ev.Level) {
+			continue
+		}
 		if ev.Level.BinHz > 0 {
 			return ev.Level.BinHz
 		}
