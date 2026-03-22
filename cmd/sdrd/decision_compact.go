@@ -10,6 +10,7 @@ type compactDecision struct {
 	Reason          string                       `json:"reason,omitempty"`
 	MonitorBias     float64                      `json:"monitor_bias,omitempty"`
 	MonitorDetail   *pipeline.MonitorWindowMatch `json:"monitor_detail,omitempty"`
+	MonitorWindow   *pipeline.MonitorWindowMatch `json:"monitor_window,omitempty"`
 	RecordWindow    *pipeline.MonitorWindowMatch `json:"record_window,omitempty"`
 	DecodeWindow    *pipeline.MonitorWindowMatch `json:"decode_window,omitempty"`
 	RecordAdmission *pipeline.PriorityAdmission  `json:"record_admission,omitempty"`
@@ -28,6 +29,7 @@ func compactDecisions(decisions []pipeline.SignalDecision) []compactDecision {
 			Reason:          d.Reason,
 			MonitorBias:     d.MonitorBias,
 			MonitorDetail:   d.MonitorDetail,
+			MonitorWindow:   d.MonitorWindow,
 			RecordWindow:    d.RecordWindow,
 			DecodeWindow:    d.DecodeWindow,
 			RecordAdmission: d.RecordAdmission,

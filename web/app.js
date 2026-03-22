@@ -849,7 +849,8 @@ function updateHeroMetrics() {
     ? `CFAR ${showDebugOverlay ? 'on' : 'hidden'} · noise ${(Number.isFinite(debug.noise_floor) ? debug.noise_floor.toFixed(1) : 'n/a')} dB`
     : `CFAR off · noise ${(Number.isFinite(debug.noise_floor) ? debug.noise_floor.toFixed(1) : 'n/a')} dB`;
   const plan = debug.refinement_plan || null;
-  const windows = debug.refinement_windows || null;
+  const windowSummary = debug.window_summary || null;
+  const windows = (windowSummary && windowSummary.refinement) || debug.refinement_windows || null;
   const refineInfo = plan && showDebugOverlay
     ? `refine ${plan.selected?.length || 0}/${plan.budget || 0} drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0}`
     : '';
@@ -881,7 +882,7 @@ function updateHeroMetrics() {
     healthRefinePlan.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} · drop ${plan.dropped_by_snr || 0}/${plan.dropped_by_budget || 0} · rec ${recOn} dec ${decOn} ${queueText} ${reasonText}`;
   }
   if (healthRefineWindows) {
-    const stats = refinementInfo.window_stats || null;
+    const stats = refinementInfo.window_summary?.refinement || refinementInfo.window_stats || null;
     if (stats && stats.count) {
       const levelSet = refinementInfo.surveillance_level_set || {};
       const primary = levelSet.primary || refinementInfo.surveillance_level;

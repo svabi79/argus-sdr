@@ -30,6 +30,7 @@ type RefinementScoreDetails struct {
 	PolicyBoost    float64               `json:"policy_boost"`
 	MonitorBias    float64               `json:"monitor_bias,omitempty"`
 	MonitorDetail  *MonitorWindowMatch   `json:"monitor_detail,omitempty"`
+	MonitorWindow  *MonitorWindowMatch   `json:"monitor_window,omitempty"`
 	EvidenceScore  float64               `json:"evidence_score"`
 	EvidenceDetail *EvidenceScoreDetails `json:"evidence_detail,omitempty"`
 }
@@ -201,6 +202,7 @@ func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budget
 				PolicyBoost:    policyBoost,
 				MonitorBias:    monitorBias,
 				MonitorDetail:  monitorDetail,
+				MonitorWindow:  monitorDetail,
 				EvidenceScore:  evidenceScore,
 				EvidenceDetail: &evidenceDetail,
 			},

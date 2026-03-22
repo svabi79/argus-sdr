@@ -22,6 +22,7 @@ type SpectrumDebug struct {
 	CandidateEvidenceStates *CandidateEvidenceStateSummary `json:"candidate_evidence_states,omitempty"`
 	CandidateWindows        []CandidateWindowSummary       `json:"candidate_windows,omitempty"`
 	MonitorWindowStats      []pipeline.MonitorWindowStats  `json:"monitor_window_stats,omitempty"`
+	WindowSummary           *WindowSummary                 `json:"window_summary,omitempty"`
 	RefinementPlan          *pipeline.RefinementPlan       `json:"refinement_plan,omitempty"`
 	Windows                 *RefinementWindowStats         `json:"refinement_windows,omitempty"`
 	Refinement              *RefinementDebug               `json:"refinement,omitempty"`
@@ -42,6 +43,7 @@ type RefinementDebug struct {
 	WorkItems          []pipeline.RefinementWorkItem `json:"work_items,omitempty"`
 	Windows            *RefinementWindowStats        `json:"windows,omitempty"`
 	MonitorWindowStats []pipeline.MonitorWindowStats `json:"monitor_window_stats,omitempty"`
+	WindowSummary      *WindowSummary                `json:"window_summary,omitempty"`
 	Arbitration        *ArbitrationSnapshot          `json:"arbitration,omitempty"`
 }
 

@@ -13,6 +13,7 @@ import (
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
+	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/recorder"
 )
 
@@ -110,7 +111,13 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			var debugInfo *SpectrumDebug
 			plan := state.refinement.Input.Plan
-			windowStats := buildWindowStats(state.refinement.Input.Windows)
+			windowSummary := buildWindowSummary(plan, state.refinement.Input.Windows, state.surveillance.Candidates)
+			var windowStats *RefinementWindowStats
+			var monitorSummary []pipeline.MonitorWindowStats
+			if windowSummary != nil {
+				windowStats = windowSummary.Refinement
+				monitorSummary = windowSummary.MonitorWindows
+			}
 			hasPlan := plan.TotalCandidates > 0 || plan.Budget > 0 || plan.DroppedBySNR > 0 || plan.DroppedByBudget > 0
 			hasWindows := windowStats != nil && windowStats.Count > 0
 			if len(thresholds) > 0 || len(displaySignals) > 0 || noiseFloor != 0 || hasPlan || hasWindows {
@@ -149,8 +156,11 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				if len(candidateWindows) > 0 {
 					debugInfo.CandidateWindows = candidateWindows
 				}
-				if len(plan.MonitorWindowStats) > 0 {
-					debugInfo.MonitorWindowStats = plan.MonitorWindowStats
+				if len(monitorSummary) > 0 {
+					debugInfo.MonitorWindowStats = monitorSummary
+				}
+				if windowSummary != nil {
+					debugInfo.WindowSummary = windowSummary
 				}
 				if hasPlan {
 					debugInfo.RefinementPlan = &plan
@@ -167,8 +177,11 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				if hasWindows {
 					refinementDebug.Windows = windowStats
 				}
-				if len(plan.MonitorWindowStats) > 0 {
-					refinementDebug.MonitorWindowStats = plan.MonitorWindowStats
+				if len(monitorSummary) > 0 {
+					refinementDebug.MonitorWindowStats = monitorSummary
+				}
+				if windowSummary != nil {
+					refinementDebug.WindowSummary = windowSummary
 				}
 				refinementDebug.Arbitration = buildArbitrationSnapshot(state.refinement, state.arbitration)
 				debugInfo.Refinement = refinementDebug

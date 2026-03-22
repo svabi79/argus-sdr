@@ -16,6 +16,7 @@ type SignalDecision struct {
 	RecordBias       float64             `json:"record_bias,omitempty"`
 	DecodeBias       float64             `json:"decode_bias,omitempty"`
 	MonitorDetail    *MonitorWindowMatch `json:"monitor_detail,omitempty"`
+	MonitorWindow    *MonitorWindowMatch `json:"monitor_window,omitempty"`
 	RecordWindow     *MonitorWindowMatch `json:"record_window,omitempty"`
 	DecodeWindow     *MonitorWindowMatch `json:"decode_window,omitempty"`
 	RecordAdmission  *PriorityAdmission  `json:"record_admission,omitempty"`
@@ -89,6 +90,7 @@ func DecideSignalAction(policy Policy, candidate Candidate, cls *classifier.Clas
 	}
 	if monitorDetail != nil {
 		decision.MonitorDetail = monitorDetail
+		decision.MonitorWindow = monitorDetail
 	}
 	return decision
 }

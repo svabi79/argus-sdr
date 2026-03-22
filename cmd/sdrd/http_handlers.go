@@ -165,7 +165,19 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 	mux.HandleFunc("/api/refinement", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		snap := phaseSnap.Snapshot()
-		windowStats := buildWindowStats(snap.refinement.Input.Windows)
+		windowSummary := buildWindowSummary(snap.refinement.Input.Plan, snap.refinement.Input.Windows, snap.surveillance.Candidates)
+		var windowStats *RefinementWindowStats
+		var monitorSummary []pipeline.MonitorWindowStats
+		if windowSummary != nil {
+			windowStats = windowSummary.Refinement
+			monitorSummary = windowSummary.MonitorWindows
+		}
+		if windowStats == nil {
+			windowStats = buildWindowStats(snap.refinement.Input.Windows)
+		}
+		if len(monitorSummary) == 0 && len(snap.refinement.Input.Plan.MonitorWindowStats) > 0 {
+			monitorSummary = snap.refinement.Input.Plan.MonitorWindowStats
+		}
 		arbitration := buildArbitrationSnapshot(snap.refinement, snap.arbitration)
 		levelSet := snap.surveillance.LevelSet
 		spectraBins := map[string]int{}
@@ -184,6 +196,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"plan":                          snap.refinement.Input.Plan,
 			"windows":                       snap.refinement.Input.Windows,
 			"window_stats":                  windowStats,
+			"window_summary":                windowSummary,
 			"request":                       snap.refinement.Input.Request,
 			"context":                       snap.refinement.Input.Context,
 			"detail_level":                  snap.refinement.Input.Detail,
@@ -220,7 +233,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"candidate_evidence_states":  candidateEvidenceStates,
 			"candidate_windows":          candidateWindows,
 			"monitor_windows":            snap.refinement.Input.Plan.MonitorWindows,
-			"monitor_window_stats":       snap.refinement.Input.Plan.MonitorWindowStats,
+			"monitor_window_stats":       monitorSummary,
 			"display_level":              snap.surveillance.DisplayLevel,
 			"refinement_level":           snap.refinement.Input.Level,
 			"presentation_level":         snap.presentation,
