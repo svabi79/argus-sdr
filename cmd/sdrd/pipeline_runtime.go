@@ -45,14 +45,16 @@ type dspRuntime struct {
 }
 
 type spectrumArtifacts struct {
-	allIQ      []complex64
-	iq         []complex64
-	spectrum   []float64
-	finished   []detector.Event
-	detected   []detector.Signal
-	thresholds []float64
-	noiseFloor float64
-	now        time.Time
+	allIQ                []complex64
+	surveillanceIQ       []complex64
+	detailIQ             []complex64
+	surveillanceSpectrum []float64
+	detailSpectrum       []float64
+	finished             []detector.Event
+	detected             []detector.Signal
+	thresholds           []float64
+	noiseFloor           float64
+	now                  time.Time
 }
 
 func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, gpuState *gpuStatus) *dspRuntime {
@@ -160,27 +162,27 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	if rec != nil {
 		rec.Ingest(time.Now(), allIQ)
 	}
-	iq := allIQ
+	survIQ := allIQ
 	if len(allIQ) > rt.cfg.FFTSize {
-		iq = allIQ[len(allIQ)-rt.cfg.FFTSize:]
+		survIQ = allIQ[len(allIQ)-rt.cfg.FFTSize:]
 	}
 	if rt.dcEnabled {
-		dcBlocker.Apply(iq)
+		dcBlocker.Apply(survIQ)
 	}
 	if rt.iqEnabled {
-		dsp.IQBalance(iq)
+		dsp.IQBalance(survIQ)
 	}
 	var spectrum []float64
 	if rt.useGPU && rt.gpuEngine != nil {
-		gpuBuf := make([]complex64, len(iq))
-		if len(rt.window) == len(iq) {
-			for i := 0; i < len(iq); i++ {
-				v := iq[i]
+		gpuBuf := make([]complex64, len(survIQ))
+		if len(rt.window) == len(survIQ) {
+			for i := 0; i < len(survIQ); i++ {
+				v := survIQ[i]
 				w := float32(rt.window[i])
 				gpuBuf[i] = complex(real(v)*w, imag(v)*w)
 			}
 		} else {
-			copy(gpuBuf, iq)
+			copy(gpuBuf, survIQ)
 		}
 		out, err := rt.gpuEngine.Exec(gpuBuf)
 		if err != nil {
@@ -193,7 +195,7 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 			spectrum = fftutil.SpectrumFromFFT(out)
 		}
 	} else {
-		spectrum = fftutil.SpectrumWithPlan(iq, rt.window, rt.plan)
+		spectrum = fftutil.SpectrumWithPlan(survIQ, rt.window, rt.plan)
 	}
 	for i := range spectrum {
 		if math.IsNaN(spectrum[i]) || math.IsInf(spectrum[i], 0) {
@@ -203,14 +205,16 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	now := time.Now()
 	finished, detected := rt.det.Process(now, spectrum, rt.cfg.CenterHz)
 	return &spectrumArtifacts{
-		allIQ:      allIQ,
-		iq:         iq,
-		spectrum:   spectrum,
-		finished:   finished,
-		detected:   detected,
-		thresholds: rt.det.LastThresholds(),
-		noiseFloor: rt.det.LastNoiseFloor(),
-		now:        now,
+		allIQ:                allIQ,
+		surveillanceIQ:       survIQ,
+		detailIQ:             survIQ,
+		surveillanceSpectrum: spectrum,
+		detailSpectrum:       spectrum,
+		finished:             finished,
+		detected:             detected,
+		thresholds:           rt.det.LastThresholds(),
+		noiseFloor:           rt.det.LastNoiseFloor(),
+		now:                  now,
 	}, nil
 }
 
@@ -226,7 +230,7 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 		SampleRate: rt.cfg.SampleRate,
 		FFTSize:    rt.cfg.Surveillance.AnalysisFFTSize,
 		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     float64(rt.cfg.SampleRate),
+		SpanHz:     spanForPolicy(policy, float64(rt.cfg.SampleRate)),
 		Source:     "baseband",
 	}
 	lowRate := rt.cfg.SampleRate / 2
@@ -242,7 +246,7 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 		SampleRate: lowRate,
 		FFTSize:    lowFFT,
 		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     float64(lowRate),
+		SpanHz:     spanForPolicy(policy, float64(lowRate)),
 		Source:     "downsampled",
 	}
 	displayLevel := pipeline.AnalysisLevel{
@@ -250,13 +254,10 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 		SampleRate: rt.cfg.SampleRate,
 		FFTSize:    rt.cfg.Surveillance.DisplayBins,
 		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     float64(rt.cfg.SampleRate),
+		SpanHz:     spanForPolicy(policy, float64(rt.cfg.SampleRate)),
 		Source:     "display",
 	}
-	levels := []pipeline.AnalysisLevel{level}
-	if lowLevel.SampleRate != level.SampleRate || lowLevel.FFTSize != level.FFTSize {
-		levels = append(levels, lowLevel)
-	}
+	levels := surveillanceLevels(policy, level, lowLevel)
 	return pipeline.SurveillanceResult{
 		Level:        level,
 		Levels:       levels,
@@ -279,36 +280,14 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 	}
 	windows := make([]pipeline.RefinementWindow, 0, len(scheduled))
 	for _, sc := range scheduled {
-		span := sc.Candidate.BandwidthHz
-		windowSource := "candidate"
-		if policy.RefinementAutoSpan && (span <= 0 || span < 2000 || span > 400000) {
-			autoSpan, autoSource := pipeline.AutoSpanForHint(sc.Candidate.Hint)
-			if autoSpan > 0 {
-				span = autoSpan
-				windowSource = autoSource
-			}
-		}
-		if policy.RefinementMinSpanHz > 0 && span < policy.RefinementMinSpanHz {
-			span = policy.RefinementMinSpanHz
-		}
-		if policy.RefinementMaxSpanHz > 0 && span > policy.RefinementMaxSpanHz {
-			span = policy.RefinementMaxSpanHz
-		}
-		if span <= 0 {
-			span = 12000
-		}
-		windows = append(windows, pipeline.RefinementWindow{
-			CenterHz: sc.Candidate.CenterHz,
-			SpanHz:   span,
-			Source:   windowSource,
-		})
+		windows = append(windows, pipeline.RefinementWindowForCandidate(policy, sc.Candidate))
 	}
 	level := pipeline.AnalysisLevel{
 		Name:       "refinement",
 		SampleRate: rt.cfg.SampleRate,
 		FFTSize:    rt.cfg.FFTSize,
 		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     float64(rt.cfg.SampleRate),
+		SpanHz:     spanForPolicy(policy, float64(rt.cfg.SampleRate)),
 		Source:     "refinement-window",
 	}
 	input := pipeline.RefinementInput{
@@ -328,8 +307,14 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 	return input
 }
 
+func (rt *dspRuntime) runRefinement(art *spectrumArtifacts, surv pipeline.SurveillanceResult, extractMgr *extractionManager, rec *recorder.Manager) pipeline.RefinementStep {
+	input := rt.buildRefinementInput(surv)
+	result := rt.refineSignals(art, input, extractMgr, rec)
+	return pipeline.RefinementStep{Input: input, Result: result}
+}
+
 func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.RefinementInput, extractMgr *extractionManager, rec *recorder.Manager) pipeline.RefinementResult {
-	if art == nil || len(art.iq) == 0 || len(input.Scheduled) == 0 {
+	if art == nil || len(art.detailIQ) == 0 || len(input.Scheduled) == 0 {
 		return pipeline.RefinementResult{}
 	}
 	policy := pipeline.PolicyFromConfig(rt.cfg)
@@ -360,8 +345,8 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	if centerHz == 0 {
 		centerHz = rt.cfg.CenterHz
 	}
-	snips, snipRates := extractSignalIQBatch(extractMgr, art.iq, sampleRate, centerHz, selectedSignals)
-	refined := pipeline.RefineCandidates(selectedCandidates, input.Windows, art.spectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
+	snips, snipRates := extractSignalIQBatch(extractMgr, art.detailIQ, sampleRate, centerHz, selectedSignals)
+	refined := pipeline.RefineCandidates(selectedCandidates, input.Windows, art.detailSpectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
 	signals := make([]detector.Signal, 0, len(refined))
 	decisions := make([]pipeline.SignalDecision, 0, len(refined))
 	for i, ref := range refined {
@@ -497,4 +482,30 @@ func (rt *dspRuntime) maintenance(displaySignals []detector.Signal, rec *recorde
 		aqCfg := extractionConfig{firTaps: rt.cfg.Recorder.ExtractionTaps, bwMult: rt.cfg.Recorder.ExtractionBwMult}
 		_ = aqCfg
 	}
+}
+
+func spanForPolicy(policy pipeline.Policy, fallback float64) float64 {
+	if policy.MonitorSpanHz > 0 {
+		return policy.MonitorSpanHz
+	}
+	if policy.MonitorStartHz != 0 && policy.MonitorEndHz != 0 && policy.MonitorEndHz > policy.MonitorStartHz {
+		return policy.MonitorEndHz - policy.MonitorStartHz
+	}
+	return fallback
+}
+
+func surveillanceLevels(policy pipeline.Policy, primary pipeline.AnalysisLevel, secondary pipeline.AnalysisLevel) []pipeline.AnalysisLevel {
+	levels := []pipeline.AnalysisLevel{primary}
+	strategy := strings.ToLower(strings.TrimSpace(policy.SurveillanceStrategy))
+	switch strategy {
+	case "", "single-resolution":
+		if secondary.SampleRate != primary.SampleRate || secondary.FFTSize != primary.FFTSize {
+			levels = append(levels, secondary)
+		}
+	default:
+		if secondary.SampleRate != primary.SampleRate || secondary.FFTSize != primary.FFTSize {
+			levels = append(levels, secondary)
+		}
+	}
+	return levels
 }

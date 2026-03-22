@@ -58,14 +58,13 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				rt.gotSamples = true
 			}
 			state.surveillance = rt.buildSurveillanceResult(art)
-			state.refinementInput = rt.buildRefinementInput(state.surveillance)
+			state.refinement = rt.runRefinement(art, state.surveillance, extractMgr, rec)
 			finished := state.surveillance.Finished
 			thresholds := state.surveillance.Thresholds
 			noiseFloor := state.surveillance.NoiseFloor
 			var displaySignals []detector.Signal
-			if len(art.iq) > 0 {
-				state.refinement = rt.refineSignals(art, state.refinementInput, extractMgr, rec)
-				displaySignals = state.refinement.Signals
+			if len(art.detailIQ) > 0 {
+				displaySignals = state.refinement.Result.Signals
 				if rec != nil && len(displaySignals) > 0 && len(art.allIQ) > 0 {
 					aqCfg := extractionConfig{firTaps: rt.cfg.Recorder.ExtractionTaps, bwMult: rt.cfg.Recorder.ExtractionBwMult}
 					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, displaySignals, rt.streamPhaseState, rt.streamOverlap, aqCfg)
@@ -89,7 +88,6 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 				rt.maintenance(displaySignals, rec)
 			} else {
-				state.refinement = pipeline.RefinementResult{}
 				displaySignals = rt.det.StableSignals()
 			}
 			state.queueStats = rt.queueStats
@@ -119,8 +117,8 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				rec.OnEvents(evCopy)
 			}
 			var debugInfo *SpectrumDebug
-			plan := state.refinementInput.Plan
-			windowStats := buildWindowStats(state.refinementInput.Windows)
+			plan := state.refinement.Input.Plan
+			windowStats := buildWindowStats(state.refinement.Input.Windows)
 			hasPlan := plan.TotalCandidates > 0 || plan.Budget > 0 || plan.DroppedBySNR > 0 || plan.DroppedByBudget > 0
 			hasWindows := windowStats != nil && windowStats.Count > 0
 			if len(thresholds) > 0 || len(displaySignals) > 0 || noiseFloor != 0 || hasPlan || hasWindows {
@@ -150,7 +148,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					debugInfo.Windows = windowStats
 				}
 			}
-			h.broadcast(SpectrumFrame{Timestamp: art.now.UnixMilli(), CenterHz: rt.cfg.CenterHz, SampleHz: rt.cfg.SampleRate, FFTSize: rt.cfg.FFTSize, Spectrum: art.spectrum, Signals: displaySignals, Debug: debugInfo})
+			h.broadcast(SpectrumFrame{Timestamp: art.now.UnixMilli(), CenterHz: rt.cfg.CenterHz, SampleHz: rt.cfg.SampleRate, FFTSize: rt.cfg.FFTSize, Spectrum: art.surveillanceSpectrum, Signals: displaySignals, Debug: debugInfo})
 		}
 	}
 }
