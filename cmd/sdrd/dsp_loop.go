@@ -133,6 +133,14 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					})
 				}
 				debugInfo = &SpectrumDebug{Thresholds: thresholds, NoiseFloor: noiseFloor, Scores: scoreDebug}
+				candidateSources := buildCandidateSourceSummary(state.surveillance.Candidates)
+				candidateEvidence := buildCandidateEvidenceSummary(state.surveillance.Candidates)
+				if len(candidateSources) > 0 {
+					debugInfo.CandidateSources = candidateSources
+				}
+				if len(candidateEvidence) > 0 {
+					debugInfo.CandidateEvidence = candidateEvidence
+				}
 				if hasPlan {
 					debugInfo.RefinementPlan = &plan
 				}

@@ -14,13 +14,15 @@ import (
 )
 
 type SpectrumDebug struct {
-	Thresholds     []float64                `json:"thresholds,omitempty"`
-	NoiseFloor     float64                  `json:"noise_floor,omitempty"`
-	Scores         []map[string]any         `json:"scores,omitempty"`
-	RefinementPlan *pipeline.RefinementPlan `json:"refinement_plan,omitempty"`
-	Windows        *RefinementWindowStats   `json:"refinement_windows,omitempty"`
-	Refinement     *RefinementDebug         `json:"refinement,omitempty"`
-	Decisions      *DecisionDebug           `json:"decisions,omitempty"`
+	Thresholds        []float64                  `json:"thresholds,omitempty"`
+	NoiseFloor        float64                    `json:"noise_floor,omitempty"`
+	Scores            []map[string]any           `json:"scores,omitempty"`
+	CandidateSources  map[string]int             `json:"candidate_sources,omitempty"`
+	CandidateEvidence []CandidateEvidenceSummary `json:"candidate_evidence,omitempty"`
+	RefinementPlan    *pipeline.RefinementPlan   `json:"refinement_plan,omitempty"`
+	Windows           *RefinementWindowStats     `json:"refinement_windows,omitempty"`
+	Refinement        *RefinementDebug           `json:"refinement,omitempty"`
+	Decisions         *DecisionDebug             `json:"decisions,omitempty"`
 }
 
 type RefinementWindowStats struct {

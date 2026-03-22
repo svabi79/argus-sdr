@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -30,6 +31,8 @@ type rdsState struct {
 type dspRuntime struct {
 	cfg              config.Config
 	det              *detector.Detector
+	derivedDetectors map[string]*derivedDetector
+	nextDerivedBase  int64
 	window           []float64
 	plan             *fftutil.CmplxPlan
 	detailWindow     []float64
@@ -65,6 +68,13 @@ type spectrumArtifacts struct {
 	now                  time.Time
 }
 
+type derivedDetector struct {
+	det        *detector.Detector
+	sampleRate int
+	fftSize    int
+	idBase     int64
+}
+
 type surveillanceLevelSpec struct {
 	Level    pipeline.AnalysisLevel
 	Decim    int
@@ -80,6 +90,8 @@ type surveillancePlan struct {
 	Specs        []surveillanceLevelSpec
 }
 
+const derivedIDBlock = int64(1_000_000_000)
+
 func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, gpuState *gpuStatus) *dspRuntime {
 	detailFFT := cfg.Refinement.DetailFFTSize
 	if detailFFT <= 0 {
@@ -88,6 +100,8 @@ func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, 
 	rt := &dspRuntime{
 		cfg:              cfg,
 		det:              det,
+		derivedDetectors: map[string]*derivedDetector{},
+		nextDerivedBase:  -derivedIDBlock,
 		window:           window,
 		plan:             fftutil.NewCmplxPlan(cfg.FFTSize),
 		detailWindow:     fftutil.Hann(detailFFT),
@@ -167,6 +181,10 @@ func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *rec
 	if prevFFT != rt.cfg.FFTSize {
 		rt.survWindows = map[int][]float64{}
 		rt.survPlans = map[int]*fftutil.CmplxPlan{}
+	}
+	if upd.det != nil || prevSampleRate != rt.cfg.SampleRate || prevFFT != rt.cfg.FFTSize {
+		rt.derivedDetectors = map[string]*derivedDetector{}
+		rt.nextDerivedBase = -derivedIDBlock
 	}
 	rt.dcEnabled = upd.dcBlock
 	rt.iqEnabled = upd.iqBalance
@@ -419,7 +437,9 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	if plan.Primary.Name == "" {
 		plan = rt.buildSurveillancePlan(policy)
 	}
-	candidates := pipeline.CandidatesFromSignalsWithLevel(art.detected, "surveillance-detector", plan.Primary)
+	primaryCandidates := pipeline.CandidatesFromSignalsWithLevel(art.detected, "surveillance-detector", plan.Primary)
+	derivedCandidates := rt.detectDerivedCandidates(art, plan)
+	candidates := pipeline.FuseCandidates(primaryCandidates, derivedCandidates)
 	scheduled := pipeline.ScheduleCandidates(candidates, policy)
 	return pipeline.SurveillanceResult{
 		Level:        plan.Primary,
@@ -435,6 +455,81 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 		NoiseFloor:   art.noiseFloor,
 		Thresholds:   art.thresholds,
 	}
+}
+
+func (rt *dspRuntime) detectDerivedCandidates(art *spectrumArtifacts, plan surveillancePlan) []pipeline.Candidate {
+	if art == nil || len(plan.LevelSet.Derived) == 0 {
+		return nil
+	}
+	spectra := map[string][]float64{}
+	for _, spec := range art.surveillanceSpectra {
+		if spec.Level.Name == "" || len(spec.Spectrum) == 0 {
+			continue
+		}
+		spectra[spec.Level.Name] = spec.Spectrum
+	}
+	if len(spectra) == 0 {
+		return nil
+	}
+	out := make([]pipeline.Candidate, 0, len(plan.LevelSet.Derived))
+	for _, level := range plan.LevelSet.Derived {
+		if level.Name == "" {
+			continue
+		}
+		spectrum := spectra[level.Name]
+		if len(spectrum) == 0 {
+			continue
+		}
+		entry := rt.derivedDetectorForLevel(level)
+		if entry == nil || entry.det == nil {
+			continue
+		}
+		_, signals := entry.det.Process(art.now, spectrum, level.CenterHz)
+		if len(signals) == 0 {
+			continue
+		}
+		cands := pipeline.CandidatesFromSignalsWithLevel(signals, "surveillance-derived", level)
+		for i := range cands {
+			if cands[i].ID == 0 {
+				continue
+			}
+			cands[i].ID = entry.idBase - cands[i].ID
+		}
+		out = append(out, cands...)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (rt *dspRuntime) derivedDetectorForLevel(level pipeline.AnalysisLevel) *derivedDetector {
+	if level.SampleRate <= 0 || level.FFTSize <= 0 {
+		return nil
+	}
+	if rt.derivedDetectors == nil {
+		rt.derivedDetectors = map[string]*derivedDetector{}
+	}
+	key := level.Name
+	if key == "" {
+		key = fmt.Sprintf("%d:%d", level.SampleRate, level.FFTSize)
+	}
+	entry := rt.derivedDetectors[key]
+	if entry != nil && entry.sampleRate == level.SampleRate && entry.fftSize == level.FFTSize {
+		return entry
+	}
+	if rt.nextDerivedBase == 0 {
+		rt.nextDerivedBase = -derivedIDBlock
+	}
+	entry = &derivedDetector{
+		det:        detector.New(rt.cfg.Detector, level.SampleRate, level.FFTSize),
+		sampleRate: level.SampleRate,
+		fftSize:    level.FFTSize,
+		idBase:     rt.nextDerivedBase,
+	}
+	rt.nextDerivedBase -= derivedIDBlock
+	rt.derivedDetectors[key] = entry
+	return entry
 }
 
 func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult, now time.Time) pipeline.RefinementInput {

@@ -75,7 +75,7 @@ func CandidatesFromSignalsWithLevel(signals []detector.Signal, source string, le
 	}
 	evidence := LevelEvidence{Level: level, Provenance: source}
 	for i := range out {
-		out[i].Evidence = append(out[i].Evidence, evidence)
+		AddCandidateEvidence(&out[i], evidence)
 	}
 	return out
 }

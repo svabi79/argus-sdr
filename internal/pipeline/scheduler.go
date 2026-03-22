@@ -16,6 +16,7 @@ type RefinementScoreModel struct {
 	SNRWeight       float64 `json:"snr_weight"`
 	BandwidthWeight float64 `json:"bandwidth_weight"`
 	PeakWeight      float64 `json:"peak_weight"`
+	EvidenceWeight  float64 `json:"evidence_weight"`
 }
 
 type RefinementScoreDetails struct {
@@ -23,6 +24,7 @@ type RefinementScoreDetails struct {
 	BandwidthScore float64 `json:"bandwidth_score"`
 	PeakScore      float64 `json:"peak_score"`
 	PolicyBoost    float64 `json:"policy_boost"`
+	EvidenceScore  float64 `json:"evidence_score"`
 }
 
 type RefinementScore struct {
@@ -105,6 +107,7 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 		SNRWeight:       snrWeight,
 		BandwidthWeight: bwWeight,
 		PeakWeight:      peakWeight,
+		EvidenceWeight:  0.6,
 	}
 	scoreModel = applyStrategyWeights(strategy, scoreModel)
 	plan.ScoreModel = scoreModel
@@ -139,7 +142,9 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 		if c.PeakDb > 0 {
 			peakScore = (c.PeakDb / 20.0) * scoreModel.PeakWeight
 		}
+		evidenceScore := candidateEvidenceScore(c) * scoreModel.EvidenceWeight
 		priority := snrScore + bwScore + peakScore + policyBoost
+		priority += evidenceScore
 		score := &RefinementScore{
 			Total: priority,
 			Breakdown: RefinementScoreDetails{
@@ -147,6 +152,7 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 				BandwidthScore: bwScore,
 				PeakScore:      peakScore,
 				PolicyBoost:    policyBoost,
+				EvidenceScore:  evidenceScore,
 			},
 			Weights: &scoreModel,
 		}
@@ -242,6 +248,14 @@ func applyStrategyWeights(strategy string, model RefinementScoreModel) Refinemen
 		model.PeakWeight *= 1.0
 	}
 	return model
+}
+
+func candidateEvidenceScore(candidate Candidate) float64 {
+	levels := CandidateEvidenceLevelCount(candidate)
+	if levels <= 1 {
+		return 0
+	}
+	return float64(levels - 1)
 }
 
 func minFloat64(a, b float64) float64 {
