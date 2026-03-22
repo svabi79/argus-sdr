@@ -54,3 +54,39 @@ func TestCandidateInMonitorWindows(t *testing.T) {
 		t.Fatalf("expected candidate outside windows")
 	}
 }
+
+func TestMonitorWindowMatchesOverlap(t *testing.T) {
+	policy := Policy{
+		MonitorWindows: finalizeMonitorWindows([]MonitorWindow{
+			{Label: "wide", StartHz: 100, EndHz: 300, SpanHz: 200},
+			{Label: "narrow", StartHz: 150, EndHz: 220, SpanHz: 70},
+		}),
+	}
+	matches := MonitorWindowMatches(policy, Candidate{CenterHz: 180, BandwidthHz: 20})
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 matches, got %d", len(matches))
+	}
+	if matches[0].Index == matches[1].Index {
+		t.Fatalf("expected distinct window matches")
+	}
+}
+
+func TestMonitorWindowBiasPrefersNarrowWindow(t *testing.T) {
+	goals := config.PipelineGoalConfig{
+		MonitorWindows: []config.MonitorWindow{
+			{Label: "wide", StartHz: 100, EndHz: 300},
+			{Label: "narrow", StartHz: 150, EndHz: 200},
+		},
+	}
+	policy := Policy{MonitorWindows: NormalizeMonitorWindows(goals, 0)}
+	bias, detail := MonitorWindowBias(policy, Candidate{CenterHz: 175, BandwidthHz: 10})
+	if detail == nil {
+		t.Fatalf("expected monitor match detail")
+	}
+	if detail.Label != "narrow" {
+		t.Fatalf("expected narrow window to be preferred, got %q", detail.Label)
+	}
+	if bias <= 0 {
+		t.Fatalf("expected positive bias, got %.3f", bias)
+	}
+}

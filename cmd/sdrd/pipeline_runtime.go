@@ -441,6 +441,7 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	primaryCandidates := pipeline.CandidatesFromSignalsWithLevel(art.detected, "surveillance-detector", plan.Primary)
 	derivedCandidates := rt.detectDerivedCandidates(art, plan)
 	candidates := pipeline.FuseCandidates(primaryCandidates, derivedCandidates)
+	pipeline.ApplyMonitorWindowMatchesToCandidates(policy, candidates)
 	scheduled := pipeline.ScheduleCandidates(candidates, policy)
 	return pipeline.SurveillanceResult{
 		Level:           plan.Primary,

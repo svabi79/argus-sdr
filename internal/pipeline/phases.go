@@ -54,27 +54,28 @@ type SurveillanceResult struct {
 }
 
 type RefinementPlan struct {
-	TotalCandidates   int                  `json:"total_candidates"`
-	MinCandidateSNRDb float64              `json:"min_candidate_snr_db"`
-	Budget            int                  `json:"budget"`
-	BudgetSource      string               `json:"budget_source,omitempty"`
-	Strategy          string               `json:"strategy,omitempty"`
-	StrategyReason    string               `json:"strategy_reason,omitempty"`
-	MonitorStartHz    float64              `json:"monitor_start_hz,omitempty"`
-	MonitorEndHz      float64              `json:"monitor_end_hz,omitempty"`
-	MonitorSpanHz     float64              `json:"monitor_span_hz,omitempty"`
-	MonitorWindows    []MonitorWindow      `json:"monitor_windows,omitempty"`
-	DroppedByMonitor  int                  `json:"dropped_by_monitor"`
-	DroppedBySNR      int                  `json:"dropped_by_snr"`
-	DroppedByBudget   int                  `json:"dropped_by_budget"`
-	ScoreModel        RefinementScoreModel `json:"score_model,omitempty"`
-	PriorityMin       float64              `json:"priority_min,omitempty"`
-	PriorityMax       float64              `json:"priority_max,omitempty"`
-	PriorityAvg       float64              `json:"priority_avg,omitempty"`
-	PriorityCutoff    float64              `json:"priority_cutoff,omitempty"`
-	Ranked            []ScheduledCandidate `json:"ranked,omitempty"`
-	Selected          []ScheduledCandidate `json:"selected,omitempty"`
-	WorkItems         []RefinementWorkItem `json:"work_items,omitempty"`
+	TotalCandidates    int                  `json:"total_candidates"`
+	MinCandidateSNRDb  float64              `json:"min_candidate_snr_db"`
+	Budget             int                  `json:"budget"`
+	BudgetSource       string               `json:"budget_source,omitempty"`
+	Strategy           string               `json:"strategy,omitempty"`
+	StrategyReason     string               `json:"strategy_reason,omitempty"`
+	MonitorStartHz     float64              `json:"monitor_start_hz,omitempty"`
+	MonitorEndHz       float64              `json:"monitor_end_hz,omitempty"`
+	MonitorSpanHz      float64              `json:"monitor_span_hz,omitempty"`
+	MonitorWindows     []MonitorWindow      `json:"monitor_windows,omitempty"`
+	MonitorWindowStats []MonitorWindowStats `json:"monitor_window_stats,omitempty"`
+	DroppedByMonitor   int                  `json:"dropped_by_monitor"`
+	DroppedBySNR       int                  `json:"dropped_by_snr"`
+	DroppedByBudget    int                  `json:"dropped_by_budget"`
+	ScoreModel         RefinementScoreModel `json:"score_model,omitempty"`
+	PriorityMin        float64              `json:"priority_min,omitempty"`
+	PriorityMax        float64              `json:"priority_max,omitempty"`
+	PriorityAvg        float64              `json:"priority_avg,omitempty"`
+	PriorityCutoff     float64              `json:"priority_cutoff,omitempty"`
+	Ranked             []ScheduledCandidate `json:"ranked,omitempty"`
+	Selected           []ScheduledCandidate `json:"selected,omitempty"`
+	WorkItems          []RefinementWorkItem `json:"work_items,omitempty"`
 }
 
 type RefinementRequest struct {

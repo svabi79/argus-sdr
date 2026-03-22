@@ -28,6 +28,8 @@ type RefinementScoreDetails struct {
 	BandwidthScore float64               `json:"bandwidth_score"`
 	PeakScore      float64               `json:"peak_score"`
 	PolicyBoost    float64               `json:"policy_boost"`
+	MonitorBias    float64               `json:"monitor_bias,omitempty"`
+	MonitorDetail  *MonitorWindowMatch   `json:"monitor_detail,omitempty"`
 	EvidenceScore  float64               `json:"evidence_score"`
 	EvidenceDetail *EvidenceScoreDetails `json:"evidence_detail,omitempty"`
 }
@@ -111,6 +113,7 @@ func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budget
 	}
 	if len(policy.MonitorWindows) > 0 {
 		plan.MonitorWindows = append([]MonitorWindow(nil), policy.MonitorWindows...)
+		plan.MonitorWindowStats = buildMonitorWindowStats(policy.MonitorWindows)
 	}
 	if len(candidates) == 0 {
 		return plan
@@ -132,7 +135,8 @@ func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budget
 		family, familyRank := signalPriorityMatch(policy, candidate.Hint, "")
 		familyFloor := signalPriorityTierFloor(familyRank)
 		familyRankOut := familyRankForOutput(familyRank)
-		if !candidateInMonitor(policy, candidate) {
+		inMonitor := ApplyMonitorWindowMatches(policy, &candidate)
+		if !inMonitor {
 			plan.DroppedByMonitor++
 			workItems = append(workItems, RefinementWorkItem{
 				Candidate: candidate,
@@ -150,8 +154,10 @@ func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budget
 			})
 			continue
 		}
+		updateMonitorWindowStats(plan.MonitorWindowStats, candidate.MonitorMatches, monitorStatCandidates)
 		if candidate.SNRDb < policy.MinCandidateSNRDb {
 			plan.DroppedBySNR++
+			updateMonitorWindowStats(plan.MonitorWindowStats, candidate.MonitorMatches, monitorStatDropped)
 			workItems = append(workItems, RefinementWorkItem{
 				Candidate: candidate,
 				Status:    RefinementStatusDropped,
@@ -172,6 +178,7 @@ func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budget
 		bwScore := 0.0
 		peakScore := 0.0
 		policyBoost := CandidatePriorityBoost(policy, candidate.Hint)
+		monitorBias, monitorDetail := MonitorWindowBias(policy, candidate)
 		if candidate.BandwidthHz > 0 {
 			bwScore = minFloat64(candidate.BandwidthHz/25000.0, 6) * scoreModel.BandwidthWeight
 		}
@@ -183,7 +190,7 @@ func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budget
 		evidenceDetail.RawScore = rawEvidenceScore
 		evidenceDetail.WeightedScore = rawEvidenceScore * scoreModel.EvidenceWeight
 		evidenceScore := evidenceDetail.WeightedScore
-		priority := snrScore + bwScore + peakScore + policyBoost
+		priority := snrScore + bwScore + peakScore + policyBoost + monitorBias
 		priority += evidenceScore
 		score := &RefinementScore{
 			Total: priority,
@@ -192,6 +199,8 @@ func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budget
 				BandwidthScore: bwScore,
 				PeakScore:      peakScore,
 				PolicyBoost:    policyBoost,
+				MonitorBias:    monitorBias,
+				MonitorDetail:  monitorDetail,
 				EvidenceScore:  evidenceScore,
 				EvidenceDetail: &evidenceDetail,
 			},
@@ -223,6 +232,7 @@ func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budget
 				Reason:     admissionReason(RefinementReasonPlanned, policy, holdPolicy),
 			},
 		})
+		updateMonitorWindowStats(plan.MonitorWindowStats, candidate.MonitorMatches, monitorStatPlanned)
 	}
 	sort.Slice(scored, func(i, j int) bool {
 		if scored[i].Priority == scored[j].Priority {
@@ -386,4 +396,56 @@ func minFloat64(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+type monitorStatUpdate int
+
+const (
+	monitorStatCandidates monitorStatUpdate = iota
+	monitorStatPlanned
+	monitorStatDropped
+)
+
+func buildMonitorWindowStats(windows []MonitorWindow) []MonitorWindowStats {
+	if len(windows) == 0 {
+		return nil
+	}
+	stats := make([]MonitorWindowStats, 0, len(windows))
+	for _, win := range windows {
+		stats = append(stats, MonitorWindowStats{
+			Index:        win.Index,
+			Label:        win.Label,
+			Source:       win.Source,
+			StartHz:      win.StartHz,
+			EndHz:        win.EndHz,
+			CenterHz:     win.CenterHz,
+			SpanHz:       win.SpanHz,
+			PriorityBias: win.PriorityBias,
+		})
+	}
+	return stats
+}
+
+func updateMonitorWindowStats(stats []MonitorWindowStats, matches []MonitorWindowMatch, update monitorStatUpdate) {
+	if len(stats) == 0 || len(matches) == 0 {
+		return
+	}
+	index := make(map[int]int, len(stats))
+	for i := range stats {
+		index[stats[i].Index] = i
+	}
+	for _, match := range matches {
+		i, ok := index[match.Index]
+		if !ok {
+			continue
+		}
+		switch update {
+		case monitorStatCandidates:
+			stats[i].Candidates++
+		case monitorStatPlanned:
+			stats[i].Planned++
+		case monitorStatDropped:
+			stats[i].Dropped++
+		}
+	}
 }

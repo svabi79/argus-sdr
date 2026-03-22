@@ -8,18 +8,19 @@ import (
 // Candidate is the coarse output of the surveillance detector.
 // It intentionally stays lightweight and cheap to produce.
 type Candidate struct {
-	ID            int64                   `json:"id"`
-	CenterHz      float64                 `json:"center_hz"`
-	BandwidthHz   float64                 `json:"bandwidth_hz"`
-	PeakDb        float64                 `json:"peak_db"`
-	SNRDb         float64                 `json:"snr_db"`
-	FirstBin      int                     `json:"first_bin"`
-	LastBin       int                     `json:"last_bin"`
-	NoiseDb       float64                 `json:"noise_db,omitempty"`
-	Source        string                  `json:"source,omitempty"`
-	Hint          string                  `json:"hint,omitempty"`
-	Evidence      []LevelEvidence         `json:"evidence,omitempty"`
-	EvidenceState *CandidateEvidenceState `json:"evidence_state,omitempty"`
+	ID             int64                   `json:"id"`
+	CenterHz       float64                 `json:"center_hz"`
+	BandwidthHz    float64                 `json:"bandwidth_hz"`
+	PeakDb         float64                 `json:"peak_db"`
+	SNRDb          float64                 `json:"snr_db"`
+	FirstBin       int                     `json:"first_bin"`
+	LastBin        int                     `json:"last_bin"`
+	NoiseDb        float64                 `json:"noise_db,omitempty"`
+	Source         string                  `json:"source,omitempty"`
+	Hint           string                  `json:"hint,omitempty"`
+	Evidence       []LevelEvidence         `json:"evidence,omitempty"`
+	EvidenceState  *CandidateEvidenceState `json:"evidence_state,omitempty"`
+	MonitorMatches []MonitorWindowMatch    `json:"monitor_matches,omitempty"`
 }
 
 // LevelEvidence captures which analysis level produced a candidate.
@@ -31,12 +32,44 @@ type LevelEvidence struct {
 
 // MonitorWindow describes a monitoring window to gate candidates.
 type MonitorWindow struct {
-	Label    string  `json:"label,omitempty"`
-	StartHz  float64 `json:"start_hz,omitempty"`
-	EndHz    float64 `json:"end_hz,omitempty"`
-	CenterHz float64 `json:"center_hz,omitempty"`
-	SpanHz   float64 `json:"span_hz,omitempty"`
-	Source   string  `json:"source,omitempty"`
+	Index        int     `json:"index,omitempty"`
+	Label        string  `json:"label,omitempty"`
+	StartHz      float64 `json:"start_hz,omitempty"`
+	EndHz        float64 `json:"end_hz,omitempty"`
+	CenterHz     float64 `json:"center_hz,omitempty"`
+	SpanHz       float64 `json:"span_hz,omitempty"`
+	Source       string  `json:"source,omitempty"`
+	PriorityBias float64 `json:"priority_bias,omitempty"`
+}
+
+// MonitorWindowMatch captures how a candidate overlaps a monitor window.
+type MonitorWindowMatch struct {
+	Index      int     `json:"index"`
+	Label      string  `json:"label,omitempty"`
+	Source     string  `json:"source,omitempty"`
+	StartHz    float64 `json:"start_hz,omitempty"`
+	EndHz      float64 `json:"end_hz,omitempty"`
+	CenterHz   float64 `json:"center_hz,omitempty"`
+	SpanHz     float64 `json:"span_hz,omitempty"`
+	OverlapHz  float64 `json:"overlap_hz,omitempty"`
+	Coverage   float64 `json:"coverage,omitempty"`
+	DistanceHz float64 `json:"distance_hz,omitempty"`
+	Bias       float64 `json:"bias,omitempty"`
+}
+
+// MonitorWindowStats summarizes candidate attribution per monitor window.
+type MonitorWindowStats struct {
+	Index        int     `json:"index"`
+	Label        string  `json:"label,omitempty"`
+	Source       string  `json:"source,omitempty"`
+	StartHz      float64 `json:"start_hz,omitempty"`
+	EndHz        float64 `json:"end_hz,omitempty"`
+	CenterHz     float64 `json:"center_hz,omitempty"`
+	SpanHz       float64 `json:"span_hz,omitempty"`
+	PriorityBias float64 `json:"priority_bias,omitempty"`
+	Candidates   int     `json:"candidates,omitempty"`
+	Planned      int     `json:"planned,omitempty"`
+	Dropped      int     `json:"dropped,omitempty"`
 }
 
 // RefinementWindow describes the local analysis span that refinement should use.
