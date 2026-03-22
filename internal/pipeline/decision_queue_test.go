@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,7 +26,7 @@ func TestDecisionQueueDropsByBudget(t *testing.T) {
 			allowed++
 			continue
 		}
-		if d.Reason != DecisionReasonQueueRecord && d.Reason != DecisionReasonQueueDecode {
+		if !strings.HasPrefix(d.Reason, DecisionReasonQueueRecord) && !strings.HasPrefix(d.Reason, DecisionReasonQueueDecode) {
 			t.Fatalf("unexpected decision reason: %s", d.Reason)
 		}
 	}
@@ -56,6 +57,12 @@ func TestDecisionQueueEnforcesBudgets(t *testing.T) {
 	if decisions[2].ShouldRecord {
 		t.Fatalf("expected mid SNR decision to be budgeted off by record budget")
 	}
+	if decisions[1].RecordAdmission == nil || decisions[1].RecordAdmission.Class != AdmissionClassAdmit {
+		t.Fatalf("expected admitted record admission, got %+v", decisions[1].RecordAdmission)
+	}
+	if decisions[0].RecordAdmission == nil || decisions[0].RecordAdmission.Class != AdmissionClassDefer {
+		t.Fatalf("expected deferred record admission, got %+v", decisions[0].RecordAdmission)
+	}
 }
 
 func TestDecisionQueueHoldKeepsSelection(t *testing.T) {
@@ -83,5 +90,8 @@ func TestDecisionQueueHoldKeepsSelection(t *testing.T) {
 	}
 	if decisions[0].ShouldRecord || decisions[0].ShouldAutoDecode {
 		t.Fatalf("expected candidate 1 to remain queued behind hold")
+	}
+	if decisions[1].RecordAdmission == nil || decisions[1].RecordAdmission.Class != AdmissionClassHold {
+		t.Fatalf("expected record admission hold class, got %+v", decisions[1].RecordAdmission)
 	}
 }

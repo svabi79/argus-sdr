@@ -287,9 +287,15 @@ func TestAdmitRefinementPlanAppliesBudget(t *testing.T) {
 	if item2 == nil || item2.Status != RefinementStatusAdmitted {
 		t.Fatalf("expected candidate 2 admitted, got %+v", item2)
 	}
+	if item2.Admission == nil || item2.Admission.Class != AdmissionClassAdmit || item2.Admission.Tier == "" {
+		t.Fatalf("expected admission class/tier on admitted item, got %+v", item2.Admission)
+	}
 	item3 := findWorkItem(res.WorkItems, 3)
 	if item3 == nil || item3.Status != RefinementStatusSkipped {
 		t.Fatalf("expected candidate 3 skipped, got %+v", item3)
+	}
+	if item3.Admission == nil || item3.Admission.Class != AdmissionClassDefer {
+		t.Fatalf("expected deferred admission class on skipped item, got %+v", item3.Admission)
 	}
 }
 
@@ -308,6 +314,9 @@ func TestAdmitRefinementPlanDisplacedByHold(t *testing.T) {
 	item2 := findWorkItem(res.WorkItems, 2)
 	if item2 == nil || item2.Status != RefinementStatusDisplaced {
 		t.Fatalf("expected higher priority candidate displaced, got %+v", item2)
+	}
+	if item2.Admission == nil || item2.Admission.Class != AdmissionClassDisplace {
+		t.Fatalf("expected displaced admission class, got %+v", item2.Admission)
 	}
 }
 
