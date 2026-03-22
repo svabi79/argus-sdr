@@ -43,3 +43,52 @@ func TestCandidateEvidenceStateTracksSupportLevels(t *testing.T) {
 		t.Fatalf("unexpected confirmation flags: %+v", state)
 	}
 }
+
+func TestCandidateEvidenceStateSupportOnly(t *testing.T) {
+	candidate := Candidate{
+		ID: 2,
+		Evidence: []LevelEvidence{
+			{Level: AnalysisLevel{Name: "surveillance-support", Role: RoleSurveillanceSupport, Truth: "surveillance"}, Provenance: "support"},
+		},
+	}
+	state := CandidateEvidenceStateFor(candidate)
+	if state.DetectionLevelCount != 0 || state.SupportLevelCount != 1 {
+		t.Fatalf("unexpected support-only counts: %+v", state)
+	}
+	if !state.SupportOnly || state.DerivedOnly || state.MultiLevelConfirmed {
+		t.Fatalf("unexpected support-only flags: %+v", state)
+	}
+}
+
+func TestCandidateEvidenceStatePrimaryWithSupport(t *testing.T) {
+	candidate := Candidate{
+		ID: 3,
+		Evidence: []LevelEvidence{
+			{Level: AnalysisLevel{Name: "surveillance", Role: RoleSurveillancePrimary, Truth: "surveillance"}, Provenance: "primary"},
+			{Level: AnalysisLevel{Name: "surveillance-support", Role: RoleSurveillanceSupport, Truth: "surveillance"}, Provenance: "support"},
+		},
+	}
+	state := CandidateEvidenceStateFor(candidate)
+	if state.DetectionLevelCount != 1 || state.SupportLevelCount != 1 {
+		t.Fatalf("unexpected primary+support counts: %+v", state)
+	}
+	if state.SupportOnly || state.DerivedOnly || state.MultiLevelConfirmed {
+		t.Fatalf("unexpected primary+support flags: %+v", state)
+	}
+}
+
+func TestCandidateEvidenceStateDerivedOnly(t *testing.T) {
+	candidate := Candidate{
+		ID: 4,
+		Evidence: []LevelEvidence{
+			{Level: AnalysisLevel{Name: "surveillance-lowres", Role: RoleSurveillanceDerived, Truth: "surveillance"}, Provenance: "derived"},
+		},
+	}
+	state := CandidateEvidenceStateFor(candidate)
+	if state.DetectionLevelCount != 1 || state.DerivedLevelCount != 1 {
+		t.Fatalf("unexpected derived-only counts: %+v", state)
+	}
+	if !state.DerivedOnly || state.SupportOnly || state.MultiLevelConfirmed {
+		t.Fatalf("unexpected derived-only flags: %+v", state)
+	}
+}

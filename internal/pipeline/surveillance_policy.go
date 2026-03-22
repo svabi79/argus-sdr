@@ -7,6 +7,7 @@ type SurveillanceDetectionPolicy struct {
 	DerivedDetection        string `json:"derived_detection"`
 	DerivedDetectionEnabled bool   `json:"derived_detection_enabled"`
 	DerivedDetectionReason  string `json:"derived_detection_reason,omitempty"`
+	DerivedDetectionMode    string `json:"derived_detection_mode,omitempty"`
 	PrimaryRole             string `json:"primary_role"`
 	DerivedRole             string `json:"derived_role"`
 	SupportRole             string `json:"support_role"`
@@ -38,17 +39,23 @@ func strategyIsMulti(strategy string) bool {
 // SurveillanceDetectionPolicyFromPolicy derives detection governance from policy intent/profile.
 func SurveillanceDetectionPolicyFromPolicy(policy Policy) SurveillanceDetectionPolicy {
 	mode := normalizeDerivedDetection(policy.SurveillanceDerivedDetection)
+	strategyMulti := strategyIsMulti(policy.SurveillanceStrategy)
 	enabled := false
 	reason := ""
 	switch mode {
 	case "on":
-		enabled = true
-		reason = "config"
+		if strategyMulti {
+			enabled = true
+			reason = "config"
+		} else {
+			enabled = false
+			reason = "strategy"
+		}
 	case "off":
 		enabled = false
 		reason = "config"
 	default:
-		if !strategyIsMulti(policy.SurveillanceStrategy) {
+		if !strategyMulti {
 			enabled = false
 			reason = "strategy"
 		} else {
@@ -64,14 +71,23 @@ func SurveillanceDetectionPolicyFromPolicy(policy Policy) SurveillanceDetectionP
 				reason = "legacy"
 			default:
 				enabled = true
-				reason = "strategy"
+				reason = "auto"
 			}
+		}
+	}
+	modeState := "disabled"
+	if strategyMulti {
+		if enabled {
+			modeState = "detection"
+		} else {
+			modeState = "support"
 		}
 	}
 	return SurveillanceDetectionPolicy{
 		DerivedDetection:        mode,
 		DerivedDetectionEnabled: enabled,
 		DerivedDetectionReason:  reason,
+		DerivedDetectionMode:    modeState,
 		PrimaryRole:             RoleSurveillancePrimary,
 		DerivedRole:             RoleSurveillanceDerived,
 		SupportRole:             RoleSurveillanceSupport,

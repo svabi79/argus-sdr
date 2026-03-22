@@ -898,6 +898,18 @@ func (rt *dspRuntime) buildSurveillancePlan(policy pipeline.Policy) surveillance
 
 	presentation := analysisLevel("presentation", pipeline.RolePresentation, "presentation", baseRate, rt.cfg.Surveillance.DisplayBins, rt.cfg.CenterHz, span, "display", 1, baseRate)
 	context.Presentation = presentation
+	if len(derivedLevels) == 0 && detectionPolicy.DerivedDetectionEnabled {
+		detectionPolicy.DerivedDetectionEnabled = false
+		detectionPolicy.DerivedDetectionReason = "levels"
+	}
+	switch {
+	case len(derivedLevels) > 0:
+		detectionPolicy.DerivedDetectionMode = "detection"
+	case len(supportLevels) > 0:
+		detectionPolicy.DerivedDetectionMode = "support"
+	default:
+		detectionPolicy.DerivedDetectionMode = "disabled"
+	}
 	levelSet := pipeline.SurveillanceLevelSet{
 		Primary:      primary,
 		Derived:      append([]pipeline.AnalysisLevel(nil), derivedLevels...),

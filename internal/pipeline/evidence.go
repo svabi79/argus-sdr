@@ -26,6 +26,7 @@ type CandidateEvidenceState struct {
 	Provenance              []string `json:"provenance,omitempty"`
 	Fused                   bool     `json:"fused,omitempty"`
 	DerivedOnly             bool     `json:"derived_only,omitempty"`
+	SupportOnly             bool     `json:"support_only,omitempty"`
 	MultiLevelConfirmed     bool     `json:"multi_level_confirmed,omitempty"`
 	MultiLevelConfirmedHint string   `json:"multi_level_confirmed_hint,omitempty"`
 }
@@ -65,10 +66,14 @@ func IsPresentationLevel(level AnalysisLevel) bool {
 // IsSupportLevel reports whether a level is a non-detection support level.
 func IsSupportLevel(level AnalysisLevel) bool {
 	role := strings.ToLower(strings.TrimSpace(level.Role))
+	name := strings.ToLower(strings.TrimSpace(level.Name))
 	if role == RoleSurveillanceSupport {
 		return true
 	}
-	return strings.Contains(role, "surveillance-support") || strings.Contains(role, "support")
+	if strings.Contains(role, "surveillance-support") || strings.Contains(role, "support") {
+		return true
+	}
+	return strings.Contains(name, "support")
 }
 
 // IsDetectionLevel reports whether a level is intended for detection/analysis.
@@ -107,11 +112,11 @@ func isPrimarySurveillanceLevel(level AnalysisLevel) bool {
 }
 
 func isDerivedSurveillanceLevel(level AnalysisLevel) bool {
-	role := strings.ToLower(strings.TrimSpace(level.Role))
-	name := strings.ToLower(strings.TrimSpace(level.Name))
-	if role == RoleSurveillanceSupport {
+	if IsSupportLevel(level) {
 		return false
 	}
+	role := strings.ToLower(strings.TrimSpace(level.Role))
+	name := strings.ToLower(strings.TrimSpace(level.Name))
 	if role == RoleSurveillanceDerived {
 		return true
 	}
@@ -181,6 +186,7 @@ func CandidateEvidenceStateFor(candidate Candidate) CandidateEvidenceState {
 	state.Provenance = sortedKeys(provenanceSet)
 	state.Fused = state.LevelCount > 1 || len(state.Provenance) > 1
 	state.DerivedOnly = state.DerivedLevelCount > 0 && state.PrimaryLevelCount == 0 && state.DetectionLevelCount == state.DerivedLevelCount
+	state.SupportOnly = state.SupportLevelCount > 0 && state.DetectionLevelCount == 0 && state.PresentationLevelCount == 0
 	state.MultiLevelConfirmed = state.DetectionLevelCount >= 2
 	if state.MultiLevelConfirmed {
 		if state.PrimaryLevelCount > 0 && state.DerivedLevelCount > 0 {

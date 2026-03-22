@@ -2,6 +2,7 @@ package main
 
 import (
 	"sort"
+	"strings"
 
 	"sdr-wideband-suite/internal/pipeline"
 )
@@ -10,6 +11,7 @@ type SurveillanceLevelSummary struct {
 	Name         string  `json:"name"`
 	Role         string  `json:"role,omitempty"`
 	Truth        string  `json:"truth,omitempty"`
+	Kind         string  `json:"kind,omitempty"`
 	SampleRate   int     `json:"sample_rate,omitempty"`
 	FFTSize      int     `json:"fft_size,omitempty"`
 	BinHz        float64 `json:"bin_hz,omitempty"`
@@ -22,6 +24,8 @@ type SurveillanceLevelSummary struct {
 
 type CandidateEvidenceSummary struct {
 	Level      string `json:"level"`
+	Role       string `json:"role,omitempty"`
+	Kind       string `json:"kind,omitempty"`
 	Provenance string `json:"provenance,omitempty"`
 	Count      int    `json:"count"`
 }
@@ -32,6 +36,10 @@ type CandidateEvidenceStateSummary struct {
 	Fused               int `json:"fused"`
 	MultiLevelConfirmed int `json:"multi_level_confirmed"`
 	DerivedOnly         int `json:"derived_only"`
+	SupportOnly         int `json:"support_only"`
+	PrimaryPresent      int `json:"primary_present"`
+	DerivedPresent      int `json:"derived_present"`
+	SupportPresent      int `json:"support_present"`
 	PrimaryOnly         int `json:"primary_only"`
 }
 
@@ -71,10 +79,12 @@ func buildSurveillanceLevelSummaries(set pipeline.SurveillanceLevelSet, spectra 
 		if binHz == 0 && level.SampleRate > 0 && level.FFTSize > 0 {
 			binHz = float64(level.SampleRate) / float64(level.FFTSize)
 		}
+		kind := evidenceKind(level)
 		out[name] = SurveillanceLevelSummary{
 			Name:         name,
 			Role:         level.Role,
 			Truth:        level.Truth,
+			Kind:         kind,
 			SampleRate:   level.SampleRate,
 			FFTSize:      level.FFTSize,
 			BinHz:        binHz,
@@ -114,6 +124,8 @@ func buildCandidateEvidenceSummary(candidates []pipeline.Candidate) []CandidateE
 	}
 	type key struct {
 		level      string
+		role       string
+		kind       string
 		provenance string
 	}
 	counts := map[key]int{}
@@ -123,7 +135,9 @@ func buildCandidateEvidenceSummary(candidates []pipeline.Candidate) []CandidateE
 			if name == "" {
 				name = "unknown"
 			}
-			k := key{level: name, provenance: ev.Provenance}
+			role := strings.TrimSpace(ev.Level.Role)
+			kind := evidenceKind(ev.Level)
+			k := key{level: name, role: role, kind: kind, provenance: ev.Provenance}
 			counts[k]++
 		}
 	}
@@ -132,12 +146,15 @@ func buildCandidateEvidenceSummary(candidates []pipeline.Candidate) []CandidateE
 	}
 	out := make([]CandidateEvidenceSummary, 0, len(counts))
 	for k, v := range counts {
-		out = append(out, CandidateEvidenceSummary{Level: k.level, Provenance: k.provenance, Count: v})
+		out = append(out, CandidateEvidenceSummary{Level: k.level, Role: k.role, Kind: k.kind, Provenance: k.provenance, Count: v})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Count == out[j].Count {
 			if out[i].Level == out[j].Level {
-				return out[i].Provenance < out[j].Provenance
+				if out[i].Kind == out[j].Kind {
+					return out[i].Provenance < out[j].Provenance
+				}
+				return out[i].Kind < out[j].Kind
 			}
 			return out[i].Level < out[j].Level
 		}
@@ -166,6 +183,18 @@ func buildCandidateEvidenceStateSummary(candidates []pipeline.Candidate) *Candid
 		if state.DerivedOnly {
 			summary.DerivedOnly++
 		}
+		if state.SupportOnly {
+			summary.SupportOnly++
+		}
+		if state.PrimaryLevelCount > 0 {
+			summary.PrimaryPresent++
+		}
+		if state.DerivedLevelCount > 0 {
+			summary.DerivedPresent++
+		}
+		if state.SupportLevelCount > 0 {
+			summary.SupportPresent++
+		}
 		if state.PrimaryLevelCount > 0 && state.DerivedLevelCount == 0 {
 			summary.PrimaryOnly++
 		}
@@ -174,4 +203,17 @@ func buildCandidateEvidenceStateSummary(candidates []pipeline.Candidate) *Candid
 		return nil
 	}
 	return &summary
+}
+
+func evidenceKind(level pipeline.AnalysisLevel) string {
+	if pipeline.IsPresentationLevel(level) {
+		return "presentation"
+	}
+	if pipeline.IsSupportLevel(level) {
+		return "support"
+	}
+	if pipeline.IsDetectionLevel(level) {
+		return "detection"
+	}
+	return "unknown"
 }
