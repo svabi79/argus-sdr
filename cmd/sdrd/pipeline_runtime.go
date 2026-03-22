@@ -296,12 +296,16 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 	for _, sc := range scheduled {
 		windows = append(windows, pipeline.RefinementWindowForCandidate(policy, sc.Candidate))
 	}
+	levelSpan := spanForPolicy(policy, float64(rt.cfg.SampleRate))
+	if _, maxSpan, ok := windowSpanBounds(windows); ok {
+		levelSpan = maxSpan
+	}
 	level := pipeline.AnalysisLevel{
 		Name:       "refinement",
 		SampleRate: rt.cfg.SampleRate,
 		FFTSize:    rt.cfg.FFTSize,
 		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     spanForPolicy(policy, float64(rt.cfg.SampleRate)),
+		SpanHz:     levelSpan,
 		Source:     "refinement-window",
 	}
 	input := pipeline.RefinementInput{
@@ -506,6 +510,25 @@ func spanForPolicy(policy pipeline.Policy, fallback float64) float64 {
 		return policy.MonitorEndHz - policy.MonitorStartHz
 	}
 	return fallback
+}
+
+func windowSpanBounds(windows []pipeline.RefinementWindow) (float64, float64, bool) {
+	minSpan := 0.0
+	maxSpan := 0.0
+	ok := false
+	for _, w := range windows {
+		if w.SpanHz <= 0 {
+			continue
+		}
+		if !ok || w.SpanHz < minSpan {
+			minSpan = w.SpanHz
+		}
+		if !ok || w.SpanHz > maxSpan {
+			maxSpan = w.SpanHz
+		}
+		ok = true
+	}
+	return minSpan, maxSpan, ok
 }
 
 func surveillanceLevels(policy pipeline.Policy, primary pipeline.AnalysisLevel, secondary pipeline.AnalysisLevel) []pipeline.AnalysisLevel {

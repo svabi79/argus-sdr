@@ -57,3 +57,18 @@ func TestSurveillanceLevelsRespectStrategy(t *testing.T) {
 		t.Fatalf("expected secondary level for multi-res, got %d", len(levels))
 	}
 }
+
+func TestWindowSpanBounds(t *testing.T) {
+	windows := []pipeline.RefinementWindow{
+		{SpanHz: 8000},
+		{SpanHz: 16000},
+		{SpanHz: 12000},
+	}
+	minSpan, maxSpan, ok := windowSpanBounds(windows)
+	if !ok {
+		t.Fatalf("expected spans to be found")
+	}
+	if minSpan != 8000 || maxSpan != 16000 {
+		t.Fatalf("unexpected span bounds: min %.0f max %.0f", minSpan, maxSpan)
+	}
+}

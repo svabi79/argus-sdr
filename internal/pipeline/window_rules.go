@@ -42,12 +42,15 @@ func RefinementWindowForCandidate(policy Policy, candidate Candidate) Refinement
 	}
 	if policy.RefinementMinSpanHz > 0 && span < policy.RefinementMinSpanHz {
 		span = policy.RefinementMinSpanHz
+		windowSource = "policy:min_span"
 	}
 	if policy.RefinementMaxSpanHz > 0 && span > policy.RefinementMaxSpanHz {
 		span = policy.RefinementMaxSpanHz
+		windowSource = "policy:max_span"
 	}
 	if span <= 0 {
 		span = 12000
+		windowSource = "default"
 	}
 	return RefinementWindow{
 		CenterHz: candidate.CenterHz,
