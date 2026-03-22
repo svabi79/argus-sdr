@@ -685,17 +685,32 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 		decision := pipeline.DecideSignalAction(policy, ref.Candidate, cls)
 		decisions = append(decisions, decision)
 		if cls != nil {
+			if cls.ModType == classifier.ClassWFM {
+				cls.ModType = classifier.ClassWFMStereo
+				signals[i].PlaybackMode = string(classifier.ClassWFMStereo)
+				signals[i].DemodName = string(classifier.ClassWFMStereo)
+				signals[i].StereoState = "searching"
+			}
 			pll := classifier.PLLResult{}
 			if i < len(snips) && snips[i] != nil && len(snips[i]) > 256 {
 				pll = classifier.EstimateExactFrequency(snips[i], snipRate, signals[i].CenterHz, cls.ModType)
 				cls.PLL = &pll
 				signals[i].PLL = &pll
-				if cls.ModType == classifier.ClassWFM && pll.Stereo {
-					cls.ModType = classifier.ClassWFMStereo
+				if cls.ModType == classifier.ClassWFMStereo {
+					if pll.Stereo {
+						signals[i].StereoState = "locked"
+					} else if signals[i].StereoState == "" {
+						signals[i].StereoState = "searching"
+					}
+					signals[i].PlaybackMode = string(classifier.ClassWFMStereo)
+					signals[i].DemodName = string(classifier.ClassWFMStereo)
 				}
 			}
-			if (cls.ModType == classifier.ClassWFM || cls.ModType == classifier.ClassWFMStereo) && rec != nil {
+			if cls.ModType == classifier.ClassWFMStereo && rec != nil {
 				rt.updateRDS(art.now, rec, &signals[i], cls)
+				if signals[i].PLL != nil && signals[i].PLL.RDSStation != "" {
+					signals[i].StereoState = "locked"
+				}
 			}
 		}
 	}

@@ -36,12 +36,28 @@ func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectr
 			BWHz:     sig.BWHz,
 		}, spectrum, sampleRate, fftSize, snip, mode)
 		sig.Class = cls
+		if cls != nil && cls.ModType == classifier.ClassWFM {
+			cls.ModType = classifier.ClassWFMStereo
+			sig.PlaybackMode = string(classifier.ClassWFMStereo)
+			sig.DemodName = string(classifier.ClassWFMStereo)
+			if sig.PLL != nil && sig.PLL.Stereo {
+				sig.StereoState = "locked"
+			} else {
+				sig.StereoState = "searching"
+			}
+		}
 		if cls != nil && snip != nil && len(snip) > 256 {
 			pll := classifier.EstimateExactFrequency(snip, snipRate, sig.CenterHz, cls.ModType)
 			cls.PLL = &pll
 			sig.PLL = &pll
-			if cls.ModType == classifier.ClassWFM && pll.Stereo {
-				cls.ModType = classifier.ClassWFMStereo
+			if cls.ModType == classifier.ClassWFMStereo {
+				if pll.Stereo {
+					sig.StereoState = "locked"
+				} else if sig.StereoState == "" {
+					sig.StereoState = "searching"
+				}
+				sig.PlaybackMode = string(classifier.ClassWFMStereo)
+				sig.DemodName = string(classifier.ClassWFMStereo)
 			}
 		}
 		var window RefinementWindow
