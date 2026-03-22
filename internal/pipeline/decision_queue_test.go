@@ -81,8 +81,9 @@ func TestDecisionQueueHoldKeepsSelection(t *testing.T) {
 	}
 
 	decisions = []SignalDecision{
-		{Candidate: Candidate{ID: 1, SNRDb: 25}, ShouldRecord: true, ShouldAutoDecode: true},
-		{Candidate: Candidate{ID: 2, SNRDb: 2}, ShouldRecord: true, ShouldAutoDecode: true},
+		{Candidate: Candidate{ID: 1, SNRDb: 32}, ShouldRecord: true, ShouldAutoDecode: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 30}, ShouldRecord: true, ShouldAutoDecode: true},
+		{Candidate: Candidate{ID: 3, SNRDb: 10}, ShouldRecord: true, ShouldAutoDecode: true},
 	}
 	arbiter.ApplyDecisions(decisions, budget, now.Add(100*time.Millisecond), policy)
 	if !decisions[1].ShouldRecord || !decisions[1].ShouldAutoDecode {
@@ -93,5 +94,120 @@ func TestDecisionQueueHoldKeepsSelection(t *testing.T) {
 	}
 	if decisions[1].RecordAdmission == nil || decisions[1].RecordAdmission.Class != AdmissionClassHold {
 		t.Fatalf("expected record admission hold class, got %+v", decisions[1].RecordAdmission)
+	}
+}
+
+func TestDecisionQueueHighTierHoldProtected(t *testing.T) {
+	arbiter := NewArbiter()
+	policy := Policy{DecisionHoldMs: 500}
+	budget := BudgetModel{Record: BudgetQueue{Max: 1}}
+	now := time.Now()
+
+	decisions := []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 30}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 10}, ShouldRecord: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now, policy)
+	if !decisions[0].ShouldRecord {
+		t.Fatalf("expected candidate 1 to be selected initially")
+	}
+
+	decisions = []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 30}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 10}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 3, SNRDb: 32}, ShouldRecord: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now.Add(100*time.Millisecond), policy)
+	if !decisions[0].ShouldRecord {
+		t.Fatalf("expected protected hold to keep candidate 1")
+	}
+	if decisions[2].ShouldRecord {
+		t.Fatalf("expected candidate 3 to remain deferred behind protected hold")
+	}
+	if decisions[0].RecordAdmission == nil || decisions[0].RecordAdmission.Class != AdmissionClassHold {
+		t.Fatalf("expected hold admission for candidate 1, got %+v", decisions[0].RecordAdmission)
+	}
+	if decisions[2].RecordAdmission == nil || decisions[2].RecordAdmission.Class != AdmissionClassDisplace {
+		t.Fatalf("expected displacement admission for candidate 3, got %+v", decisions[2].RecordAdmission)
+	}
+}
+
+func TestDecisionQueueOpportunisticDisplacement(t *testing.T) {
+	arbiter := NewArbiter()
+	policy := Policy{DecisionHoldMs: 500}
+	budget := BudgetModel{Record: BudgetQueue{Max: 1}}
+	now := time.Now()
+
+	decisions := []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 15}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 10}, ShouldRecord: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now, policy)
+	if !decisions[0].ShouldRecord {
+		t.Fatalf("expected candidate 1 to be selected initially")
+	}
+
+	decisions = []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 5}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 4}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 3, SNRDb: 30}, ShouldRecord: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now.Add(100*time.Millisecond), policy)
+	if decisions[0].ShouldRecord {
+		t.Fatalf("expected candidate 1 to be displaced")
+	}
+	if !decisions[2].ShouldRecord {
+		t.Fatalf("expected candidate 3 to opportunistically displace hold")
+	}
+	if decisions[0].RecordAdmission == nil || decisions[0].RecordAdmission.Class != AdmissionClassDisplace {
+		t.Fatalf("expected displacement admission for candidate 1, got %+v", decisions[0].RecordAdmission)
+	}
+	if decisions[2].RecordAdmission == nil || decisions[2].RecordAdmission.Class != AdmissionClassAdmit {
+		t.Fatalf("expected admit admission for candidate 3, got %+v", decisions[2].RecordAdmission)
+	}
+	if decisions[2].RecordAdmission == nil || !strings.Contains(decisions[2].RecordAdmission.Reason, ReasonTagDisplaceOpportunist) {
+		t.Fatalf("expected opportunistic displacement reason, got %+v", decisions[2].RecordAdmission)
+	}
+}
+
+func TestDecisionQueueHoldExpiryChurn(t *testing.T) {
+	arbiter := NewArbiter()
+	policy := Policy{DecisionHoldMs: 100}
+	budget := BudgetModel{Record: BudgetQueue{Max: 1}}
+	now := time.Now()
+
+	decisions := []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 12}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 10}, ShouldRecord: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now, policy)
+	if !decisions[0].ShouldRecord {
+		t.Fatalf("expected candidate 1 to be selected initially")
+	}
+
+	decisions = []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 30}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 32}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 3, SNRDb: 5}, ShouldRecord: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now.Add(50*time.Millisecond), policy)
+	if !decisions[0].ShouldRecord {
+		t.Fatalf("expected hold to keep candidate 1 before expiry")
+	}
+
+	decisions = []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 30}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 32}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 3, SNRDb: 5}, ShouldRecord: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now.Add(200*time.Millisecond), policy)
+	if decisions[0].ShouldRecord {
+		t.Fatalf("expected candidate 1 to be released after hold expiry")
+	}
+	if !decisions[1].ShouldRecord {
+		t.Fatalf("expected candidate 2 to be selected after hold expiry")
+	}
+	if decisions[0].RecordAdmission == nil || !strings.Contains(decisions[0].RecordAdmission.Reason, ReasonTagHoldExpired) {
+		t.Fatalf("expected hold expiry reason, got %+v", decisions[0].RecordAdmission)
 	}
 }

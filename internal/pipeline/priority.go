@@ -49,6 +49,21 @@ func PriorityTierFromRange(score, min, max float64) string {
 	}
 }
 
+func priorityTierRank(tier string) int {
+	switch tier {
+	case PriorityTierCritical:
+		return 4
+	case PriorityTierHigh:
+		return 3
+	case PriorityTierMedium:
+		return 2
+	case PriorityTierLow:
+		return 1
+	default:
+		return 0
+	}
+}
+
 func admissionReason(base string, policy Policy, holdPolicy HoldPolicy, extras ...string) string {
 	tags := uniqueReasonTags(policy, holdPolicy, extras...)
 	if len(tags) == 0 {

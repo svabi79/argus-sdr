@@ -29,6 +29,12 @@ type RefinementAdmission struct {
 	Admitted       int            `json:"admitted"`
 	Skipped        int            `json:"skipped"`
 	Displaced      int            `json:"displaced"`
+	HoldActive     int            `json:"hold_active"`
+	HoldSelected   int            `json:"hold_selected"`
+	HoldProtected  int            `json:"hold_protected"`
+	HoldExpired    int            `json:"hold_expired"`
+	HoldDisplaced  int            `json:"hold_displaced"`
+	Opportunistic  int            `json:"opportunistic"`
 	PriorityCutoff float64        `json:"priority_cutoff,omitempty"`
 	PriorityTier   string         `json:"priority_tier,omitempty"`
 	Reason         string         `json:"reason,omitempty"`
@@ -127,8 +133,10 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 	admission.Planned = planned
 	selected := map[int64]struct{}{}
 	held := map[int64]struct{}{}
+	protected := map[int64]struct{}{}
+	expired := map[int64]struct{}{}
 	if hold != nil {
-		purgeHold(hold.Active, now)
+		expired = expireHold(hold.Active, now)
 		for id := range hold.Active {
 			if rankedContains(ranked, id) {
 				selected[id] = struct{}{}
@@ -146,19 +154,48 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 			limit = planned
 		}
 	}
+	tierByID := map[int64]string{}
+	scoreByID := map[int64]float64{}
 	for _, cand := range ranked {
-		if len(selected) >= limit {
-			break
+		tierByID[cand.Candidate.ID] = PriorityTierFromRange(cand.Priority, plan.PriorityMin, plan.PriorityMax)
+		scoreByID[cand.Candidate.ID] = cand.Priority
+	}
+	for id := range held {
+		if isProtectedTier(tierByID[id]) {
+			protected[id] = struct{}{}
 		}
+	}
+	displaceable := buildDisplaceableHold(held, protected, tierByID, scoreByID)
+	opportunistic := map[int64]struct{}{}
+	displacedHold := map[int64]struct{}{}
+	for _, cand := range ranked {
 		if _, ok := selected[cand.Candidate.ID]; ok {
 			continue
 		}
+		if len(selected) < limit {
+			selected[cand.Candidate.ID] = struct{}{}
+			continue
+		}
+		if len(displaceable) == 0 {
+			continue
+		}
+		target := displaceable[0]
+		if priorityTierRank(tierByID[cand.Candidate.ID]) <= priorityTierRank(tierByID[target]) {
+			continue
+		}
+		displaceable = displaceable[1:]
+		delete(selected, target)
+		displacedHold[target] = struct{}{}
 		selected[cand.Candidate.ID] = struct{}{}
+		opportunistic[cand.Candidate.ID] = struct{}{}
 	}
 	if hold != nil && admission.HoldMs > 0 {
 		until := now.Add(time.Duration(admission.HoldMs) * time.Millisecond)
 		if hold.Active == nil {
 			hold.Active = map[int64]time.Time{}
+		}
+		for id := range displacedHold {
+			delete(hold.Active, id)
 		}
 		for id := range selected {
 			hold.Active[id] = until
@@ -176,8 +213,16 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 	if admission.Skipped < 0 {
 		admission.Skipped = 0
 	}
+	if hold != nil {
+		admission.HoldActive = len(hold.Active)
+	}
+	admission.HoldSelected = len(held) - len(displacedHold)
+	admission.HoldProtected = len(protected)
+	admission.HoldExpired = len(expired)
+	admission.HoldDisplaced = len(displacedHold)
+	admission.Opportunistic = len(opportunistic)
 
-	displaced := map[int64]struct{}{}
+	displacedByHold := map[int64]struct{}{}
 	if len(admitted) > 0 {
 		admission.PriorityCutoff = admitted[len(admitted)-1].Priority
 		for _, cand := range ranked {
@@ -185,11 +230,14 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 				continue
 			}
 			if cand.Priority >= admission.PriorityCutoff {
-				displaced[cand.Candidate.ID] = struct{}{}
+				if _, ok := displacedHold[cand.Candidate.ID]; ok {
+					continue
+				}
+				displacedByHold[cand.Candidate.ID] = struct{}{}
 			}
 		}
 	}
-	admission.Displaced = len(displaced)
+	admission.Displaced = len(displacedByHold) + len(displacedHold)
 	admission.PriorityTier = PriorityTierFromRange(admission.PriorityCutoff, plan.PriorityMin, plan.PriorityMax)
 	admission.Pressure = buildRefinementPressure(budgetModel, admission)
 	if admission.PriorityCutoff > 0 {
@@ -220,11 +268,21 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 			item.Admission.Class = class
 			item.Admission.Score = item.Priority
 			item.Admission.Cutoff = admission.PriorityCutoff
-			item.Admission.Tier = PriorityTierFromRange(item.Priority, plan.PriorityMin, plan.PriorityMax)
-			item.Admission.Reason = admissionReason(reason, policy, holdPolicy, pressureReasonTag(admission.Pressure), "budget:"+slugToken(plan.BudgetSource))
+			item.Admission.Tier = tierByID[id]
+			extras := []string{pressureReasonTag(admission.Pressure), "budget:" + slugToken(plan.BudgetSource)}
+			if _, wasHeld := held[id]; wasHeld {
+				extras = append(extras, "pressure:hold", ReasonTagHoldActive)
+				if _, ok := protected[id]; ok {
+					extras = append(extras, ReasonTagHoldProtected)
+				}
+			}
+			if _, ok := opportunistic[id]; ok {
+				extras = append(extras, "pressure:hold", ReasonTagDisplaceOpportunist, ReasonTagDisplaceTier, ReasonTagHoldDisplaced)
+			}
+			item.Admission.Reason = admissionReason(reason, policy, holdPolicy, extras...)
 			continue
 		}
-		if _, ok := displaced[id]; ok {
+		if _, ok := displacedHold[id]; ok {
 			item.Status = RefinementStatusDisplaced
 			item.Reason = RefinementReasonDisplaced
 			if item.Admission == nil {
@@ -233,8 +291,21 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 			item.Admission.Class = AdmissionClassDisplace
 			item.Admission.Score = item.Priority
 			item.Admission.Cutoff = admission.PriorityCutoff
-			item.Admission.Tier = PriorityTierFromRange(item.Priority, plan.PriorityMin, plan.PriorityMax)
-			item.Admission.Reason = admissionReason("refinement:displace:hold", policy, holdPolicy, pressureReasonTag(admission.Pressure), "pressure:hold", "budget:"+slugToken(plan.BudgetSource))
+			item.Admission.Tier = tierByID[id]
+			item.Admission.Reason = admissionReason("refinement:displace:hold", policy, holdPolicy, pressureReasonTag(admission.Pressure), "pressure:hold", ReasonTagDisplaceOpportunist, ReasonTagDisplaceTier, ReasonTagHoldDisplaced, "budget:"+slugToken(plan.BudgetSource))
+			continue
+		}
+		if _, ok := displacedByHold[id]; ok {
+			item.Status = RefinementStatusDisplaced
+			item.Reason = RefinementReasonDisplaced
+			if item.Admission == nil {
+				item.Admission = &PriorityAdmission{Basis: "refinement"}
+			}
+			item.Admission.Class = AdmissionClassDisplace
+			item.Admission.Score = item.Priority
+			item.Admission.Cutoff = admission.PriorityCutoff
+			item.Admission.Tier = tierByID[id]
+			item.Admission.Reason = admissionReason("refinement:displace:hold", policy, holdPolicy, pressureReasonTag(admission.Pressure), "pressure:hold", ReasonTagHoldActive, "budget:"+slugToken(plan.BudgetSource))
 			continue
 		}
 		item.Status = RefinementStatusSkipped
@@ -245,22 +316,18 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 		item.Admission.Class = AdmissionClassDefer
 		item.Admission.Score = item.Priority
 		item.Admission.Cutoff = admission.PriorityCutoff
-		item.Admission.Tier = PriorityTierFromRange(item.Priority, plan.PriorityMin, plan.PriorityMax)
-		item.Admission.Reason = admissionReason("refinement:skip:budget", policy, holdPolicy, pressureReasonTag(admission.Pressure), "pressure:budget", "budget:"+slugToken(plan.BudgetSource))
+		item.Admission.Tier = tierByID[id]
+		extras := []string{pressureReasonTag(admission.Pressure), "pressure:budget", "budget:" + slugToken(plan.BudgetSource)}
+		if _, ok := expired[id]; ok {
+			extras = append(extras, ReasonTagHoldExpired)
+		}
+		item.Admission.Reason = admissionReason("refinement:skip:budget", policy, holdPolicy, extras...)
 	}
 	return RefinementAdmissionResult{
 		Plan:      plan,
 		WorkItems: workItems,
 		Admitted:  admitted,
 		Admission: admission,
-	}
-}
-
-func purgeHold(active map[int64]time.Time, now time.Time) {
-	for id, until := range active {
-		if now.After(until) {
-			delete(active, id)
-		}
 	}
 }
 

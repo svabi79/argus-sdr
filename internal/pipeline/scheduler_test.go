@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -302,8 +303,9 @@ func TestAdmitRefinementPlanAppliesBudget(t *testing.T) {
 func TestAdmitRefinementPlanDisplacedByHold(t *testing.T) {
 	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0}
 	cands := []Candidate{
-		{ID: 1, CenterHz: 100, SNRDb: 5},
+		{ID: 1, CenterHz: 100, SNRDb: 9},
 		{ID: 2, CenterHz: 200, SNRDb: 12},
+		{ID: 3, CenterHz: 300, SNRDb: 2},
 	}
 	plan := BuildRefinementPlan(cands, policy)
 	hold := &RefinementHold{Active: map[int64]time.Time{1: time.Now().Add(2 * time.Second)}}
@@ -317,6 +319,30 @@ func TestAdmitRefinementPlanDisplacedByHold(t *testing.T) {
 	}
 	if item2.Admission == nil || item2.Admission.Class != AdmissionClassDisplace {
 		t.Fatalf("expected displaced admission class, got %+v", item2.Admission)
+	}
+}
+
+func TestAdmitRefinementPlanOpportunisticDisplacement(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0, DecisionHoldMs: 500}
+	cands := []Candidate{
+		{ID: 1, CenterHz: 100, SNRDb: 5},
+		{ID: 2, CenterHz: 200, SNRDb: 25},
+	}
+	plan := BuildRefinementPlan(cands, policy)
+	hold := &RefinementHold{Active: map[int64]time.Time{1: time.Now().Add(2 * time.Second)}}
+	res := AdmitRefinementPlan(plan, policy, time.Now(), hold)
+	if len(res.Plan.Selected) != 1 || res.Plan.Selected[0].Candidate.ID != 2 {
+		t.Fatalf("expected opportunistic displacement to admit candidate 2, got %+v", res.Plan.Selected)
+	}
+	item1 := findWorkItem(res.WorkItems, 1)
+	if item1 == nil || item1.Status != RefinementStatusDisplaced {
+		t.Fatalf("expected candidate 1 displaced, got %+v", item1)
+	}
+	if item1.Admission == nil || item1.Admission.Class != AdmissionClassDisplace {
+		t.Fatalf("expected displaced admission class, got %+v", item1.Admission)
+	}
+	if item1.Admission == nil || !strings.Contains(item1.Admission.Reason, ReasonTagDisplaceOpportunist) {
+		t.Fatalf("expected opportunistic displacement reason, got %+v", item1.Admission)
 	}
 }
 

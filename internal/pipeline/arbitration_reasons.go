@@ -24,3 +24,12 @@ const (
 	HoldReasonStrategyDigital   = "strategy:digital"
 	HoldReasonStrategyMultiRes  = "strategy:multi-resolution"
 )
+
+const (
+	ReasonTagHoldActive          = "hold:active"
+	ReasonTagHoldExpired         = "hold:expired"
+	ReasonTagHoldProtected       = "hold:protected"
+	ReasonTagHoldDisplaced       = "hold:displaced"
+	ReasonTagDisplaceOpportunist = "displace:opportunistic"
+	ReasonTagDisplaceTier        = "displace:tier"
+)
