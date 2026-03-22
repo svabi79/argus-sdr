@@ -62,7 +62,7 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `pipeline.goals.*` -- declarative target/intent layer for future autonomous operation
   - `intent`
   - `monitor_start_hz` / `monitor_end_hz` / `monitor_span_hz`
-  - `monitor_windows` -- optional list of monitor windows (each window uses `start_hz` + `end_hz` or `center_hz` + `span_hz`)
+  - `monitor_windows` -- optional list of monitor windows (each window uses `start_hz` + `end_hz` or `center_hz` + `span_hz`, plus optional `label`, `zone`, `priority`, `auto_record`, `auto_decode`)
   - `signal_priorities`
   - `auto_record_classes`
   - `auto_decode_classes`
@@ -122,7 +122,7 @@ Phase-3 status (Wave 3E):
 
 The long-term target is that you describe *what the system should do* (for example broad-span monitoring intent, preferred signal families, auto-record/decode priorities), while the engine decides *how* to allocate surveillance, refinement and decoding budgets.
 
-Phase-4 groundwork: `monitor_windows` allows multi-span gating within a single capture span; it is used to accept/reject candidates and inform refinement plans without changing the acquisition center/rate.
+Phase-4 status (monitor-window operating model): `monitor_windows` gates candidates inside a capture span, supports overlapping windows with priority/zone bias, and can auto-record/decode per window without retuning. Window stats + summaries now surface in `/api/refinement`, and decision/admission reasons include window tags/zone tags for traceability.
 
 **CFAR modes:** `OFF`, `CA`, `OS`, `GOSCA`, `CASO`
 

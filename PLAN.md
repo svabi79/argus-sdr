@@ -144,6 +144,15 @@ Verantwortung:
 ## Spätere Phasen
 
 ### Phase 4
+Phase-4 Status: Monitor-Window-Betriebsmodell gelandet (Wave 4F-C Abschluss).
+
+Gelandete Wellen (4F):
+- Monitor-Windows mit Overlap, Priority/Zone-Bias und Auto-Record/Decode pro Window
+- Candidate-Gating im Capture-Span + Refinement-Plan-Input
+- Window-Statistiken + Outcome-Summaries in Debug/API (`/api/refinement`)
+- Decision/Admission-Reason-Tags mit `window:*` + `window-zone:*`
+
+Nächste Ausbaustufe (später):
 - breitbandige Multi-Span-Profile
 - 20-80 MHz konkrete Betriebsmodi
 - adaptive Quality-of-Service
