@@ -476,6 +476,9 @@ func (rt *dspRuntime) detectDerivedCandidates(art *spectrumArtifacts, plan surve
 		if level.Name == "" {
 			continue
 		}
+		if !pipeline.IsDetectionLevel(level) {
+			continue
+		}
 		spectrum := spectra[level.Name]
 		if len(spectrum) == 0 {
 			continue

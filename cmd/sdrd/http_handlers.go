@@ -176,6 +176,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		levelSummaries := buildSurveillanceLevelSummaries(levelSet, snap.surveillance.Spectra)
 		candidateSources := buildCandidateSourceSummary(snap.surveillance.Candidates)
 		candidateEvidence := buildCandidateEvidenceSummary(snap.surveillance.Candidates)
+		candidateEvidenceStates := buildCandidateEvidenceStateSummary(snap.surveillance.Candidates)
 		out := map[string]any{
 			"plan":                   snap.refinement.Input.Plan,
 			"windows":                snap.refinement.Input.Windows,
@@ -210,6 +211,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"surveillance_spectra_bins":  spectraBins,
 			"candidate_sources":          candidateSources,
 			"candidate_evidence":         candidateEvidence,
+			"candidate_evidence_states":  candidateEvidenceStates,
 			"display_level":              snap.surveillance.DisplayLevel,
 			"refinement_level":           snap.refinement.Input.Level,
 			"presentation_level":         snap.presentation,

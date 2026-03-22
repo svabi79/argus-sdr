@@ -26,6 +26,15 @@ type CandidateEvidenceSummary struct {
 	Count      int    `json:"count"`
 }
 
+type CandidateEvidenceStateSummary struct {
+	Total               int `json:"total"`
+	WithEvidence        int `json:"with_evidence"`
+	Fused               int `json:"fused"`
+	MultiLevelConfirmed int `json:"multi_level_confirmed"`
+	DerivedOnly         int `json:"derived_only"`
+	PrimaryOnly         int `json:"primary_only"`
+}
+
 func buildSurveillanceLevelSummaries(set pipeline.SurveillanceLevelSet, spectra []pipeline.SurveillanceLevelSpectrum) map[string]SurveillanceLevelSummary {
 	if set.Primary.Name == "" && len(set.Derived) == 0 && set.Presentation.Name == "" && len(set.All) == 0 {
 		return nil
@@ -132,4 +141,34 @@ func buildCandidateEvidenceSummary(candidates []pipeline.Candidate) []CandidateE
 		return out[i].Count > out[j].Count
 	})
 	return out
+}
+
+func buildCandidateEvidenceStateSummary(candidates []pipeline.Candidate) *CandidateEvidenceStateSummary {
+	if len(candidates) == 0 {
+		return nil
+	}
+	summary := CandidateEvidenceStateSummary{Total: len(candidates)}
+	for _, cand := range candidates {
+		state := pipeline.CandidateEvidenceStateFor(cand)
+		if state.TotalLevelEntries == 0 {
+			continue
+		}
+		summary.WithEvidence++
+		if state.Fused {
+			summary.Fused++
+		}
+		if state.MultiLevelConfirmed {
+			summary.MultiLevelConfirmed++
+		}
+		if state.DerivedOnly {
+			summary.DerivedOnly++
+		}
+		if state.PrimaryLevelCount > 0 && state.DerivedLevelCount == 0 {
+			summary.PrimaryOnly++
+		}
+	}
+	if summary.WithEvidence == 0 {
+		return nil
+	}
+	return &summary
 }
