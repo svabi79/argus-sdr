@@ -21,24 +21,26 @@ type RefinementHold struct {
 }
 
 type RefinementAdmission struct {
-	Budget         int            `json:"budget"`
-	BudgetSource   string         `json:"budget_source,omitempty"`
-	HoldMs         int            `json:"hold_ms"`
-	HoldSource     string         `json:"hold_source,omitempty"`
-	Planned        int            `json:"planned"`
-	Admitted       int            `json:"admitted"`
-	Skipped        int            `json:"skipped"`
-	Displaced      int            `json:"displaced"`
-	HoldActive     int            `json:"hold_active"`
-	HoldSelected   int            `json:"hold_selected"`
-	HoldProtected  int            `json:"hold_protected"`
-	HoldExpired    int            `json:"hold_expired"`
-	HoldDisplaced  int            `json:"hold_displaced"`
-	Opportunistic  int            `json:"opportunistic"`
-	PriorityCutoff float64        `json:"priority_cutoff,omitempty"`
-	PriorityTier   string         `json:"priority_tier,omitempty"`
-	Reason         string         `json:"reason,omitempty"`
-	Pressure       BudgetPressure `json:"pressure,omitempty"`
+	Budget          int            `json:"budget"`
+	BudgetSource    string         `json:"budget_source,omitempty"`
+	DecisionHoldMs  int            `json:"decision_hold_ms,omitempty"`
+	HoldMs          int            `json:"hold_ms"`
+	HoldSource      string         `json:"hold_source,omitempty"`
+	Planned         int            `json:"planned"`
+	Admitted        int            `json:"admitted"`
+	Skipped         int            `json:"skipped"`
+	Displaced       int            `json:"displaced"`
+	DisplacedByHold int            `json:"displaced_by_hold,omitempty"`
+	HoldActive      int            `json:"hold_active"`
+	HoldSelected    int            `json:"hold_selected"`
+	HoldProtected   int            `json:"hold_protected"`
+	HoldExpired     int            `json:"hold_expired"`
+	HoldDisplaced   int            `json:"hold_displaced"`
+	Opportunistic   int            `json:"opportunistic"`
+	PriorityCutoff  float64        `json:"priority_cutoff,omitempty"`
+	PriorityTier    string         `json:"priority_tier,omitempty"`
+	Reason          string         `json:"reason,omitempty"`
+	Pressure        BudgetPressure `json:"pressure,omitempty"`
 }
 
 type RefinementAdmissionResult struct {
@@ -123,6 +125,7 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 
 	holdPolicy := HoldPolicyFromPolicy(policy)
 	budgetModel := BudgetModelFromPolicy(policy)
+	admission.DecisionHoldMs = holdPolicy.BaseMs
 	admission.HoldMs = holdPolicy.RefinementMs
 	admission.HoldSource = "resources.decision_hold_ms"
 	if len(holdPolicy.Reasons) > 0 {
@@ -238,6 +241,7 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 		}
 	}
 	admission.Displaced = len(displacedByHold) + len(displacedHold)
+	admission.DisplacedByHold = len(displacedByHold)
 	admission.PriorityTier = PriorityTierFromRange(admission.PriorityCutoff, plan.PriorityMin, plan.PriorityMax)
 	admission.Pressure = buildRefinementPressure(budgetModel, admission)
 	if admission.PriorityCutoff > 0 {

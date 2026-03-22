@@ -6,33 +6,36 @@ import (
 )
 
 type DecisionQueueStats struct {
-	RecordQueued        int     `json:"record_queued"`
-	DecodeQueued        int     `json:"decode_queued"`
-	RecordSelected      int     `json:"record_selected"`
-	DecodeSelected      int     `json:"decode_selected"`
-	RecordActive        int     `json:"record_active"`
-	DecodeActive        int     `json:"decode_active"`
-	RecordOldestS       float64 `json:"record_oldest_sec"`
-	DecodeOldestS       float64 `json:"decode_oldest_sec"`
-	RecordBudget        int     `json:"record_budget"`
-	DecodeBudget        int     `json:"decode_budget"`
-	HoldMs              int     `json:"hold_ms"`
-	RecordHoldMs        int     `json:"record_hold_ms"`
-	DecodeHoldMs        int     `json:"decode_hold_ms"`
-	RecordDropped       int     `json:"record_dropped"`
-	DecodeDropped       int     `json:"decode_dropped"`
-	RecordHoldSelected  int     `json:"record_hold_selected"`
-	DecodeHoldSelected  int     `json:"decode_hold_selected"`
-	RecordHoldProtected int     `json:"record_hold_protected"`
-	DecodeHoldProtected int     `json:"decode_hold_protected"`
-	RecordHoldExpired   int     `json:"record_hold_expired"`
-	DecodeHoldExpired   int     `json:"decode_hold_expired"`
-	RecordHoldDisplaced int     `json:"record_hold_displaced"`
-	DecodeHoldDisplaced int     `json:"decode_hold_displaced"`
-	RecordOpportunistic int     `json:"record_opportunistic"`
-	DecodeOpportunistic int     `json:"decode_opportunistic"`
-	RecordDisplaced     int     `json:"record_displaced"`
-	DecodeDisplaced     int     `json:"decode_displaced"`
+	RecordQueued          int     `json:"record_queued"`
+	DecodeQueued          int     `json:"decode_queued"`
+	RecordSelected        int     `json:"record_selected"`
+	DecodeSelected        int     `json:"decode_selected"`
+	RecordActive          int     `json:"record_active"`
+	DecodeActive          int     `json:"decode_active"`
+	RecordOldestS         float64 `json:"record_oldest_sec"`
+	DecodeOldestS         float64 `json:"decode_oldest_sec"`
+	RecordBudget          int     `json:"record_budget"`
+	DecodeBudget          int     `json:"decode_budget"`
+	HoldMs                int     `json:"hold_ms"`
+	DecisionHoldMs        int     `json:"decision_hold_ms,omitempty"`
+	RecordHoldMs          int     `json:"record_hold_ms"`
+	DecodeHoldMs          int     `json:"decode_hold_ms"`
+	RecordDropped         int     `json:"record_dropped"`
+	DecodeDropped         int     `json:"decode_dropped"`
+	RecordHoldSelected    int     `json:"record_hold_selected"`
+	DecodeHoldSelected    int     `json:"decode_hold_selected"`
+	RecordHoldProtected   int     `json:"record_hold_protected"`
+	DecodeHoldProtected   int     `json:"decode_hold_protected"`
+	RecordHoldExpired     int     `json:"record_hold_expired"`
+	DecodeHoldExpired     int     `json:"decode_hold_expired"`
+	RecordHoldDisplaced   int     `json:"record_hold_displaced"`
+	DecodeHoldDisplaced   int     `json:"decode_hold_displaced"`
+	RecordOpportunistic   int     `json:"record_opportunistic"`
+	DecodeOpportunistic   int     `json:"decode_opportunistic"`
+	RecordDisplaced       int     `json:"record_displaced"`
+	DecodeDisplaced       int     `json:"decode_displaced"`
+	RecordDisplacedByHold int     `json:"record_displaced_by_hold,omitempty"`
+	DecodeDisplacedByHold int     `json:"decode_displaced_by_hold,omitempty"`
 }
 
 type queuedDecision struct {
@@ -136,31 +139,34 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 	decPressureTag := pressureReasonTag(decPressure)
 
 	stats := DecisionQueueStats{
-		RecordQueued:        len(dq.record),
-		DecodeQueued:        len(dq.decode),
-		RecordSelected:      len(recSelected.selected),
-		DecodeSelected:      len(decSelected.selected),
-		RecordActive:        len(dq.recordHold),
-		DecodeActive:        len(dq.decodeHold),
-		RecordOldestS:       oldestAge(dq.record, now),
-		DecodeOldestS:       oldestAge(dq.decode, now),
-		RecordBudget:        budget.Record.Max,
-		DecodeBudget:        budget.Decode.Max,
-		HoldMs:              budget.HoldMs,
-		RecordHoldMs:        holdPolicy.RecordMs,
-		DecodeHoldMs:        holdPolicy.DecodeMs,
-		RecordHoldSelected:  len(recSelected.held) - len(recSelected.displaced),
-		DecodeHoldSelected:  len(decSelected.held) - len(decSelected.displaced),
-		RecordHoldProtected: len(recSelected.protected),
-		DecodeHoldProtected: len(decSelected.protected),
-		RecordHoldExpired:   len(recExpired),
-		DecodeHoldExpired:   len(decExpired),
-		RecordHoldDisplaced: len(recSelected.displaced),
-		DecodeHoldDisplaced: len(decSelected.displaced),
-		RecordOpportunistic: len(recSelected.opportunistic),
-		DecodeOpportunistic: len(decSelected.opportunistic),
-		RecordDisplaced:     len(recSelected.displacedByHold),
-		DecodeDisplaced:     len(decSelected.displacedByHold),
+		RecordQueued:          len(dq.record),
+		DecodeQueued:          len(dq.decode),
+		RecordSelected:        len(recSelected.selected),
+		DecodeSelected:        len(decSelected.selected),
+		RecordActive:          len(dq.recordHold),
+		DecodeActive:          len(dq.decodeHold),
+		RecordOldestS:         oldestAge(dq.record, now),
+		DecodeOldestS:         oldestAge(dq.decode, now),
+		RecordBudget:          budget.Record.Max,
+		DecodeBudget:          budget.Decode.Max,
+		HoldMs:                holdPolicy.BaseMs,
+		DecisionHoldMs:        holdPolicy.BaseMs,
+		RecordHoldMs:          holdPolicy.RecordMs,
+		DecodeHoldMs:          holdPolicy.DecodeMs,
+		RecordHoldSelected:    len(recSelected.held) - len(recSelected.displaced),
+		DecodeHoldSelected:    len(decSelected.held) - len(decSelected.displaced),
+		RecordHoldProtected:   len(recSelected.protected),
+		DecodeHoldProtected:   len(decSelected.protected),
+		RecordHoldExpired:     len(recExpired),
+		DecodeHoldExpired:     len(decExpired),
+		RecordHoldDisplaced:   len(recSelected.displaced),
+		DecodeHoldDisplaced:   len(decSelected.displaced),
+		RecordOpportunistic:   len(recSelected.opportunistic),
+		DecodeOpportunistic:   len(decSelected.opportunistic),
+		RecordDisplaced:       len(recSelected.displacedByHold),
+		DecodeDisplaced:       len(decSelected.displacedByHold),
+		RecordDisplacedByHold: len(recSelected.displacedByHold),
+		DecodeDisplacedByHold: len(decSelected.displacedByHold),
 	}
 
 	for i := range decisions {

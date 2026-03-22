@@ -301,7 +301,7 @@ func TestAdmitRefinementPlanAppliesBudget(t *testing.T) {
 }
 
 func TestAdmitRefinementPlanDisplacedByHold(t *testing.T) {
-	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0}
+	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0, DecisionHoldMs: 500}
 	cands := []Candidate{
 		{ID: 1, CenterHz: 100, SNRDb: 9},
 		{ID: 2, CenterHz: 200, SNRDb: 12},
@@ -319,6 +319,12 @@ func TestAdmitRefinementPlanDisplacedByHold(t *testing.T) {
 	}
 	if item2.Admission == nil || item2.Admission.Class != AdmissionClassDisplace {
 		t.Fatalf("expected displaced admission class, got %+v", item2.Admission)
+	}
+	if res.Admission.DisplacedByHold != 1 || res.Admission.Displaced != 1 {
+		t.Fatalf("expected displaced-by-hold count 1, got %+v", res.Admission)
+	}
+	if res.Admission.DecisionHoldMs != policy.DecisionHoldMs {
+		t.Fatalf("expected decision hold ms %d, got %d", policy.DecisionHoldMs, res.Admission.DecisionHoldMs)
 	}
 }
 

@@ -85,7 +85,7 @@ func TestDecisionQueueHoldKeepsSelection(t *testing.T) {
 		{Candidate: Candidate{ID: 2, SNRDb: 30}, ShouldRecord: true, ShouldAutoDecode: true},
 		{Candidate: Candidate{ID: 3, SNRDb: 10}, ShouldRecord: true, ShouldAutoDecode: true},
 	}
-	arbiter.ApplyDecisions(decisions, budget, now.Add(100*time.Millisecond), policy)
+	stats := arbiter.ApplyDecisions(decisions, budget, now.Add(100*time.Millisecond), policy)
 	if !decisions[1].ShouldRecord || !decisions[1].ShouldAutoDecode {
 		t.Fatalf("expected held candidate 2 to remain selected")
 	}
@@ -94,6 +94,12 @@ func TestDecisionQueueHoldKeepsSelection(t *testing.T) {
 	}
 	if decisions[1].RecordAdmission == nil || decisions[1].RecordAdmission.Class != AdmissionClassHold {
 		t.Fatalf("expected record admission hold class, got %+v", decisions[1].RecordAdmission)
+	}
+	if stats.DecisionHoldMs != policy.DecisionHoldMs {
+		t.Fatalf("expected decision hold ms %d, got %d", policy.DecisionHoldMs, stats.DecisionHoldMs)
+	}
+	if stats.RecordDisplacedByHold != 1 || stats.RecordDisplaced != 1 {
+		t.Fatalf("expected displaced-by-hold count 1, got %+v", stats)
 	}
 }
 
