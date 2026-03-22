@@ -65,11 +65,26 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			var displaySignals []detector.Signal
 			if len(art.detailIQ) > 0 {
 				displaySignals = state.refinement.Result.Signals
-				if rec != nil && len(displaySignals) > 0 && len(art.allIQ) > 0 {
+				stableSignals := rt.det.StableSignals()
+				streamSignals := displaySignals
+				if len(stableSignals) > 0 {
+					streamSignals = stableSignals
+				}
+				if rec != nil && len(art.allIQ) > 0 {
+					log.Printf("LIVEAUDIO DSP: detailIQ=%d displaySignals=%d streamSignals=%d stableSignals=%d allIQ=%d", len(art.detailIQ), len(displaySignals), len(streamSignals), len(stableSignals), len(art.allIQ))
 					aqCfg := extractionConfig{firTaps: rt.cfg.Recorder.ExtractionTaps, bwMult: rt.cfg.Recorder.ExtractionBwMult}
-					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, displaySignals, rt.streamPhaseState, rt.streamOverlap, aqCfg)
-					items := make([]recorder.StreamFeedItem, 0, len(displaySignals))
-					for j, ds := range displaySignals {
+					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, streamSignals, rt.streamPhaseState, rt.streamOverlap, aqCfg)
+					items := make([]recorder.StreamFeedItem, 0, len(streamSignals))
+					for j, ds := range streamSignals {
+						className := "<nil>"
+						if ds.Class != nil {
+							className = string(ds.Class.ModType)
+						}
+						snipLen := 0
+						if j < len(streamSnips) {
+							snipLen = len(streamSnips[j])
+						}
+						log.Printf("LIVEAUDIO DSP: streamSignal idx=%d id=%d center=%.3fMHz bw=%.0f class=%s snip=%d", j, ds.ID, ds.CenterHz/1e6, ds.BWHz, className, snipLen)
 						if ds.ID == 0 || ds.Class == nil {
 							continue
 						}
@@ -82,6 +97,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						}
 						items = append(items, recorder.StreamFeedItem{Signal: ds, Snippet: streamSnips[j], SnipRate: snipRate})
 					}
+					log.Printf("LIVEAUDIO DSP: feedItems=%d", len(items))
 					if len(items) > 0 {
 						rec.FeedSnippets(items)
 					}

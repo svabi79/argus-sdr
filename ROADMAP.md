@@ -128,6 +128,16 @@ Phase 5 should still avoid unnecessary premature hardware-specific complexity, b
 
 ---
 
+## Future Architecture Note - Observation/Track Reconciliation
+
+A likely later improvement is an explicit reconciliation layer between:
+- raw surveillance observations / candidates
+- stable tracked signals / identities
+
+This is intentionally NOT the first fix for live-audio regressions.
+For now, stable-ID-carrying signal sources should be used for stream/session-sensitive paths.
+If needed later, a dedicated observation-to-track reconciliation layer can be introduced as its own architecture block.
+
 ## Phase 6 - Adaptive QoS / Scheduler Intelligence
 
 ### Core idea
