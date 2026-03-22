@@ -144,6 +144,37 @@ func TestScheduleCandidatesPriorityBoost(t *testing.T) {
 	}
 }
 
+func TestScheduleCandidatesEvidenceBoost(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 2, MinCandidateSNRDb: 0}
+	single := Candidate{
+		ID:          1,
+		SNRDb:       8,
+		BandwidthHz: 12000,
+		Evidence: []LevelEvidence{
+			{Level: AnalysisLevel{Name: "surveillance"}},
+		},
+	}
+	multi := Candidate{
+		ID:          2,
+		SNRDb:       8,
+		BandwidthHz: 12000,
+		Evidence: []LevelEvidence{
+			{Level: AnalysisLevel{Name: "surveillance"}},
+			{Level: AnalysisLevel{Name: "surveillance-lowres"}},
+		},
+	}
+	plan := BuildRefinementPlan([]Candidate{single, multi}, policy)
+	if len(plan.Ranked) < 2 {
+		t.Fatalf("expected ranked candidates, got %d", len(plan.Ranked))
+	}
+	if plan.Ranked[0].Candidate.ID != multi.ID {
+		t.Fatalf("expected multi-level candidate to rank first, got %+v", plan.Ranked[0])
+	}
+	if plan.Ranked[0].Breakdown == nil || plan.Ranked[0].Breakdown.EvidenceScore <= 0 {
+		t.Fatalf("expected evidence score to be populated, got %+v", plan.Ranked[0].Breakdown)
+	}
+}
+
 func TestBuildRefinementPlanPriorityStats(t *testing.T) {
 	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0}
 	cands := []Candidate{
