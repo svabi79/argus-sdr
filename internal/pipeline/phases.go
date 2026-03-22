@@ -31,23 +31,26 @@ type AnalysisContext struct {
 type SurveillanceLevelSet struct {
 	Primary      AnalysisLevel   `json:"primary"`
 	Derived      []AnalysisLevel `json:"derived,omitempty"`
+	Support      []AnalysisLevel `json:"support,omitempty"`
 	Presentation AnalysisLevel   `json:"presentation,omitempty"`
+	Detection    []AnalysisLevel `json:"detection,omitempty"`
 	All          []AnalysisLevel `json:"all,omitempty"`
 }
 
 type SurveillanceResult struct {
-	Level        AnalysisLevel               `json:"level"`
-	Levels       []AnalysisLevel             `json:"levels,omitempty"`
-	LevelSet     SurveillanceLevelSet        `json:"level_set,omitempty"`
-	Candidates   []Candidate                 `json:"candidates"`
-	Scheduled    []ScheduledCandidate        `json:"scheduled,omitempty"`
-	Finished     []detector.Event            `json:"finished"`
-	Signals      []detector.Signal           `json:"signals"`
-	NoiseFloor   float64                     `json:"noise_floor"`
-	Thresholds   []float64                   `json:"thresholds,omitempty"`
-	DisplayLevel AnalysisLevel               `json:"display_level"`
-	Context      AnalysisContext             `json:"context,omitempty"`
-	Spectra      []SurveillanceLevelSpectrum `json:"spectra,omitempty"`
+	Level           AnalysisLevel               `json:"level"`
+	Levels          []AnalysisLevel             `json:"levels,omitempty"`
+	LevelSet        SurveillanceLevelSet        `json:"level_set,omitempty"`
+	DetectionPolicy SurveillanceDetectionPolicy `json:"detection_policy,omitempty"`
+	Candidates      []Candidate                 `json:"candidates"`
+	Scheduled       []ScheduledCandidate        `json:"scheduled,omitempty"`
+	Finished        []detector.Event            `json:"finished"`
+	Signals         []detector.Signal           `json:"signals"`
+	NoiseFloor      float64                     `json:"noise_floor"`
+	Thresholds      []float64                   `json:"thresholds,omitempty"`
+	DisplayLevel    AnalysisLevel               `json:"display_level"`
+	Context         AnalysisContext             `json:"context,omitempty"`
+	Spectra         []SurveillanceLevelSpectrum `json:"spectra,omitempty"`
 }
 
 type RefinementPlan struct {

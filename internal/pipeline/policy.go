@@ -3,34 +3,36 @@ package pipeline
 import "sdr-wideband-suite/internal/config"
 
 type Policy struct {
-	Mode                    string   `json:"mode"`
-	Profile                 string   `json:"profile,omitempty"`
-	Intent                  string   `json:"intent"`
-	MonitorCenterHz         float64  `json:"monitor_center_hz,omitempty"`
-	MonitorStartHz          float64  `json:"monitor_start_hz,omitempty"`
-	MonitorEndHz            float64  `json:"monitor_end_hz,omitempty"`
-	MonitorSpanHz           float64  `json:"monitor_span_hz,omitempty"`
-	SignalPriorities        []string `json:"signal_priorities,omitempty"`
-	AutoRecordClasses       []string `json:"auto_record_classes,omitempty"`
-	AutoDecodeClasses       []string `json:"auto_decode_classes,omitempty"`
-	SurveillanceFFTSize     int      `json:"surveillance_fft_size"`
-	SurveillanceFPS         int      `json:"surveillance_fps"`
-	DisplayBins             int      `json:"display_bins"`
-	DisplayFPS              int      `json:"display_fps"`
-	SurveillanceStrategy    string   `json:"surveillance_strategy"`
-	RefinementStrategy      string   `json:"refinement_strategy,omitempty"`
-	RefinementEnabled       bool     `json:"refinement_enabled"`
-	MaxRefinementJobs       int      `json:"max_refinement_jobs"`
-	RefinementMaxConcurrent int      `json:"refinement_max_concurrent"`
-	RefinementDetailFFTSize int      `json:"refinement_detail_fft_size"`
-	MinCandidateSNRDb       float64  `json:"min_candidate_snr_db"`
-	RefinementMinSpanHz     float64  `json:"refinement_min_span_hz"`
-	RefinementMaxSpanHz     float64  `json:"refinement_max_span_hz"`
-	RefinementAutoSpan      bool     `json:"refinement_auto_span"`
-	PreferGPU               bool     `json:"prefer_gpu"`
-	MaxRecordingStreams     int      `json:"max_recording_streams"`
-	MaxDecodeJobs           int      `json:"max_decode_jobs"`
-	DecisionHoldMs          int      `json:"decision_hold_ms"`
+	Mode                         string                      `json:"mode"`
+	Profile                      string                      `json:"profile,omitempty"`
+	Intent                       string                      `json:"intent"`
+	MonitorCenterHz              float64                     `json:"monitor_center_hz,omitempty"`
+	MonitorStartHz               float64                     `json:"monitor_start_hz,omitempty"`
+	MonitorEndHz                 float64                     `json:"monitor_end_hz,omitempty"`
+	MonitorSpanHz                float64                     `json:"monitor_span_hz,omitempty"`
+	SignalPriorities             []string                    `json:"signal_priorities,omitempty"`
+	AutoRecordClasses            []string                    `json:"auto_record_classes,omitempty"`
+	AutoDecodeClasses            []string                    `json:"auto_decode_classes,omitempty"`
+	SurveillanceFFTSize          int                         `json:"surveillance_fft_size"`
+	SurveillanceFPS              int                         `json:"surveillance_fps"`
+	DisplayBins                  int                         `json:"display_bins"`
+	DisplayFPS                   int                         `json:"display_fps"`
+	SurveillanceStrategy         string                      `json:"surveillance_strategy"`
+	SurveillanceDerivedDetection string                      `json:"surveillance_derived_detection"`
+	RefinementStrategy           string                      `json:"refinement_strategy,omitempty"`
+	RefinementEnabled            bool                        `json:"refinement_enabled"`
+	MaxRefinementJobs            int                         `json:"max_refinement_jobs"`
+	RefinementMaxConcurrent      int                         `json:"refinement_max_concurrent"`
+	RefinementDetailFFTSize      int                         `json:"refinement_detail_fft_size"`
+	MinCandidateSNRDb            float64                     `json:"min_candidate_snr_db"`
+	RefinementMinSpanHz          float64                     `json:"refinement_min_span_hz"`
+	RefinementMaxSpanHz          float64                     `json:"refinement_max_span_hz"`
+	RefinementAutoSpan           bool                        `json:"refinement_auto_span"`
+	PreferGPU                    bool                        `json:"prefer_gpu"`
+	MaxRecordingStreams          int                         `json:"max_recording_streams"`
+	MaxDecodeJobs                int                         `json:"max_decode_jobs"`
+	DecisionHoldMs               int                         `json:"decision_hold_ms"`
+	SurveillanceDetection        SurveillanceDetectionPolicy `json:"surveillance_detection,omitempty"`
 }
 
 func PolicyFromConfig(cfg config.Config) Policy {
@@ -39,35 +41,37 @@ func PolicyFromConfig(cfg config.Config) Policy {
 		detailFFT = cfg.Surveillance.AnalysisFFTSize
 	}
 	p := Policy{
-		Mode:                    cfg.Pipeline.Mode,
-		Profile:                 cfg.Pipeline.Profile,
-		Intent:                  cfg.Pipeline.Goals.Intent,
-		MonitorCenterHz:         cfg.CenterHz,
-		MonitorStartHz:          cfg.Pipeline.Goals.MonitorStartHz,
-		MonitorEndHz:            cfg.Pipeline.Goals.MonitorEndHz,
-		MonitorSpanHz:           cfg.Pipeline.Goals.MonitorSpanHz,
-		SignalPriorities:        append([]string(nil), cfg.Pipeline.Goals.SignalPriorities...),
-		AutoRecordClasses:       append([]string(nil), cfg.Pipeline.Goals.AutoRecordClasses...),
-		AutoDecodeClasses:       append([]string(nil), cfg.Pipeline.Goals.AutoDecodeClasses...),
-		SurveillanceFFTSize:     cfg.Surveillance.AnalysisFFTSize,
-		SurveillanceFPS:         cfg.Surveillance.FrameRate,
-		DisplayBins:             cfg.Surveillance.DisplayBins,
-		DisplayFPS:              cfg.Surveillance.DisplayFPS,
-		SurveillanceStrategy:    cfg.Surveillance.Strategy,
-		RefinementEnabled:       cfg.Refinement.Enabled,
-		MaxRefinementJobs:       cfg.Resources.MaxRefinementJobs,
-		RefinementMaxConcurrent: cfg.Refinement.MaxConcurrent,
-		RefinementDetailFFTSize: detailFFT,
-		MinCandidateSNRDb:       cfg.Refinement.MinCandidateSNRDb,
-		RefinementMinSpanHz:     cfg.Refinement.MinSpanHz,
-		RefinementMaxSpanHz:     cfg.Refinement.MaxSpanHz,
-		RefinementAutoSpan:      config.BoolValue(cfg.Refinement.AutoSpan, true),
-		PreferGPU:               cfg.Resources.PreferGPU,
-		MaxRecordingStreams:     cfg.Resources.MaxRecordingStreams,
-		MaxDecodeJobs:           cfg.Resources.MaxDecodeJobs,
-		DecisionHoldMs:          cfg.Resources.DecisionHoldMs,
+		Mode:                         cfg.Pipeline.Mode,
+		Profile:                      cfg.Pipeline.Profile,
+		Intent:                       cfg.Pipeline.Goals.Intent,
+		MonitorCenterHz:              cfg.CenterHz,
+		MonitorStartHz:               cfg.Pipeline.Goals.MonitorStartHz,
+		MonitorEndHz:                 cfg.Pipeline.Goals.MonitorEndHz,
+		MonitorSpanHz:                cfg.Pipeline.Goals.MonitorSpanHz,
+		SignalPriorities:             append([]string(nil), cfg.Pipeline.Goals.SignalPriorities...),
+		AutoRecordClasses:            append([]string(nil), cfg.Pipeline.Goals.AutoRecordClasses...),
+		AutoDecodeClasses:            append([]string(nil), cfg.Pipeline.Goals.AutoDecodeClasses...),
+		SurveillanceFFTSize:          cfg.Surveillance.AnalysisFFTSize,
+		SurveillanceFPS:              cfg.Surveillance.FrameRate,
+		DisplayBins:                  cfg.Surveillance.DisplayBins,
+		DisplayFPS:                   cfg.Surveillance.DisplayFPS,
+		SurveillanceStrategy:         cfg.Surveillance.Strategy,
+		SurveillanceDerivedDetection: cfg.Surveillance.DerivedDetection,
+		RefinementEnabled:            cfg.Refinement.Enabled,
+		MaxRefinementJobs:            cfg.Resources.MaxRefinementJobs,
+		RefinementMaxConcurrent:      cfg.Refinement.MaxConcurrent,
+		RefinementDetailFFTSize:      detailFFT,
+		MinCandidateSNRDb:            cfg.Refinement.MinCandidateSNRDb,
+		RefinementMinSpanHz:          cfg.Refinement.MinSpanHz,
+		RefinementMaxSpanHz:          cfg.Refinement.MaxSpanHz,
+		RefinementAutoSpan:           config.BoolValue(cfg.Refinement.AutoSpan, true),
+		PreferGPU:                    cfg.Resources.PreferGPU,
+		MaxRecordingStreams:          cfg.Resources.MaxRecordingStreams,
+		MaxDecodeJobs:                cfg.Resources.MaxDecodeJobs,
+		DecisionHoldMs:               cfg.Resources.DecisionHoldMs,
 	}
 	p.RefinementStrategy, _ = refinementStrategy(p)
+	p.SurveillanceDetection = SurveillanceDetectionPolicyFromPolicy(p)
 	if p.MonitorSpanHz <= 0 && p.MonitorStartHz != 0 && p.MonitorEndHz != 0 && p.MonitorEndHz > p.MonitorStartHz {
 		p.MonitorSpanHz = p.MonitorEndHz - p.MonitorStartHz
 	}

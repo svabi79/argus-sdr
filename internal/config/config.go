@@ -3,6 +3,7 @@ package config
 import (
 	"math"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -87,11 +88,12 @@ type PipelineConfig struct {
 }
 
 type SurveillanceConfig struct {
-	AnalysisFFTSize int    `yaml:"analysis_fft_size" json:"analysis_fft_size"`
-	FrameRate       int    `yaml:"frame_rate" json:"frame_rate"`
-	Strategy        string `yaml:"strategy" json:"strategy"`
-	DisplayBins     int    `yaml:"display_bins" json:"display_bins"`
-	DisplayFPS      int    `yaml:"display_fps" json:"display_fps"`
+	AnalysisFFTSize  int    `yaml:"analysis_fft_size" json:"analysis_fft_size"`
+	FrameRate        int    `yaml:"frame_rate" json:"frame_rate"`
+	Strategy         string `yaml:"strategy" json:"strategy"`
+	DisplayBins      int    `yaml:"display_bins" json:"display_bins"`
+	DisplayFPS       int    `yaml:"display_fps" json:"display_fps"`
+	DerivedDetection string `yaml:"derived_detection" json:"derived_detection"`
 }
 
 type RefinementConfig struct {
@@ -170,11 +172,12 @@ func Default() Config {
 			},
 		},
 		Surveillance: SurveillanceConfig{
-			AnalysisFFTSize: 2048,
-			FrameRate:       15,
-			Strategy:        "single-resolution",
-			DisplayBins:     2048,
-			DisplayFPS:      15,
+			AnalysisFFTSize:  2048,
+			FrameRate:        15,
+			Strategy:         "single-resolution",
+			DisplayBins:      2048,
+			DisplayFPS:       15,
+			DerivedDetection: "auto",
 		},
 		Refinement: RefinementConfig{
 			Enabled:           true,
@@ -198,11 +201,12 @@ func Default() Config {
 				Description: "Current single-band pipeline behavior",
 				Pipeline:    &PipelineConfig{Mode: "legacy", Profile: "legacy", Goals: PipelineGoalConfig{Intent: "general-monitoring"}},
 				Surveillance: &SurveillanceConfig{
-					AnalysisFFTSize: 2048,
-					FrameRate:       15,
-					Strategy:        "single-resolution",
-					DisplayBins:     2048,
-					DisplayFPS:      15,
+					AnalysisFFTSize:  2048,
+					FrameRate:        15,
+					Strategy:         "single-resolution",
+					DisplayBins:      2048,
+					DisplayFPS:       15,
+					DerivedDetection: "auto",
 				},
 				Refinement: &RefinementConfig{
 					Enabled:           true,
@@ -229,11 +233,12 @@ func Default() Config {
 					SignalPriorities: []string{"digital", "wfm"},
 				}},
 				Surveillance: &SurveillanceConfig{
-					AnalysisFFTSize: 4096,
-					FrameRate:       12,
-					Strategy:        "multi-resolution",
-					DisplayBins:     2048,
-					DisplayFPS:      12,
+					AnalysisFFTSize:  4096,
+					FrameRate:        12,
+					Strategy:         "multi-resolution",
+					DisplayBins:      2048,
+					DisplayFPS:       12,
+					DerivedDetection: "auto",
 				},
 				Refinement: &RefinementConfig{
 					Enabled:           true,
@@ -260,11 +265,12 @@ func Default() Config {
 					SignalPriorities: []string{"digital", "wfm", "trunk"},
 				}},
 				Surveillance: &SurveillanceConfig{
-					AnalysisFFTSize: 8192,
-					FrameRate:       10,
-					Strategy:        "multi-resolution",
-					DisplayBins:     4096,
-					DisplayFPS:      10,
+					AnalysisFFTSize:  8192,
+					FrameRate:        10,
+					Strategy:         "multi-resolution",
+					DisplayBins:      4096,
+					DisplayFPS:       10,
+					DerivedDetection: "auto",
 				},
 				Refinement: &RefinementConfig{
 					Enabled:           true,
@@ -291,11 +297,12 @@ func Default() Config {
 					SignalPriorities: []string{"wfm", "nfm", "digital"},
 				}},
 				Surveillance: &SurveillanceConfig{
-					AnalysisFFTSize: 4096,
-					FrameRate:       12,
-					Strategy:        "single-resolution",
-					DisplayBins:     2048,
-					DisplayFPS:      12,
+					AnalysisFFTSize:  4096,
+					FrameRate:        12,
+					Strategy:         "single-resolution",
+					DisplayBins:      2048,
+					DisplayFPS:       12,
+					DerivedDetection: "auto",
 				},
 				Refinement: &RefinementConfig{
 					Enabled:           true,
@@ -322,11 +329,12 @@ func Default() Config {
 					SignalPriorities: []string{"ft8", "wspr", "fsk", "psk", "dmr"},
 				}},
 				Surveillance: &SurveillanceConfig{
-					AnalysisFFTSize: 4096,
-					FrameRate:       12,
-					Strategy:        "multi-resolution",
-					DisplayBins:     2048,
-					DisplayFPS:      12,
+					AnalysisFFTSize:  4096,
+					FrameRate:        12,
+					Strategy:         "multi-resolution",
+					DisplayBins:      2048,
+					DisplayFPS:       12,
+					DerivedDetection: "auto",
 				},
 				Refinement: &RefinementConfig{
 					Enabled:           true,
@@ -494,6 +502,14 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Surveillance.Strategy == "" {
 		cfg.Surveillance.Strategy = "single-resolution"
+	}
+	if cfg.Surveillance.DerivedDetection == "" {
+		cfg.Surveillance.DerivedDetection = "auto"
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Surveillance.DerivedDetection)) {
+	case "auto", "on", "off", "true", "false", "enabled", "disabled", "enable", "disable":
+	default:
+		cfg.Surveillance.DerivedDetection = "auto"
 	}
 	if cfg.Surveillance.DisplayBins <= 0 {
 		cfg.Surveillance.DisplayBins = cfg.FFTSize

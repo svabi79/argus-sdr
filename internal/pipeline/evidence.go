@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+const (
+	RoleSurveillancePrimary = "surveillance-primary"
+	RoleSurveillanceDerived = "surveillance-derived"
+	RoleSurveillanceSupport = "surveillance-support"
+	RolePresentation        = "presentation"
+)
+
 // CandidateEvidenceState summarizes fused evidence semantics for a candidate.
 type CandidateEvidenceState struct {
 	TotalLevelEntries       int      `json:"total_level_entries"`
@@ -13,6 +20,7 @@ type CandidateEvidenceState struct {
 	DetectionLevelCount     int      `json:"detection_level_count"`
 	PrimaryLevelCount       int      `json:"primary_level_count,omitempty"`
 	DerivedLevelCount       int      `json:"derived_level_count,omitempty"`
+	SupportLevelCount       int      `json:"support_level_count,omitempty"`
 	PresentationLevelCount  int      `json:"presentation_level_count,omitempty"`
 	Levels                  []string `json:"levels,omitempty"`
 	Provenance              []string `json:"provenance,omitempty"`
@@ -30,6 +38,7 @@ type EvidenceScoreDetails struct {
 	DetectionLevels     int     `json:"detection_levels"`
 	PrimaryLevels       int     `json:"primary_levels,omitempty"`
 	DerivedLevels       int     `json:"derived_levels,omitempty"`
+	SupportLevels       int     `json:"support_levels,omitempty"`
 	ProvenanceCount     int     `json:"provenance_count,omitempty"`
 	DerivedOnly         bool    `json:"derived_only,omitempty"`
 	MultiLevelConfirmed bool    `json:"multi_level_confirmed,omitempty"`
@@ -44,10 +53,22 @@ func IsPresentationLevel(level AnalysisLevel) bool {
 	role := strings.ToLower(strings.TrimSpace(level.Role))
 	truth := strings.ToLower(strings.TrimSpace(level.Truth))
 	name := strings.ToLower(strings.TrimSpace(level.Name))
+	if role == RolePresentation {
+		return true
+	}
 	if strings.Contains(role, "presentation") || strings.Contains(truth, "presentation") {
 		return true
 	}
 	return strings.Contains(name, "presentation") || strings.Contains(name, "display")
+}
+
+// IsSupportLevel reports whether a level is a non-detection support level.
+func IsSupportLevel(level AnalysisLevel) bool {
+	role := strings.ToLower(strings.TrimSpace(level.Role))
+	if role == RoleSurveillanceSupport {
+		return true
+	}
+	return strings.Contains(role, "surveillance-support") || strings.Contains(role, "support")
 }
 
 // IsDetectionLevel reports whether a level is intended for detection/analysis.
@@ -55,9 +76,18 @@ func IsDetectionLevel(level AnalysisLevel) bool {
 	if IsPresentationLevel(level) {
 		return false
 	}
+	if IsSupportLevel(level) {
+		return false
+	}
 	role := strings.ToLower(strings.TrimSpace(level.Role))
 	truth := strings.ToLower(strings.TrimSpace(level.Truth))
 	name := strings.ToLower(strings.TrimSpace(level.Name))
+	switch role {
+	case RoleSurveillancePrimary, RoleSurveillanceDerived:
+		return true
+	case RoleSurveillanceSupport:
+		return false
+	}
 	if strings.Contains(truth, "surveillance") {
 		return true
 	}
@@ -70,12 +100,21 @@ func IsDetectionLevel(level AnalysisLevel) bool {
 func isPrimarySurveillanceLevel(level AnalysisLevel) bool {
 	role := strings.ToLower(strings.TrimSpace(level.Role))
 	name := strings.ToLower(strings.TrimSpace(level.Name))
+	if role == RoleSurveillancePrimary {
+		return true
+	}
 	return role == "surveillance" || name == "surveillance"
 }
 
 func isDerivedSurveillanceLevel(level AnalysisLevel) bool {
 	role := strings.ToLower(strings.TrimSpace(level.Role))
 	name := strings.ToLower(strings.TrimSpace(level.Name))
+	if role == RoleSurveillanceSupport {
+		return false
+	}
+	if role == RoleSurveillanceDerived {
+		return true
+	}
 	if strings.HasPrefix(role, "surveillance-") && role != "surveillance" {
 		return true
 	}
@@ -107,6 +146,7 @@ func CandidateEvidenceStateFor(candidate Candidate) CandidateEvidenceState {
 	primaryLevels := map[string]struct{}{}
 	derivedLevels := map[string]struct{}{}
 	presentationLevels := map[string]struct{}{}
+	supportLevels := map[string]struct{}{}
 	for _, ev := range candidate.Evidence {
 		levelKey := evidenceLevelKey(ev.Level)
 		levelSet[levelKey] = struct{}{}
@@ -115,6 +155,10 @@ func CandidateEvidenceStateFor(candidate Candidate) CandidateEvidenceState {
 		}
 		if IsPresentationLevel(ev.Level) {
 			presentationLevels[levelKey] = struct{}{}
+			continue
+		}
+		if IsSupportLevel(ev.Level) {
+			supportLevels[levelKey] = struct{}{}
 			continue
 		}
 		if IsDetectionLevel(ev.Level) {
@@ -131,6 +175,7 @@ func CandidateEvidenceStateFor(candidate Candidate) CandidateEvidenceState {
 	state.DetectionLevelCount = len(detectionLevels)
 	state.PrimaryLevelCount = len(primaryLevels)
 	state.DerivedLevelCount = len(derivedLevels)
+	state.SupportLevelCount = len(supportLevels)
 	state.PresentationLevelCount = len(presentationLevels)
 	state.Levels = sortedKeys(levelSet)
 	state.Provenance = sortedKeys(provenanceSet)

@@ -82,12 +82,13 @@ type surveillanceLevelSpec struct {
 }
 
 type surveillancePlan struct {
-	Primary      pipeline.AnalysisLevel
-	Levels       []pipeline.AnalysisLevel
-	LevelSet     pipeline.SurveillanceLevelSet
-	Presentation pipeline.AnalysisLevel
-	Context      pipeline.AnalysisContext
-	Specs        []surveillanceLevelSpec
+	Primary         pipeline.AnalysisLevel
+	Levels          []pipeline.AnalysisLevel
+	LevelSet        pipeline.SurveillanceLevelSet
+	Presentation    pipeline.AnalysisLevel
+	Context         pipeline.AnalysisContext
+	DetectionPolicy pipeline.SurveillanceDetectionPolicy
+	Specs           []surveillanceLevelSpec
 }
 
 const derivedIDBlock = int64(1_000_000_000)
@@ -442,18 +443,19 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	candidates := pipeline.FuseCandidates(primaryCandidates, derivedCandidates)
 	scheduled := pipeline.ScheduleCandidates(candidates, policy)
 	return pipeline.SurveillanceResult{
-		Level:        plan.Primary,
-		Levels:       plan.Levels,
-		LevelSet:     plan.LevelSet,
-		DisplayLevel: plan.Presentation,
-		Context:      plan.Context,
-		Spectra:      art.surveillanceSpectra,
-		Candidates:   candidates,
-		Scheduled:    scheduled,
-		Finished:     art.finished,
-		Signals:      art.detected,
-		NoiseFloor:   art.noiseFloor,
-		Thresholds:   art.thresholds,
+		Level:           plan.Primary,
+		Levels:          plan.Levels,
+		LevelSet:        plan.LevelSet,
+		DetectionPolicy: plan.DetectionPolicy,
+		DisplayLevel:    plan.Presentation,
+		Context:         plan.Context,
+		Spectra:         art.surveillanceSpectra,
+		Candidates:      candidates,
+		Scheduled:       scheduled,
+		Finished:        art.finished,
+		Signals:         art.detected,
+		NoiseFloor:      art.noiseFloor,
+		Thresholds:      art.thresholds,
 	}
 }
 
@@ -862,11 +864,13 @@ func (rt *dspRuntime) buildSurveillancePlan(policy pipeline.Policy) surveillance
 		baseFFT = rt.cfg.FFTSize
 	}
 	span := spanForPolicy(policy, float64(baseRate))
-	primary := analysisLevel("surveillance", "surveillance", "surveillance", baseRate, baseFFT, rt.cfg.CenterHz, span, "baseband", 1, baseRate)
+	detectionPolicy := pipeline.SurveillanceDetectionPolicyFromPolicy(policy)
+	primary := analysisLevel("surveillance", pipeline.RoleSurveillancePrimary, "surveillance", baseRate, baseFFT, rt.cfg.CenterHz, span, "baseband", 1, baseRate)
 	levels := []pipeline.AnalysisLevel{primary}
 	specs := []surveillanceLevelSpec{{Level: primary, Decim: 1, AllowGPU: true}}
 	context := pipeline.AnalysisContext{Surveillance: primary}
 	derivedLevels := make([]pipeline.AnalysisLevel, 0, 2)
+	supportLevels := make([]pipeline.AnalysisLevel, 0, 2)
 
 	strategy := strings.ToLower(strings.TrimSpace(policy.SurveillanceStrategy))
 	switch strategy {
@@ -876,36 +880,51 @@ func (rt *dspRuntime) buildSurveillancePlan(policy pipeline.Policy) surveillance
 		derivedFFT := baseFFT / decim
 		if derivedRate >= 200000 && derivedFFT >= 256 {
 			derivedSpan := spanForPolicy(policy, float64(derivedRate))
-			derived := analysisLevel("surveillance-lowres", "surveillance-lowres", "surveillance", derivedRate, derivedFFT, rt.cfg.CenterHz, derivedSpan, "decimated", decim, baseRate)
-			levels = append(levels, derived)
+			role := pipeline.RoleSurveillanceSupport
+			if detectionPolicy.DerivedDetectionEnabled {
+				role = pipeline.RoleSurveillanceDerived
+			}
+			derived := analysisLevel("surveillance-lowres", role, "surveillance", derivedRate, derivedFFT, rt.cfg.CenterHz, derivedSpan, "decimated", decim, baseRate)
+			if detectionPolicy.DerivedDetectionEnabled {
+				levels = append(levels, derived)
+				derivedLevels = append(derivedLevels, derived)
+			} else {
+				supportLevels = append(supportLevels, derived)
+			}
 			specs = append(specs, surveillanceLevelSpec{Level: derived, Decim: decim, AllowGPU: false})
 			context.Derived = append(context.Derived, derived)
-			derivedLevels = append(derivedLevels, derived)
 		}
 	}
 
-	presentation := analysisLevel("presentation", "presentation", "presentation", baseRate, rt.cfg.Surveillance.DisplayBins, rt.cfg.CenterHz, span, "display", 1, baseRate)
+	presentation := analysisLevel("presentation", pipeline.RolePresentation, "presentation", baseRate, rt.cfg.Surveillance.DisplayBins, rt.cfg.CenterHz, span, "display", 1, baseRate)
 	context.Presentation = presentation
 	levelSet := pipeline.SurveillanceLevelSet{
 		Primary:      primary,
 		Derived:      append([]pipeline.AnalysisLevel(nil), derivedLevels...),
+		Support:      append([]pipeline.AnalysisLevel(nil), supportLevels...),
 		Presentation: presentation,
 	}
-	allLevels := make([]pipeline.AnalysisLevel, 0, 1+len(derivedLevels)+1)
+	detectionLevels := make([]pipeline.AnalysisLevel, 0, 1+len(derivedLevels))
+	detectionLevels = append(detectionLevels, primary)
+	detectionLevels = append(detectionLevels, derivedLevels...)
+	levelSet.Detection = detectionLevels
+	allLevels := make([]pipeline.AnalysisLevel, 0, 1+len(derivedLevels)+len(supportLevels)+1)
 	allLevels = append(allLevels, primary)
 	allLevels = append(allLevels, derivedLevels...)
+	allLevels = append(allLevels, supportLevels...)
 	if presentation.Name != "" {
 		allLevels = append(allLevels, presentation)
 	}
 	levelSet.All = allLevels
 
 	return surveillancePlan{
-		Primary:      primary,
-		Levels:       levels,
-		LevelSet:     levelSet,
-		Presentation: presentation,
-		Context:      context,
-		Specs:        specs,
+		Primary:         primary,
+		Levels:          levels,
+		LevelSet:        levelSet,
+		Presentation:    presentation,
+		Context:         context,
+		DetectionPolicy: detectionPolicy,
+		Specs:           specs,
 	}
 }
 

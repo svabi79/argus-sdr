@@ -36,7 +36,7 @@ type CandidateEvidenceStateSummary struct {
 }
 
 func buildSurveillanceLevelSummaries(set pipeline.SurveillanceLevelSet, spectra []pipeline.SurveillanceLevelSpectrum) map[string]SurveillanceLevelSummary {
-	if set.Primary.Name == "" && len(set.Derived) == 0 && set.Presentation.Name == "" && len(set.All) == 0 {
+	if set.Primary.Name == "" && len(set.Derived) == 0 && len(set.Support) == 0 && set.Presentation.Name == "" && len(set.All) == 0 {
 		return nil
 	}
 	bins := map[string]int{}
@@ -53,6 +53,9 @@ func buildSurveillanceLevelSummaries(set pipeline.SurveillanceLevelSet, spectra 
 		}
 		if len(set.Derived) > 0 {
 			levels = append(levels, set.Derived...)
+		}
+		if len(set.Support) > 0 {
+			levels = append(levels, set.Support...)
 		}
 		if set.Presentation.Name != "" {
 			levels = append(levels, set.Presentation)

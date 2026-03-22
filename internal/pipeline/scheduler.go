@@ -264,6 +264,7 @@ func candidateEvidenceScore(candidate Candidate, strategy string) (float64, Evid
 		DetectionLevels:     state.DetectionLevelCount,
 		PrimaryLevels:       state.PrimaryLevelCount,
 		DerivedLevels:       state.DerivedLevelCount,
+		SupportLevels:       state.SupportLevelCount,
 		ProvenanceCount:     len(state.Provenance),
 		DerivedOnly:         state.DerivedOnly,
 		MultiLevelConfirmed: state.MultiLevelConfirmed,

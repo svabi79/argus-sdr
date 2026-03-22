@@ -22,11 +22,12 @@ type PipelineUpdate struct {
 }
 
 type SurveillanceUpdate struct {
-	AnalysisFFTSize *int    `json:"analysis_fft_size"`
-	FrameRate       *int    `json:"frame_rate"`
-	Strategy        *string `json:"strategy"`
-	DisplayBins     *int    `json:"display_bins"`
-	DisplayFPS      *int    `json:"display_fps"`
+	AnalysisFFTSize  *int    `json:"analysis_fft_size"`
+	FrameRate        *int    `json:"frame_rate"`
+	Strategy         *string `json:"strategy"`
+	DisplayBins      *int    `json:"display_bins"`
+	DisplayFPS       *int    `json:"display_fps"`
+	DerivedDetection *string `json:"derived_detection"`
 }
 
 type RefinementUpdate struct {
@@ -250,6 +251,15 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 				return m.cfg, errors.New("surveillance.display_fps must be > 0")
 			}
 			next.Surveillance.DisplayFPS = v
+		}
+		if update.Surveillance.DerivedDetection != nil {
+			mode := strings.ToLower(strings.TrimSpace(*update.Surveillance.DerivedDetection))
+			switch mode {
+			case "auto", "on", "off", "true", "false", "enabled", "disabled", "enable", "disable":
+				next.Surveillance.DerivedDetection = mode
+			default:
+				return m.cfg, errors.New("surveillance.derived_detection must be auto, on, or off")
+			}
 		}
 	}
 	if update.Refinement != nil {
