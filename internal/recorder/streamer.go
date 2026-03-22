@@ -429,13 +429,17 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 
 func (st *Streamer) signalHasListenerLocked(sig *detector.Signal) bool {
 	if sess, ok := st.sessions[sig.ID]; ok && len(sess.audioSubs) > 0 {
-		log.Printf("LIVEAUDIO MATCH: signal id=%d matched existing session listener center=%.3fMHz", sig.ID, sig.CenterHz/1e6)
+		if st.policy.DebugLiveAudio {
+			log.Printf("LIVEAUDIO MATCH: signal id=%d matched existing session listener center=%.3fMHz", sig.ID, sig.CenterHz/1e6)
+		}
 		return true
 	}
 	for subID, pl := range st.pendingListens {
 		delta := math.Abs(sig.CenterHz - pl.freq)
 		if delta < 200000 {
-			log.Printf("LIVEAUDIO MATCH: signal id=%d matched pending subscriber=%d center=%.3fMHz req=%.3fMHz delta=%.0fHz", sig.ID, subID, sig.CenterHz/1e6, pl.freq/1e6, delta)
+			if st.policy.DebugLiveAudio {
+				log.Printf("LIVEAUDIO MATCH: signal id=%d matched pending subscriber=%d center=%.3fMHz req=%.3fMHz delta=%.0fHz", sig.ID, subID, sig.CenterHz/1e6, pl.freq/1e6, delta)
+			}
 			return true
 		}
 	}
