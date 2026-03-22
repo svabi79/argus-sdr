@@ -569,8 +569,8 @@ function renderSignalPopover(rect, signal) {
   }).join('');
   const primaryMode = getSignalPrimaryMode(signal);
   const runtimeInfo = getSignalRuntimeSummary(signal);
-  signalPopover.innerHTML = `<div class="signal-popover__title">${primaryMode}${signal.class?.pll?.rds_station ? ' · ' + signal.class.pll.rds_station : ''}</div><div class="signal-popover__meta">${fmtMHz(signal.class?.pll?.exact_hz || signal.center_hz, 5)} · ${fmtKHz(signal.bw_hz || 0)} · ${(signal.snr_db || 0).toFixed(1)} dB SNR${runtimeInfo ? ` · ${runtimeInfo}` : ''}${signal.class?.pll?.locked ? ` · PLL ${signal.class.pll.method} LOCK` : ''}${signal.class?.pll?.stereo ? ' · STEREO' : ''}</div><div class="signal-popover__scores">${rows || '<div class="signal-popover__meta">No classifier scores</div>'}</div>`;  const popW = 220;
-  const left = rect.x + rect.w + 8;
+  signalPopover.innerHTML = `<div class="signal-popover__title">${primaryMode}${signal.class?.pll?.rds_station ? ' Â· ' + signal.class.pll.rds_station : ''}</div><div class="signal-popover__meta">${fmtMHz(signal.class?.pll?.exact_hz || signal.center_hz, 5)} Â· ${fmtKHz(signal.bw_hz || 0)} Â· ${(signal.snr_db || 0).toFixed(1)} dB SNR${runtimeInfo ? ` Â· ${runtimeInfo}` : ''}${signal.class?.pll?.locked ? ` Â· PLL ${signal.class.pll.method} LOCK` : ''}${signal.class?.pll?.stereo ? ' Â· STEREO' : ''}</div><div class="signal-popover__scores">${rows || '<div class="signal-popover__meta">No classifier scores</div>'}</div>`;
+  const popW = 220;
   const top = rect.y + 8;
   const maxLeft = Math.max(8, spectrumCanvas.width - popW - 8);
   signalPopover.style.left = `${Math.max(8, Math.min(maxLeft, left))}px`;
@@ -2439,6 +2439,8 @@ setInterval(() => fetchEvents(false), 2000);
 setInterval(fetchRecordings, 5000);
 setInterval(loadSignals, 1500);
 setInterval(loadDecoders, 10000);
+
+
 
 
 
