@@ -17,3 +17,10 @@ func TestCandidatePriorityBoost(t *testing.T) {
 		t.Fatalf("expected positive boost, got %v", boost)
 	}
 }
+
+func TestCandidatePriorityBoostUsesIntent(t *testing.T) {
+	p := Policy{Intent: "digital-surveillance"}
+	if boost := CandidatePriorityBoost(p, "digital"); boost <= 0 {
+		t.Fatalf("expected intent boost, got %v", boost)
+	}
+}

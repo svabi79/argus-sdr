@@ -18,6 +18,7 @@ func CandidatePriorityBoost(policy Policy, hint string) float64 {
 	boost := hintMatchBoost(policy.SignalPriorities, hint, 3.0)
 	boost += hintMatchBoost(policy.AutoRecordClasses, hint, 1.5)
 	boost += hintMatchBoost(policy.AutoDecodeClasses, hint, 1.0)
+	boost += intentHintBoost(policy.Intent, hint, 2.0)
 	return boost
 }
 
@@ -33,6 +34,7 @@ func DecisionPriorityBoost(policy Policy, hint string, class string, queue strin
 	case "decode":
 		boost += hintMatchBoost(policy.AutoDecodeClasses, tag, 3.0)
 	}
+	boost += intentQueueBoost(policy.Intent, queue)
 	return boost
 }
 
@@ -51,4 +53,87 @@ func hintMatchBoost(values []string, hint string, weight float64) float64 {
 		}
 	}
 	return 0
+}
+
+func intentHintBoost(intent string, hint string, weight float64) float64 {
+	tokens := intentTokens(intent)
+	if len(tokens) == 0 {
+		return 0
+	}
+	return hintMatchBoost(tokens, hint, weight)
+}
+
+func intentQueueBoost(intent string, queue string) float64 {
+	if intent == "" {
+		return 0
+	}
+	intent = strings.ToLower(intent)
+	queue = strings.ToLower(strings.TrimSpace(queue))
+	boost := 0.0
+	switch queue {
+	case "record":
+		if strings.Contains(intent, "archive") || strings.Contains(intent, "record") {
+			boost += 2.0
+		}
+		if strings.Contains(intent, "triage") {
+			boost += 1.0
+		}
+	case "decode":
+		if strings.Contains(intent, "triage") {
+			boost += 1.5
+		}
+		if strings.Contains(intent, "decode") || strings.Contains(intent, "analysis") || strings.Contains(intent, "classif") {
+			boost += 1.0
+		}
+	}
+	return boost
+}
+
+func refinementIntentWeights(intent string) (float64, float64, float64) {
+	if intent == "" {
+		return 1.0, 1.0, 1.0
+	}
+	intent = strings.ToLower(intent)
+	snrWeight := 1.0
+	bwWeight := 1.0
+	peakWeight := 1.0
+	if strings.Contains(intent, "wideband") {
+		bwWeight = 1.25
+	}
+	if strings.Contains(intent, "high-density") || strings.Contains(intent, "highdensity") {
+		bwWeight = 1.4
+		peakWeight = 1.1
+	}
+	if strings.Contains(intent, "archive") || strings.Contains(intent, "triage") {
+		snrWeight = 1.15
+		peakWeight = 1.1
+	}
+	return snrWeight, bwWeight, peakWeight
+}
+
+func intentTokens(intent string) []string {
+	if intent == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(intent, func(r rune) bool {
+		if r >= 'a' && r <= 'z' {
+			return false
+		}
+		if r >= 'A' && r <= 'Z' {
+			return false
+		}
+		if r >= '0' && r <= '9' {
+			return false
+		}
+		return true
+	})
+	tokens := make([]string, 0, len(fields))
+	for _, f := range fields {
+		t := strings.ToLower(strings.TrimSpace(f))
+		if len(t) < 2 {
+			continue
+		}
+		tokens = append(tokens, t)
+	}
+	return tokens
 }

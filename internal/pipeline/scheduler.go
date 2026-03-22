@@ -23,18 +23,19 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 	if len(candidates) == 0 {
 		return plan
 	}
+	snrWeight, bwWeight, peakWeight := refinementIntentWeights(policy.Intent)
 	scored := make([]ScheduledCandidate, 0, len(candidates))
 	for _, c := range candidates {
 		if c.SNRDb < policy.MinCandidateSNRDb {
 			plan.DroppedBySNR++
 			continue
 		}
-		priority := c.SNRDb + CandidatePriorityBoost(policy, c.Hint)
+		priority := c.SNRDb*snrWeight + CandidatePriorityBoost(policy, c.Hint)
 		if c.BandwidthHz > 0 {
-			priority += minFloat64(c.BandwidthHz/25000.0, 6)
+			priority += minFloat64(c.BandwidthHz/25000.0, 6) * bwWeight
 		}
 		if c.PeakDb > 0 {
-			priority += c.PeakDb / 20.0
+			priority += (c.PeakDb / 20.0) * peakWeight
 		}
 		scored = append(scored, ScheduledCandidate{Candidate: c, Priority: priority})
 	}
