@@ -12,7 +12,7 @@ Go-based SDR analysis engine and live spectrum/waterfall UI, evolved from the or
 - Live demod endpoint + WebSocket live-listen audio
 - WFM stereo + RDS baseband
 - Mock mode for testing without hardware
-- Phase-1 wideband architecture foundation: explicit pipeline/surveillance/refinement/resources config model and candidate/refinement pipeline scaffolding
+- Phase-1 architecture foundation complete: explicit pipeline/surveillance/refinement/resources config model plus candidate/refinement/admission scaffolding
 
 ---
 
@@ -54,40 +54,40 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `recorder.*`
 - `decoder.*`
 
-### New phase-1 pipeline fields
-- `pipeline.mode` — operating mode label (`legacy`, `wideband-balanced`, ...)
-- `pipeline.profile` — last applied operating profile name (if any)
-- `pipeline.goals.*` — declarative target/intent layer for future autonomous operation
+### Phase-1 pipeline fields
+- `pipeline.mode` -- operating mode label (`legacy`, `wideband-balanced`, ...)
+- `pipeline.profile` -- last applied operating profile name (if any)
+- `pipeline.goals.*` -- declarative target/intent layer for future autonomous operation
   - `intent`
   - `monitor_start_hz` / `monitor_end_hz` / `monitor_span_hz`
   - `signal_priorities`
   - `auto_record_classes`
   - `auto_decode_classes`
-- `surveillance.analysis_fft_size` — analysis FFT size used by the surveillance layer
-- `surveillance.frame_rate` — surveillance cadence target
-- `surveillance.strategy` — `single-resolution` or `multi-resolution`
-- `surveillance.display_bins` — preferred presentation density for clients/UI
-- `surveillance.display_fps` — preferred presentation cadence for clients/UI
-- `refinement.enabled` — enables explicit candidate refinement stage
-- `refinement.max_concurrent` — refinement budget hint
-- `refinement.detail_fft_size` — FFT size for refinement/detail path (defaults to surveillance analysis FFT)
-- `refinement.min_candidate_snr_db` — floor for future scheduling decisions
-- `refinement.min_span_hz` / `refinement.max_span_hz` — clamp refinement window span (0 = no clamp)
-- `refinement.auto_span` — use mod-type heuristics when candidate bandwidth is missing/odd
-- `resources.prefer_gpu` — GPU preference hint
+- `surveillance.analysis_fft_size` -- analysis FFT size used by the surveillance layer
+- `surveillance.frame_rate` -- surveillance cadence target
+- `surveillance.strategy` -- `single-resolution` or `multi-resolution`
+- `surveillance.display_bins` -- preferred presentation density for clients/UI
+- `surveillance.display_fps` -- preferred presentation cadence for clients/UI
+- `refinement.enabled` -- enables explicit candidate refinement stage
+- `refinement.max_concurrent` -- refinement budget hint
+- `refinement.detail_fft_size` -- FFT size for refinement/detail path (defaults to surveillance analysis FFT)
+- `refinement.min_candidate_snr_db` -- floor for future scheduling decisions
+- `refinement.min_span_hz` / `refinement.max_span_hz` -- clamp refinement window span (0 = no clamp)
+- `refinement.auto_span` -- use mod-type heuristics when candidate bandwidth is missing/odd
+- `resources.prefer_gpu` -- GPU preference hint
 
 **Operating profiles (wideband)**
 - `wideband-balanced`: multi-resolution, 4096 surveillance/detail FFT, refinement span 4000-200000 Hz
 - `wideband-aggressive`: multi-resolution, 8192 surveillance/detail FFT, refinement span 6000-250000 Hz
 - `archive`: record-forward bias, higher record/decode budgets, 4096 detail FFT
 - `digital-hunting`: digital-first priorities and decode bias
-- `resources.max_refinement_jobs` — processing budget hint
-- `resources.max_recording_streams` — recording/streaming budget hint
-- `resources.max_decode_jobs` — decode budget hint
-- `resources.decision_hold_ms` — baseline hold time for queue slots before churn (arbitration scales per profile/strategy and tags hold reasons in debug snapshots)
-- `profiles[]` — named operating profiles/intent metadata
+- `resources.max_refinement_jobs` -- processing budget hint
+- `resources.max_recording_streams` -- recording/streaming budget hint
+- `resources.max_decode_jobs` -- decode budget hint
+- `resources.decision_hold_ms` -- baseline hold time for queue slots before churn (arbitration scales per profile/strategy and tags hold reasons in debug snapshots)
+- `profiles[]` -- named operating profiles/intent metadata
 
-In phase 1, the engine stays backward compatible, but the config model now reflects the intended separation between:
+Phase 1 stays backward compatible, but the config model now reflects the intended separation between:
 - acquisition
 - surveillance analysis
 - local refinement
@@ -101,6 +101,8 @@ Refinement plans now rank candidates, while a shared arbitration step admits ref
 - `decision:*` for record/decode decisions
 - `queue:*` when record/decode is deferred by budget
 Hold policy reasons are surfaced as `profile:*` / `strategy:*` tokens in `hold_source`.
+
+Phase-1 scope stops at consistent policy surfaces, ranking/admission scaffolding, and debug visibility. Phase 2+ adds a true multi-resolution surveillance engine and scheduler/intent overrides that can re-balance budgets automatically.
 
 The long-term target is that you describe *what the system should do* (for example broad-span monitoring intent, preferred signal families, auto-record/decode priorities), while the engine decides *how* to allocate surveillance, refinement and decoding budgets.
 
@@ -124,7 +126,7 @@ go build -tags sdrplay ./cmd/sdrd
 .\sdrd.exe -config config.yaml
 ```
 
-### Windows (GPU + SDRplay) — recommended path
+### Windows (GPU + SDRplay) -- recommended path
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build-cuda-windows.ps1
 powershell -ExecutionPolicy Bypass -File .\build-sdrplay.ps1
@@ -166,11 +168,11 @@ go build -tags sdrplay ./cmd/sdrd
 - `GET /api/gpu`
 - `GET /api/pipeline/policy`
 - `GET /api/pipeline/recommendations`
-- `GET /api/refinement` → latest refinement plan/windows snapshot (includes `window_stats`, levels, request/context/work_items, plus `arbitration` with budgets/hold policy/refinement admission/queue/decision summary)
+- `GET /api/refinement` -> latest refinement plan/windows snapshot (includes `window_stats`, levels, request/context/work_items, plus `arbitration` with budgets/hold policy/refinement admission/queue/decision summary)
 
 ### Signals / Events
-- `GET /api/signals` → current live signals
-- `GET /api/events?limit=&since=` → recent events
+- `GET /api/signals` -> current live signals
+- `GET /api/events?limit=&since=` -> recent events
 
 ### Recordings
 - `GET /api/recordings`
@@ -180,8 +182,8 @@ go build -tags sdrplay ./cmd/sdrd
 - `GET /api/recordings/:id/decode?mode=FT8|WSPR|DMR|D-STAR|FSK|PSK`
 
 ### Live Demod / Listen
-- `GET /api/demod?freq=...&bw=...&mode=...&sec=...` → audio/wav
-- `WS /ws/audio?freq=...&bw=...&mode=...` → live PCM audio stream
+- `GET /api/demod?freq=...&bw=...&mode=...&sec=...` -> audio/wav
+- `WS /ws/audio?freq=...&bw=...&mode=...` -> live PCM audio stream
 
 ---
 
@@ -200,7 +202,7 @@ go test ./...
 ---
 
 ## Troubleshooting
-- `sdrplay support not built` → rebuild with `-tags sdrplay`.
-- SDRplay library not found → check `CGO_CFLAGS` / `CGO_LDFLAGS`.
-- GPU demod not loading → verify `gpudemod_kernels.dll` / `cudart64_13.dll` next to `sdrd.exe` (Windows).
+- `sdrplay support not built` -> rebuild with `-tags sdrplay`.
+- SDRplay library not found -> check `CGO_CFLAGS` / `CGO_LDFLAGS`.
+- GPU demod not loading -> verify `gpudemod_kernels.dll` / `cudart64_13.dll` next to `sdrd.exe` (Windows).
 - Use `--mock` to run without hardware.

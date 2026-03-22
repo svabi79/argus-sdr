@@ -1,4 +1,4 @@
-# SDR Wideband Suite — Umbauplan
+# SDR Wideband Suite -- Umbauplan
 
 ## Zielbild
 
@@ -28,7 +28,7 @@ Ziel ist:
 
 ## Nicht-Ziele in Phase 1
 
-- Keine vollständige 20–80 MHz-Endlösung in einem Schritt
+- Keine vollständige 20-80 MHz-Endlösung in einem Schritt
 - Keine perfekte neue GPU-Pipeline über Nacht
 - Kein Big-Bang-Delete der bisherigen Pipeline
 
@@ -84,6 +84,11 @@ Verantwortung:
 
 ## Phase-1-Umbau (dieser Arbeitslauf)
 
+### Phase-1 Status (closure)
+- Architekturgrundlage, Config-Modell und Arbitration/Admission-Surface sind umgesetzt.
+- Abschlussfokus: Tests/Edge-Cases, API/Debug-Surface glaetten, Docs klar ziehen.
+- Keine neuen Scheduler- oder Multi-Resolution-Ausbauschritte in Phase 1.
+
 ### A. Benennung / Projektidentität
 - Projektname auf `sdr-wideband-suite` umstellen
 - README auf Zielbild anpassen
@@ -126,7 +131,7 @@ Wichtig:
   - track
   - present
   - record
-- Gemeinsame Arbitration-/Budget-Sicht für refinement/record/decode zentralisieren (Admission + Queue/Hold + Debug-Surface) — umgesetzt via zentralem Arbiter im Pipeline-Paket + normalisierter Reason-Taxonomie; künftige Phase: tieferer Scheduler/Intent-Budget-Override
+- Gemeinsame Arbitration-/Budget-Sicht für refinement/record/decode zentralisieren (Admission + Queue/Hold + Debug-Surface) -- umgesetzt via zentralem Arbiter im Pipeline-Paket + normalisierter Reason-Taxonomie; künftige Phase: tieferer Scheduler/Intent-Budget-Override
 
 ### F. Dokumentierte Betriebsprofile
 - initiale Profile definieren, z. B.:
@@ -156,7 +161,7 @@ Wichtig:
 
 ### Phase 4
 - breitbandige Multi-Span-Profile
-- 20–80 MHz konkrete Betriebsmodi
+- 20-80 MHz konkrete Betriebsmodi
 - adaptive Quality-of-Service
 
 ---
