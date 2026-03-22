@@ -319,6 +319,7 @@ function getSignalPrimaryMode(signal) {
 function getSignalRuntimeSummary(signal) {
   const bits = [];
   if (signal?.stereo_state) bits.push(signal.stereo_state);
+  if (signal?.demod && signal.demod !== getSignalPrimaryMode(signal)) bits.push(signal.demod);
   if (!bits.length && isListeningSignal(signal)) {
     if (liveListenInfo?.status && !['Idle', '-'].includes(liveListenInfo.status)) bits.push(liveListenInfo.status);
     if (liveListenInfo?.stereo_state && liveListenInfo.stereo_state !== '-') bits.push(liveListenInfo.stereo_state);
@@ -1202,7 +1203,6 @@ function renderSpectrum() {
       const x1 = ((left - startHz) / (endHz - startHz)) * w;
       const x2 = ((right - startHz) / (endHz - startHz)) * w;
       const boxW = Math.max(2, x2 - x1);
-      const mod = s.class?.mod_type || '';
       const primaryMode = getSignalPrimaryMode(s);
       const mc = modColor(primaryMode);
       const rdsName = s.class?.pll?.rds_station || '';
@@ -1240,7 +1240,7 @@ function renderSpectrum() {
       ctx.font = '11px Inter, sans-serif';
       ctx.fillText(freqStr, labelX, baseY + 11);
 
-      // Line 2: runtime status or primary mode
+      // Line 2: runtime info first, then primary mode
       if (runtimeInfo || primaryMode) {
         ctx.fillStyle = mc.label;
         ctx.font = 'bold 10px Inter, sans-serif';
@@ -1514,6 +1514,7 @@ function _createSignalItem(s) {
   btn.dataset.class = s.class?.mod_type || '';
   btn.dataset.id = s.id || 0;
   const primaryMode = getSignalPrimaryMode(s);
+  const runtimeInfo = getSignalRuntimeSummary(s);
   const mc = modColor(primaryMode);
   const rds = s.class?.pll?.rds_station || '';
   const dec = decisionIndex.get(String(s.id || 0));
@@ -1522,6 +1523,7 @@ function _createSignalItem(s) {
   const metaBits = [];
   if (decFlags) metaBits.push(decFlags);
   if (decText) metaBits.push(decText);
+  if (runtimeInfo) metaBits.push(runtimeInfo);
   btn.title = metaBits.join(' · ');
   btn.innerHTML = `<div class="item-top"><span class="item-title" data-field="freq">${fmtMHz(s.center_hz, 6)}</span><span class="item-badge" data-field="snr" style="color:${snrColor(s.snr_db || 0)}">${(s.snr_db || 0).toFixed(1)} dB</span></div><div class="item-bottom"><span class="item-meta item-meta--runtime" data-field="mode" style="color:${mc.label}">${primaryMode}</span>${rds ? `<span class="item-meta item-meta--rds" data-field="rds">${rds}</span>` : ''}</div>`;
   btn.style.borderLeftColor = mc.label;
@@ -1537,6 +1539,7 @@ function _patchSignalItem(el, s) {
   const modeEl = el.querySelector('[data-field="mode"]');
   const mod = s.class?.mod_type || '';
   const primaryMode = getSignalPrimaryMode(s);
+  const runtimeInfo = getSignalRuntimeSummary(s);
   const mc = modColor(primaryMode);
   const rds = s.class?.pll?.rds_station || '';
   const rdsEl = el.querySelector('[data-field="rds"]');
@@ -1546,6 +1549,7 @@ function _patchSignalItem(el, s) {
   const metaBits = [];
   if (decFlags) metaBits.push(decFlags);
   if (decText) metaBits.push(decText);
+  if (runtimeInfo) metaBits.push(runtimeInfo);
   el.title = metaBits.join(' · ');
   if (freqEl) freqEl.textContent = fmtMHz(s.center_hz, 6);
   if (snrEl) { snrEl.textContent = `${(s.snr_db || 0).toFixed(1)} dB`; snrEl.style.color = snrColor(s.snr_db || 0); }
