@@ -42,8 +42,8 @@ type dspRuntime struct {
 	rdsMap           map[int64]*rdsState
 	streamPhaseState map[int64]*streamExtractState
 	streamOverlap    *streamIQOverlap
-	arbiter          *arbitrator
-	arbitration      arbitrationState
+	arbiter          *pipeline.Arbiter
+	arbitration      pipeline.ArbitrationState
 	gotSamples       bool
 }
 
@@ -79,7 +79,7 @@ func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, 
 		rdsMap:           map[int64]*rdsState{},
 		streamPhaseState: map[int64]*streamExtractState{},
 		streamOverlap:    &streamIQOverlap{},
-		arbiter:          newArbitrator(),
+		arbiter:          pipeline.NewArbiter(),
 	}
 	if rt.useGPU && gpuState != nil {
 		snap := gpuState.snapshot()
@@ -426,17 +426,15 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult, now
 			item.Reason = pipeline.RefinementReasonDisabled
 		}
 		input.Scheduled = nil
-		input.Request.Reason = pipeline.RefinementReasonDisabled
-		input.Admission.Reason = pipeline.RefinementReasonDisabled
+		input.Request.Reason = pipeline.ReasonAdmissionDisabled
+		input.Admission.Reason = pipeline.ReasonAdmissionDisabled
 		input.Admission.Admitted = 0
 		input.Admission.Skipped = 0
 		input.Admission.Displaced = 0
 		input.Plan.Selected = nil
 		input.Plan.DroppedByBudget = 0
 	}
-	rt.arbitration.Budgets = input.Budgets
-	rt.arbitration.Refinement = input.Admission
-	rt.arbitration.HoldPolicy = pipeline.HoldPolicyFromPolicy(policy)
+	rt.setArbitration(policy, input.Budgets, input.Admission, rt.arbitration.Queue)
 	return input
 }
 
@@ -508,9 +506,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	}
 	budget := pipeline.BudgetModelFromPolicy(policy)
 	queueStats := rt.arbiter.ApplyDecisions(decisions, budget, art.now, policy)
-	rt.arbitration.Budgets = budget
-	rt.arbitration.HoldPolicy = pipeline.HoldPolicyFromPolicy(policy)
-	rt.arbitration.Queue = queueStats
+	rt.setArbitration(policy, budget, input.Admission, queueStats)
 	summary := summarizeDecisions(decisions)
 	if rec != nil {
 		if summary.RecordEnabled > 0 {
@@ -704,4 +700,8 @@ func markWorkItemsCompleted(items []pipeline.RefinementWorkItem, candidates []pi
 		items[i].Status = pipeline.RefinementStatusCompleted
 		items[i].Reason = pipeline.RefinementReasonCompleted
 	}
+}
+
+func (rt *dspRuntime) setArbitration(policy pipeline.Policy, budget pipeline.BudgetModel, admission pipeline.RefinementAdmission, queue pipeline.DecisionQueueStats) {
+	rt.arbitration = pipeline.BuildArbitrationState(policy, budget, admission, queue)
 }

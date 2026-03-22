@@ -24,24 +24,24 @@ func DecideSignalAction(policy Policy, candidate Candidate, cls *classifier.Clas
 	}
 	if classTag != "" && WantsClass(policy.AutoRecordClasses, classTag) {
 		decision.ShouldRecord = true
-		decision.Reason = "matched auto_record_classes"
+		decision.Reason = DecisionReasonRecordClass
 	} else if classTag == "" && hintTag != "" && WantsClass(policy.AutoRecordClasses, hintTag) {
 		decision.ShouldRecord = true
-		decision.Reason = "matched auto_record_classes (hint)"
+		decision.Reason = DecisionReasonRecordHint
 	}
 	if classTag != "" && WantsClass(policy.AutoDecodeClasses, classTag) {
 		decision.ShouldAutoDecode = true
 		if decision.Reason == "" {
-			decision.Reason = "matched auto_decode_classes"
+			decision.Reason = DecisionReasonDecodeClass
 		}
 	} else if classTag == "" && hintTag != "" && WantsClass(policy.AutoDecodeClasses, hintTag) {
 		decision.ShouldAutoDecode = true
 		if decision.Reason == "" {
-			decision.Reason = "matched auto_decode_classes (hint)"
+			decision.Reason = DecisionReasonDecodeHint
 		}
 	}
 	if decision.Reason == "" && candidate.Hint != "" {
-		decision.Reason = "policy evaluated candidate hint"
+		decision.Reason = DecisionReasonHintOnly
 	}
 	return decision
 }

@@ -21,7 +21,7 @@ func summarizeDecisions(decisions []pipeline.SignalDecision) decisionSummary {
 		}
 		reason := d.Reason
 		if reason == "" {
-			reason = "unspecified"
+			reason = pipeline.DecisionReasonUnspecified
 		}
 		summary.Reasons[reason]++
 	}

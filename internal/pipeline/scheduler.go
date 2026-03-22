@@ -62,16 +62,16 @@ const (
 )
 
 const (
-	RefinementReasonPlanned      = "planned"
-	RefinementReasonAdmitted     = "admitted"
-	RefinementReasonRunning      = "running"
-	RefinementReasonCompleted    = "completed"
-	RefinementReasonMonitorGate  = "dropped:monitor"
-	RefinementReasonBelowSNR     = "dropped:snr"
-	RefinementReasonBudget       = "skipped:budget"
-	RefinementReasonDisabled     = "dropped:disabled"
-	RefinementReasonUnclassified = "dropped:unclassified"
-	RefinementReasonDisplaced    = "skipped:displaced"
+	RefinementReasonPlanned      = "refinement:planned"
+	RefinementReasonAdmitted     = "refinement:admitted"
+	RefinementReasonRunning      = "refinement:running"
+	RefinementReasonCompleted    = "refinement:completed"
+	RefinementReasonMonitorGate  = "refinement:drop:monitor"
+	RefinementReasonBelowSNR     = "refinement:drop:snr"
+	RefinementReasonBudget       = "refinement:skip:budget"
+	RefinementReasonDisabled     = "refinement:drop:disabled"
+	RefinementReasonUnclassified = "refinement:drop:unclassified"
+	RefinementReasonDisplaced    = "refinement:skip:displaced"
 )
 
 // BuildRefinementPlan scores and ranks candidates for costly local refinement.
@@ -203,7 +203,14 @@ func ScheduleCandidates(candidates []Candidate, policy Policy) []ScheduledCandid
 
 func refinementStrategy(policy Policy) (string, string) {
 	intent := strings.ToLower(strings.TrimSpace(policy.Intent))
+	profile := strings.ToLower(strings.TrimSpace(policy.Profile))
 	switch {
+	case strings.Contains(profile, "digital"):
+		return "digital-hunting", "profile"
+	case strings.Contains(profile, "archive"):
+		return "archive-oriented", "profile"
+	case strings.Contains(profile, "aggressive"):
+		return "multi-resolution", "profile"
 	case strings.Contains(intent, "digital") || strings.Contains(intent, "hunt") || strings.Contains(intent, "decode"):
 		return "digital-hunting", "intent"
 	case strings.Contains(intent, "archive") || strings.Contains(intent, "triage") || strings.Contains(policy.Mode, "archive"):

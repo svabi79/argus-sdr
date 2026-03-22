@@ -52,25 +52,39 @@ func HoldPolicyFromPolicy(policy Policy) HoldPolicy {
 	profile := strings.ToLower(strings.TrimSpace(policy.Profile))
 	strategy := strings.ToLower(strings.TrimSpace(policy.RefinementStrategy))
 
-	if profileContains(profile, "archive") || strategyContains(strategy, "archive") {
+	archiveProfile := profileContains(profile, "archive")
+	archiveStrategy := strategyContains(strategy, "archive")
+	if archiveProfile || archiveStrategy {
 		recMult *= 1.5
 		decMult *= 1.1
 		refMult *= 1.2
-		reasons = append(reasons, "archive")
+		if archiveProfile {
+			reasons = append(reasons, HoldReasonProfileArchive)
+		}
+		if archiveStrategy {
+			reasons = append(reasons, HoldReasonStrategyArchive)
+		}
 	}
-	if profileContains(profile, "digital") || strategyContains(strategy, "digital") {
+	digitalProfile := profileContains(profile, "digital")
+	digitalStrategy := strategyContains(strategy, "digital")
+	if digitalProfile || digitalStrategy {
 		decMult *= 1.6
 		recMult *= 0.85
 		refMult *= 1.1
-		reasons = append(reasons, "digital")
+		if digitalProfile {
+			reasons = append(reasons, HoldReasonProfileDigital)
+		}
+		if digitalStrategy {
+			reasons = append(reasons, HoldReasonStrategyDigital)
+		}
 	}
 	if profileContains(profile, "aggressive") {
 		refMult *= 1.15
-		reasons = append(reasons, "aggressive")
+		reasons = append(reasons, HoldReasonProfileAggressive)
 	}
 	if strategyContains(strings.ToLower(strings.TrimSpace(policy.SurveillanceStrategy)), "multi") {
 		refMult *= 1.1
-		reasons = append(reasons, "multi-resolution")
+		reasons = append(reasons, HoldReasonStrategyMultiRes)
 	}
 
 	return HoldPolicy{
@@ -95,7 +109,7 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 		BudgetSource: plan.BudgetSource,
 	}
 	if len(ranked) == 0 {
-		admission.Reason = "no-candidates"
+		admission.Reason = ReasonAdmissionNoCandidates
 		return RefinementAdmissionResult{Plan: plan, WorkItems: workItems, Admission: admission}
 	}
 

@@ -1,13 +1,11 @@
-package main
+package pipeline
 
 import (
 	"sort"
 	"time"
-
-	"sdr-wideband-suite/internal/pipeline"
 )
 
-type decisionQueueStats struct {
+type DecisionQueueStats struct {
 	RecordQueued   int     `json:"record_queued"`
 	DecodeQueued   int     `json:"decode_queued"`
 	RecordSelected int     `json:"record_selected"`
@@ -50,11 +48,11 @@ func newDecisionQueues() *decisionQueues {
 	}
 }
 
-func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, budget pipeline.BudgetModel, now time.Time, policy pipeline.Policy) decisionQueueStats {
+func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, now time.Time, policy Policy) DecisionQueueStats {
 	if dq == nil {
-		return decisionQueueStats{}
+		return DecisionQueueStats{}
 	}
-	holdPolicy := pipeline.HoldPolicyFromPolicy(policy)
+	holdPolicy := HoldPolicyFromPolicy(policy)
 	recordHold := time.Duration(holdPolicy.RecordMs) * time.Millisecond
 	decodeHold := time.Duration(holdPolicy.DecodeMs) * time.Millisecond
 	recSeen := map[int64]bool{}
@@ -106,7 +104,7 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, budget pipe
 	recSelected := selectQueued("record", dq.record, dq.recordHold, budget.Record.Max, recordHold, now, policy)
 	decSelected := selectQueued("decode", dq.decode, dq.decodeHold, budget.Decode.Max, decodeHold, now, policy)
 
-	stats := decisionQueueStats{
+	stats := DecisionQueueStats{
 		RecordQueued:   len(dq.record),
 		DecodeQueued:   len(dq.decode),
 		RecordSelected: len(recSelected),
@@ -127,7 +125,7 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, budget pipe
 		if decisions[i].ShouldRecord {
 			if _, ok := recSelected[id]; !ok {
 				decisions[i].ShouldRecord = false
-				decisions[i].Reason = "queued: record budget"
+				decisions[i].Reason = DecisionReasonQueueRecord
 				stats.RecordDropped++
 			}
 		}
@@ -135,7 +133,7 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, budget pipe
 			if _, ok := decSelected[id]; !ok {
 				decisions[i].ShouldAutoDecode = false
 				if decisions[i].Reason == "" {
-					decisions[i].Reason = "queued: decode budget"
+					decisions[i].Reason = DecisionReasonQueueDecode
 				}
 				stats.DecodeDropped++
 			}
@@ -144,7 +142,7 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, budget pipe
 	return stats
 }
 
-func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[int64]time.Time, max int, holdDur time.Duration, now time.Time, policy pipeline.Policy) map[int64]struct{} {
+func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[int64]time.Time, max int, holdDur time.Duration, now time.Time, policy Policy) map[int64]struct{} {
 	selected := map[int64]struct{}{}
 	if len(queue) == 0 {
 		return selected
@@ -164,7 +162,7 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 		if hint == "" {
 			hint = qd.Class
 		}
-		policyBoost := pipeline.DecisionPriorityBoost(policy, hint, qd.Class, queueName)
+		policyBoost := DecisionPriorityBoost(policy, hint, qd.Class, queueName)
 		scoredList = append(scoredList, scored{id: id, score: qd.SNRDb + boost + policyBoost})
 	}
 	sort.Slice(scoredList, func(i, j int) bool {

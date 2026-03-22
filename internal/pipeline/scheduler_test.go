@@ -226,6 +226,17 @@ func TestAdmitRefinementPlanDisplacedByHold(t *testing.T) {
 	}
 }
 
+func TestRefinementStrategyUsesProfile(t *testing.T) {
+	strategy, reason := refinementStrategy(Policy{Profile: "digital-hunting"})
+	if strategy != "digital-hunting" || reason != "profile" {
+		t.Fatalf("expected digital profile to set strategy, got %s (%s)", strategy, reason)
+	}
+	strategy, reason = refinementStrategy(Policy{Profile: "archive"})
+	if strategy != "archive-oriented" || reason != "profile" {
+		t.Fatalf("expected archive profile to set strategy, got %s (%s)", strategy, reason)
+	}
+}
+
 func findWorkItem(items []RefinementWorkItem, id int64) *RefinementWorkItem {
 	for i := range items {
 		if items[i].Candidate.ID == id {
