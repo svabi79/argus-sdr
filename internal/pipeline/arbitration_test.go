@@ -30,6 +30,26 @@ func TestHoldPolicyDigitalBiasesDecode(t *testing.T) {
 	}
 }
 
+func TestHoldPolicyIntentOverrides(t *testing.T) {
+	policy := Policy{DecisionHoldMs: 1000, Intent: "archive-and-triage"}
+	hold := HoldPolicyFromPolicy(policy)
+	if hold.RecordMs <= hold.BaseMs {
+		t.Fatalf("expected archive intent to extend record hold, got %d vs %d", hold.RecordMs, hold.BaseMs)
+	}
+	if !containsReason(hold.Reasons, HoldReasonIntentArchive) {
+		t.Fatalf("expected intent archive reason, got %+v", hold.Reasons)
+	}
+
+	policy = Policy{DecisionHoldMs: 1000, Intent: "decode-digital"}
+	hold = HoldPolicyFromPolicy(policy)
+	if hold.DecodeMs <= hold.BaseMs {
+		t.Fatalf("expected decode intent to extend decode hold, got %d vs %d", hold.DecodeMs, hold.BaseMs)
+	}
+	if !containsReason(hold.Reasons, HoldReasonIntentDecode) {
+		t.Fatalf("expected intent decode reason, got %+v", hold.Reasons)
+	}
+}
+
 func TestAdmitRefinementPlanNoCandidatesReason(t *testing.T) {
 	res := AdmitRefinementPlan(RefinementPlan{}, Policy{}, time.Now(), &RefinementHold{Active: map[int64]time.Time{}})
 	if res.Admission.Reason != ReasonAdmissionNoCandidates {

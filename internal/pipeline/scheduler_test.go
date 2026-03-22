@@ -145,6 +145,28 @@ func TestScheduleCandidatesPriorityBoost(t *testing.T) {
 	}
 }
 
+func TestScheduleCandidatesFamilyTierFloor(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 2, MinCandidateSNRDb: 0, SignalPriorities: []string{"digital", "wfm"}}
+	cands := []Candidate{
+		{ID: 1, SNRDb: 1, Hint: "digital-burst"},
+		{ID: 2, SNRDb: 20, Hint: "voice"},
+	}
+	plan := BuildRefinementPlan(cands, policy)
+	item := findScheduled(plan.Ranked, 1)
+	if item == nil {
+		t.Fatalf("expected ranked candidate 1")
+	}
+	if item.Family != "digital" || item.FamilyRank != 1 {
+		t.Fatalf("expected digital family rank 1, got family=%s rank=%d", item.Family, item.FamilyRank)
+	}
+	if item.TierFloor != PriorityTierHigh {
+		t.Fatalf("expected tier floor high, got %s", item.TierFloor)
+	}
+	if priorityTierRank(item.Tier) < priorityTierRank(PriorityTierHigh) {
+		t.Fatalf("expected tier to be raised by family floor, got %s", item.Tier)
+	}
+}
+
 func TestScheduleCandidatesEvidenceBoost(t *testing.T) {
 	policy := Policy{MaxRefinementJobs: 2, MinCandidateSNRDb: 0}
 	single := Candidate{
@@ -379,6 +401,15 @@ func TestRefinementStrategyUsesIntentAndSurveillance(t *testing.T) {
 }
 
 func findWorkItem(items []RefinementWorkItem, id int64) *RefinementWorkItem {
+	for i := range items {
+		if items[i].Candidate.ID == id {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func findScheduled(items []ScheduledCandidate, id int64) *ScheduledCandidate {
 	for i := range items {
 		if items[i].Candidate.ID == id {
 			return &items[i]

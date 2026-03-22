@@ -138,6 +138,39 @@ func TestDecisionQueueHighTierHoldProtected(t *testing.T) {
 	}
 }
 
+func TestDecisionQueueFamilyPriorityProtectsHold(t *testing.T) {
+	arbiter := NewArbiter()
+	policy := Policy{DecisionHoldMs: 500, SignalPriorities: []string{"digital"}}
+	budget := BudgetModel{Record: BudgetQueue{Max: 1}}
+	now := time.Now()
+
+	decisions := []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 5, Hint: "digital"}, ShouldRecord: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now, policy)
+	if !decisions[0].ShouldRecord {
+		t.Fatalf("expected candidate 1 to be selected initially")
+	}
+
+	decisions = []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 5, Hint: "digital"}, ShouldRecord: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 35, Hint: "voice"}, ShouldRecord: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now.Add(100*time.Millisecond), policy)
+	if !decisions[0].ShouldRecord {
+		t.Fatalf("expected family-priority hold to keep candidate 1")
+	}
+	if decisions[1].ShouldRecord {
+		t.Fatalf("expected candidate 2 to remain deferred behind family hold")
+	}
+	if decisions[0].RecordAdmission == nil || decisions[0].RecordAdmission.FamilyRank != 1 {
+		t.Fatalf("expected family rank on admission, got %+v", decisions[0].RecordAdmission)
+	}
+	if decisions[0].RecordAdmission == nil || decisions[0].RecordAdmission.TierFloor != PriorityTierHigh {
+		t.Fatalf("expected tier floor on admission, got %+v", decisions[0].RecordAdmission)
+	}
+}
+
 func TestDecisionQueueOpportunisticDisplacement(t *testing.T) {
 	arbiter := NewArbiter()
 	policy := Policy{DecisionHoldMs: 500}
