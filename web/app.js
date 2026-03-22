@@ -307,6 +307,8 @@ function isListeningSignal(signal) {
 }
 
 function getSignalPrimaryMode(signal) {
+  if (signal?.playback_mode) return signal.playback_mode;
+  if (signal?.demod) return signal.demod;
   if (isListeningSignal(signal) && liveListenInfo?.playback_mode && liveListenInfo.playback_mode !== '-') {
     return liveListenInfo.playback_mode;
   }
@@ -315,10 +317,12 @@ function getSignalPrimaryMode(signal) {
 }
 
 function getSignalRuntimeSummary(signal) {
-  if (!isListeningSignal(signal)) return '';
   const bits = [];
-  if (liveListenInfo?.status && !['Idle', '-'].includes(liveListenInfo.status)) bits.push(liveListenInfo.status);
-  if (liveListenInfo?.stereo_state && liveListenInfo.stereo_state !== '-') bits.push(liveListenInfo.stereo_state);
+  if (signal?.stereo_state) bits.push(signal.stereo_state);
+  if (!bits.length && isListeningSignal(signal)) {
+    if (liveListenInfo?.status && !['Idle', '-'].includes(liveListenInfo.status)) bits.push(liveListenInfo.status);
+    if (liveListenInfo?.stereo_state && liveListenInfo.stereo_state !== '-') bits.push(liveListenInfo.stereo_state);
+  }
   return bits.join(' · ');
 }
 
@@ -1511,15 +1515,15 @@ function _createSignalItem(s) {
   btn.dataset.id = s.id || 0;
   const primaryMode = getSignalPrimaryMode(s);
   const mc = modColor(primaryMode);
+  const rds = s.class?.pll?.rds_station || '';
   const dec = decisionIndex.get(String(s.id || 0));
   const decText = dec?.reason ? `${dec.reason}` : '';
   const decFlags = dec ? `${dec.record ? 'REC' : ''}${dec.decode ? (dec.record ? '+DEC' : 'DEC') : ''}` : '';
   const metaBits = [];
   if (decFlags) metaBits.push(decFlags);
   if (decText) metaBits.push(decText);
-  if (s.class?.pll?.rds_station) metaBits.push(`RDS ${s.class.pll.rds_station}`);
   btn.title = metaBits.join(' · ');
-  btn.innerHTML = `<div class="item-top"><span class="item-title" data-field="freq">${fmtMHz(s.center_hz, 6)}</span><span class="item-badge" data-field="snr" style="color:${snrColor(s.snr_db || 0)}">${(s.snr_db || 0).toFixed(1)} dB</span></div><div class="item-bottom"><span class="item-meta item-meta--runtime" data-field="mode" style="color:${mc.label}">${primaryMode}</span></div>`;
+  btn.innerHTML = `<div class="item-top"><span class="item-title" data-field="freq">${fmtMHz(s.center_hz, 6)}</span><span class="item-badge" data-field="snr" style="color:${snrColor(s.snr_db || 0)}">${(s.snr_db || 0).toFixed(1)} dB</span></div><div class="item-bottom"><span class="item-meta item-meta--runtime" data-field="mode" style="color:${mc.label}">${primaryMode}</span>${rds ? `<span class="item-meta item-meta--rds" data-field="rds">${rds}</span>` : ''}</div>`;
   btn.style.borderLeftColor = mc.label;
   btn.style.borderLeftWidth = '3px';
   btn.style.borderLeftStyle = 'solid';

@@ -68,16 +68,19 @@ type activeEvent struct {
 }
 
 type Signal struct {
-	ID       int64                       `json:"id"`
-	FirstBin int                        `json:"first_bin"`
-	LastBin  int                        `json:"last_bin"`
-	CenterHz float64                    `json:"center_hz"`
-	BWHz     float64                    `json:"bw_hz"`
-	PeakDb   float64                    `json:"peak_db"`
-	SNRDb    float64                    `json:"snr_db"`
-	NoiseDb  float64                    `json:"noise_db,omitempty"`
-	Class    *classifier.Classification `json:"class,omitempty"`
-	PLL      *classifier.PLLResult      `json:"pll,omitempty"`
+	ID           int64                       `json:"id"`
+	FirstBin     int                        `json:"first_bin"`
+	LastBin      int                        `json:"last_bin"`
+	CenterHz     float64                    `json:"center_hz"`
+	BWHz         float64                    `json:"bw_hz"`
+	PeakDb       float64                    `json:"peak_db"`
+	SNRDb        float64                    `json:"snr_db"`
+	NoiseDb      float64                    `json:"noise_db,omitempty"`
+	Class        *classifier.Classification `json:"class,omitempty"`
+	PLL          *classifier.PLLResult      `json:"pll,omitempty"`
+	DemodName    string                     `json:"demod,omitempty"`
+	PlaybackMode string                     `json:"playback_mode,omitempty"`
+	StereoState  string                     `json:"stereo_state,omitempty"`
 }
 
 func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {

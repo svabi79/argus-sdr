@@ -106,6 +106,16 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			} else {
 				displaySignals = rt.det.StableSignals()
 			}
+			if rec != nil && len(displaySignals) > 0 {
+				runtimeInfo := rec.RuntimeInfoBySignalID()
+				for i := range displaySignals {
+					if info, ok := runtimeInfo[displaySignals[i].ID]; ok {
+						displaySignals[i].DemodName = info.DemodName
+						displaySignals[i].PlaybackMode = info.PlaybackMode
+						displaySignals[i].StereoState = info.StereoState
+					}
+				}
+			}
 			state.arbitration = rt.arbitration
 			state.presentation = state.surveillance.DisplayLevel
 			if phaseSnap != nil {

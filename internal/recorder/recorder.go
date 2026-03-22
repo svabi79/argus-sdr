@@ -356,6 +356,13 @@ func (m *Manager) StreamerRef() *Streamer {
 	return m.streamer
 }
 
+func (m *Manager) RuntimeInfoBySignalID() map[int64]RuntimeSignalInfo {
+	if m == nil || m.streamer == nil {
+		return nil
+	}
+	return m.streamer.RuntimeInfoBySignalID()
+}
+
 // ActiveStreams returns info about currently active streaming sessions.
 func (m *Manager) ActiveStreams() int {
 	if m == nil || m.streamer == nil {

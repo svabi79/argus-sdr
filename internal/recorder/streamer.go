@@ -115,6 +115,14 @@ type audioSub struct {
 	ch chan []byte
 }
 
+type RuntimeSignalInfo struct {
+	DemodName    string
+	PlaybackMode string
+	StereoState  string
+	Channels     int
+	SampleRate   int
+}
+
 // AudioInfo describes the audio format of a live-listen subscription.
 // Sent to the WebSocket client as the first message.
 type AudioInfo struct {
@@ -457,6 +465,22 @@ func (st *Streamer) attachPendingListeners(sess *streamSession) {
 }
 
 // CloseAll finalises all sessions and stops the worker goroutine.
+func (st *Streamer) RuntimeInfoBySignalID() map[int64]RuntimeSignalInfo {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	out := make(map[int64]RuntimeSignalInfo, len(st.sessions))
+	for _, sess := range st.sessions {
+		out[sess.signalID] = RuntimeSignalInfo{
+			DemodName:    sess.demodName,
+			PlaybackMode: sess.playbackMode,
+			StereoState:  sess.stereoState,
+			Channels:     sess.channels,
+			SampleRate:   sess.sampleRate,
+		}
+	}
+	return out
+}
+
 func (st *Streamer) CloseAll() {
 	close(st.feedCh)
 	<-st.done
