@@ -33,6 +33,7 @@ type Policy struct {
 	DeemphasisUs     float64 `yaml:"deemphasis_us" json:"deemphasis_us"`
 	ExtractionTaps   int     `yaml:"extraction_fir_taps" json:"extraction_fir_taps"`
 	ExtractionBwMult float64 `yaml:"extraction_bw_mult" json:"extraction_bw_mult"`
+	DebugLiveAudio   bool    `yaml:"debug_live_audio" json:"debug_live_audio"`
 }
 
 type Manager struct {
