@@ -53,13 +53,20 @@ func TestSurveillanceLevelsRespectStrategy(t *testing.T) {
 	if len(plan.Levels) != 1 {
 		t.Fatalf("expected single level for single-resolution, got %d", len(plan.Levels))
 	}
+	if plan.Levels[0].Role != pipeline.RoleSurveillancePrimary {
+		t.Fatalf("expected primary role, got %q", plan.Levels[0].Role)
+	}
 	policy.SurveillanceStrategy = "multi-res"
+	policy.Intent = "wideband-surveillance"
 	plan = rt.buildSurveillancePlan(policy)
 	if len(plan.Levels) != 2 {
 		t.Fatalf("expected secondary level for multi-res, got %d", len(plan.Levels))
 	}
 	if plan.Levels[1].Decimation != 2 {
 		t.Fatalf("expected decimation factor 2, got %d", plan.Levels[1].Decimation)
+	}
+	if plan.Levels[1].Role != pipeline.RoleSurveillanceDerived {
+		t.Fatalf("expected derived role, got %q", plan.Levels[1].Role)
 	}
 }
 

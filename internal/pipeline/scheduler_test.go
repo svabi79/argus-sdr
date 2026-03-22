@@ -185,7 +185,7 @@ func TestScheduleCandidatesDerivedOnlyPenalty(t *testing.T) {
 		SNRDb:       10,
 		BandwidthHz: 12000,
 		Evidence: []LevelEvidence{
-			{Level: AnalysisLevel{Name: "surveillance", Role: "surveillance", Truth: "surveillance"}},
+			{Level: AnalysisLevel{Name: "surveillance", Role: RoleSurveillancePrimary, Truth: "surveillance"}},
 		},
 	}
 	derived := Candidate{
@@ -193,7 +193,7 @@ func TestScheduleCandidatesDerivedOnlyPenalty(t *testing.T) {
 		SNRDb:       10,
 		BandwidthHz: 12000,
 		Evidence: []LevelEvidence{
-			{Level: AnalysisLevel{Name: "surveillance-lowres", Role: "surveillance-lowres", Truth: "surveillance"}},
+			{Level: AnalysisLevel{Name: "surveillance-lowres", Role: RoleSurveillanceDerived, Truth: "surveillance"}},
 		},
 	}
 	plan := BuildRefinementPlan([]Candidate{derived, primary}, policy)
@@ -211,7 +211,7 @@ func TestScheduleCandidatesDerivedOnlyStrategyBias(t *testing.T) {
 		SNRDb:       9,
 		BandwidthHz: 12000,
 		Evidence: []LevelEvidence{
-			{Level: AnalysisLevel{Name: "surveillance-lowres", Role: "surveillance-lowres", Truth: "surveillance"}},
+			{Level: AnalysisLevel{Name: "surveillance-lowres", Role: RoleSurveillanceDerived, Truth: "surveillance"}},
 		},
 	}
 	singlePlan := BuildRefinementPlan([]Candidate{cand}, Policy{MinCandidateSNRDb: 0})
