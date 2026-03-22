@@ -466,8 +466,8 @@ func (st *Streamer) attachPendingListeners(sess *streamSession) {
 
 // CloseAll finalises all sessions and stops the worker goroutine.
 func (st *Streamer) RuntimeInfoBySignalID() map[int64]RuntimeSignalInfo {
-	st.mu.RLock()
-	defer st.mu.RUnlock()
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	out := make(map[int64]RuntimeSignalInfo, len(st.sessions))
 	for _, sess := range st.sessions {
 		out[sess.signalID] = RuntimeSignalInfo{
