@@ -420,6 +420,7 @@ func buildMonitorWindowStats(windows []MonitorWindow) []MonitorWindowStats {
 			EndHz:        win.EndHz,
 			CenterHz:     win.CenterHz,
 			SpanHz:       win.SpanHz,
+			Priority:     win.Priority,
 			PriorityBias: win.PriorityBias,
 		})
 	}

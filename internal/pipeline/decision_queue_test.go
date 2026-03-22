@@ -65,6 +65,42 @@ func TestDecisionQueueEnforcesBudgets(t *testing.T) {
 	}
 }
 
+func TestDecisionQueueMonitorWindowBiasSelectsPreferred(t *testing.T) {
+	arbiter := NewArbiter()
+	policy := Policy{
+		DecisionHoldMs:    250,
+		AutoRecordClasses: []string{"test"},
+		MonitorWindows: finalizeMonitorWindows([]MonitorWindow{
+			{Label: "low", StartHz: 100, EndHz: 200, SpanHz: 100, Priority: -1},
+			{Label: "high", StartHz: 300, EndHz: 400, SpanHz: 100, Priority: 1},
+		}),
+	}
+	budget := BudgetModel{Record: BudgetQueue{Max: 1}}
+	now := time.Now()
+
+	decisions := []SignalDecision{
+		DecideSignalAction(policy, Candidate{ID: 1, CenterHz: 150, SNRDb: 10, Hint: "test"}, nil),
+		DecideSignalAction(policy, Candidate{ID: 2, CenterHz: 350, SNRDb: 10, Hint: "test"}, nil),
+	}
+	arbiter.ApplyDecisions(decisions, budget, now, policy)
+
+	if decisions[0].MonitorBias == 0 || decisions[1].MonitorBias == 0 {
+		t.Fatalf("expected monitor bias to be applied to both decisions")
+	}
+	if decisions[0].ShouldRecord {
+		t.Fatalf("expected low-priority window decision to be deferred")
+	}
+	if !decisions[1].ShouldRecord {
+		t.Fatalf("expected high-priority window decision to be selected")
+	}
+	if decisions[1].RecordAdmission == nil || decisions[1].RecordAdmission.Class != AdmissionClassAdmit {
+		t.Fatalf("expected admit admission, got %+v", decisions[1].RecordAdmission)
+	}
+	if decisions[1].RecordAdmission == nil || !strings.Contains(decisions[1].RecordAdmission.Reason, "window:high") {
+		t.Fatalf("expected window tag in admission reason, got %+v", decisions[1].RecordAdmission)
+	}
+}
+
 func TestDecisionQueueHoldKeepsSelection(t *testing.T) {
 	arbiter := NewArbiter()
 	policy := Policy{DecisionHoldMs: 500}

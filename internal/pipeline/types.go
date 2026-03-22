@@ -39,6 +39,7 @@ type MonitorWindow struct {
 	CenterHz     float64 `json:"center_hz,omitempty"`
 	SpanHz       float64 `json:"span_hz,omitempty"`
 	Source       string  `json:"source,omitempty"`
+	Priority     float64 `json:"priority,omitempty"`
 	PriorityBias float64 `json:"priority_bias,omitempty"`
 }
 
@@ -66,6 +67,7 @@ type MonitorWindowStats struct {
 	EndHz        float64 `json:"end_hz,omitempty"`
 	CenterHz     float64 `json:"center_hz,omitempty"`
 	SpanHz       float64 `json:"span_hz,omitempty"`
+	Priority     float64 `json:"priority,omitempty"`
 	PriorityBias float64 `json:"priority_bias,omitempty"`
 	Candidates   int     `json:"candidates,omitempty"`
 	Planned      int     `json:"planned,omitempty"`

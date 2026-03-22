@@ -51,6 +51,7 @@ type CandidateWindowSummary struct {
 	EndHz        float64 `json:"end_hz,omitempty"`
 	CenterHz     float64 `json:"center_hz,omitempty"`
 	SpanHz       float64 `json:"span_hz,omitempty"`
+	Priority     float64 `json:"priority,omitempty"`
 	PriorityBias float64 `json:"priority_bias,omitempty"`
 	Candidates   int     `json:"candidates"`
 }
@@ -232,6 +233,7 @@ func buildCandidateWindowSummary(candidates []pipeline.Candidate, windows []pipe
 			EndHz:        win.EndHz,
 			CenterHz:     win.CenterHz,
 			SpanHz:       win.SpanHz,
+			Priority:     win.Priority,
 			PriorityBias: win.PriorityBias,
 		}
 		index[win.Index] = len(out)

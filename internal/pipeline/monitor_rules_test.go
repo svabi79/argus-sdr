@@ -90,3 +90,32 @@ func TestMonitorWindowBiasPrefersNarrowWindow(t *testing.T) {
 		t.Fatalf("expected positive bias, got %.3f", bias)
 	}
 }
+
+func TestMonitorWindowPriorityBiasUsesPriority(t *testing.T) {
+	goals := config.PipelineGoalConfig{
+		MonitorWindows: []config.MonitorWindow{
+			{Label: "low", StartHz: 100, EndHz: 200, Priority: -1},
+			{Label: "high", StartHz: 300, EndHz: 400, Priority: 1},
+		},
+	}
+	policy := Policy{MonitorWindows: NormalizeMonitorWindows(goals, 0)}
+	var low, high *MonitorWindow
+	for i := range policy.MonitorWindows {
+		win := &policy.MonitorWindows[i]
+		switch win.Label {
+		case "low":
+			low = win
+		case "high":
+			high = win
+		}
+	}
+	if low == nil || high == nil {
+		t.Fatalf("expected both windows")
+	}
+	if low.Priority != -1 || high.Priority != 1 {
+		t.Fatalf("unexpected priority values: low=%.2f high=%.2f", low.Priority, high.Priority)
+	}
+	if high.PriorityBias <= low.PriorityBias {
+		t.Fatalf("expected high priority bias > low priority bias, got %.3f vs %.3f", high.PriorityBias, low.PriorityBias)
+	}
+}

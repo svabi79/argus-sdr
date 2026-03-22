@@ -21,6 +21,7 @@ type MonitorWindow struct {
 	EndHz    float64 `yaml:"end_hz" json:"end_hz"`
 	CenterHz float64 `yaml:"center_hz" json:"center_hz"`
 	SpanHz   float64 `yaml:"span_hz" json:"span_hz"`
+	Priority float64 `yaml:"priority" json:"priority"`
 }
 
 type DetectorConfig struct {

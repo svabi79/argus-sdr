@@ -61,13 +61,23 @@ func finalizeMonitorWindows(windows []MonitorWindow) []MonitorWindow {
 	}
 	for i := range windows {
 		windows[i].Index = i
+		priority := normalizeMonitorPriority(windows[i].Priority)
+		windows[i].Priority = priority
+		spanBias := 0.0
 		if maxSpan > 0 && len(windows) > 1 && windows[i].SpanHz > 0 {
-			bias := maxMonitorWindowBias * (1 - (windows[i].SpanHz / maxSpan))
-			if bias < 0 {
-				bias = 0
+			spanBias = maxMonitorWindowBias * (1 - (windows[i].SpanHz / maxSpan))
+			if spanBias < 0 {
+				spanBias = 0
 			}
-			windows[i].PriorityBias = bias
 		}
+		policyBias := priority * maxMonitorWindowBias
+		totalBias := spanBias + policyBias
+		if totalBias > maxMonitorWindowBias {
+			totalBias = maxMonitorWindowBias
+		} else if totalBias < -maxMonitorWindowBias {
+			totalBias = -maxMonitorWindowBias
+		}
+		windows[i].PriorityBias = totalBias
 	}
 	return windows
 }
@@ -101,6 +111,7 @@ func normalizeGoalWindow(raw config.MonitorWindow, fallbackCenter float64) (Moni
 			CenterHz: (raw.StartHz + raw.EndHz) / 2,
 			SpanHz:   span,
 			Source:   "goals:window:start_end",
+			Priority: raw.Priority,
 		}, true
 	}
 	center := raw.CenterHz
@@ -120,9 +131,23 @@ func normalizeGoalWindow(raw config.MonitorWindow, fallbackCenter float64) (Moni
 			CenterHz: center,
 			SpanHz:   raw.SpanHz,
 			Source:   source,
+			Priority: raw.Priority,
 		}, true
 	}
 	return MonitorWindow{}, false
+}
+
+func normalizeMonitorPriority(priority float64) float64 {
+	if math.IsNaN(priority) || math.IsInf(priority, 0) {
+		return 0
+	}
+	if priority > 1 {
+		return 1
+	}
+	if priority < -1 {
+		return -1
+	}
+	return priority
 }
 
 func monitorBounds(policy Policy) (float64, float64, bool) {

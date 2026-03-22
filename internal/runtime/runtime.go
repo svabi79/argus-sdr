@@ -508,6 +508,9 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 
 func validateMonitorWindows(windows []config.MonitorWindow) error {
 	for i, w := range windows {
+		if math.IsNaN(w.Priority) || math.IsInf(w.Priority, 0) || w.Priority < -1 || w.Priority > 1 {
+			return fmt.Errorf("monitor_windows[%d] priority must be between -1 and 1", i)
+		}
 		hasStart := w.StartHz != 0 || w.EndHz != 0
 		if hasStart {
 			if w.StartHz <= 0 || w.EndHz <= 0 || w.EndHz <= w.StartHz {
