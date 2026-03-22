@@ -82,108 +82,72 @@ Verantwortung:
 
 ---
 
-## Phase-1-Umbau (dieser Arbeitslauf)
+## Phase-1-Umbau
 
-### Phase-1 Status (closure)
+### Phase-1 Status
 - Architekturgrundlage, Config-Modell und Arbitration/Admission-Surface sind umgesetzt.
-- Abschlussfokus: Tests/Edge-Cases, API/Debug-Surface glaetten, Docs klar ziehen.
-- Keine neuen Scheduler- oder Multi-Resolution-Ausbauschritte in Phase 1.
+- Phase 1 ist als Meilenstein abgeschlossen.
 
-### A. Benennung / Projektidentität
-- Projektname auf `sdr-wideband-suite` umstellen
-- README auf Zielbild anpassen
+### Kernpunkte
+- Projektname auf `sdr-wideband-suite` umgestellt
+- neues Konfigurationsmodell für `pipeline`, `surveillance`, `refinement`, `resources`, `profiles`
+- Analyse klarer von Presentation getrennt
+- explizites Candidate-/Refinement-Modell eingeführt
+- `runDSP()` in klarere Schritte zerlegt
+- gemeinsame Arbitration-/Budget-Sicht für refinement/record/decode zentralisiert
+- initiale Betriebsprofile dokumentiert
+- Tests/Build grün gehalten
 
-### B. Konfigurationsmodell vorbereiten
-Neue Konfig-Teile einführen:
-- `pipeline.mode`
-- `surveillance.*`
-- `refinement.*`
-- `resources.*`
-- optionale `profiles.*`
+---
 
-Zusatz:
-- `refinement.detail_fft_size` für einen eigenständigen Detailpfad (Refinement-FFT) neben der Surveillance-FFT
+## Phase-2-Umbau
 
-Wichtig:
-- Abwärtskompatibilität zur bisherigen Config möglichst erhalten
-- bisherige Felder weiterhin nutzbar
+### Phase-2 Status
+- Phase 2 ist als Meilenstein abgeschlossen.
 
-### C. Analyse von UI trennen
-- `fft_size` als primär **analysis/surveillance**-Parameter behandeln
-- UI-seitige Bin-/FPS-Wünsche als reine Presentation-Ebene behandeln
-- klare Trennung im Code etablieren
+### Gelandete Wellen
+- **Wave A**: operative Surveillance-Level, decimated/derived spectra, Level-Set und API-Sicht
+- **Wave B**: derived candidate pass, primary/derived fusion, candidate evidence
+- **Wave C**: level-aware candidate semantics und konservatives evidence-aware scoring
+- **Wave D**: detection governance, Rollen für detection/support/presentation, derived-detection policy
+- **Wave E**: Konsolidierung von detection/support semantics, fused candidate summaries, Debug/API/Docs
 
-### D. Candidate-/Refinement-Modell einziehen
-- neue Candidate-/Refinement-Datentypen einführen
-- zunächst mit CPU-/bestehendem GPU-Extraction-Pfad implementieren
-- Detector bleibt vorerst Kern der Candidate-Erzeugung
-- Refiner sitzt danach explizit als eigener Schritt in der Pipeline
-- Refinement-Workitems mit expliziten Ausführungsparametern (FFT/Span/Stage)
+### Ergebnis
+- echte mehrstufige Surveillance-Resolution-Grundlage
+- derived detection governance und support-only Semantik
+- fused candidate evidence summaries
+- Level-Rollen und Debug-Sicht sind operativ sichtbar
 
-### E. Pipeline-Orchestrierung modularisieren
-- `runDSP()` entflechten
-- Schritte explizit machen:
-  - ingest
-  - spectrum
-  - detect
-  - refine
-  - classify
-  - track
-  - present
-  - record
-- Gemeinsame Arbitration-/Budget-Sicht für refinement/record/decode zentralisieren (Admission + Queue/Hold + Debug-Surface) -- umgesetzt via zentralem Arbiter im Pipeline-Paket + normalisierter Reason-Taxonomie; künftige Phase: tieferer Scheduler/Intent-Budget-Override
+---
 
-### F. Dokumentierte Betriebsprofile
-- initiale Profile definieren, z. B.:
-  - `legacy`
-  - `wideband-balanced`
-  - `wideband-aggressive`
-  - `archive`
+## Phase-3-Umbau
 
-### G. Tests / Build grün halten
-- Go tests ausführen
-- Build testen
-- erst danach commit/push
+### Phase-3 Status
+- Phase 3 ist als konservativer Runtime-Intelligence-Meilenstein abgeschlossen.
+
+### Gelandete Wellen
+- **Wave 3A**: Priority-Tiers, Admission-Classes, reichere Reason-Familien
+- **Wave 3B**: Budget-Preferences, Effective-Budgets, Pressure-Summaries
+- **Wave 3C**: Hold-Protection, opportunistic displacement, displaced-by-hold, harmonisierte Reason-Taxonomie
+- **Wave 3D**: family-aware tier floors, intent-aware hold behavior, family-priority Runtime-Semantik
+- **Wave 3E**: konservative cross-resource Rebalance für refinement/record/decode mit profil-/intent-spezifischem Schutz
+
+### Ergebnis
+- refinement / record / decode sprechen eine gemeinsame Admission-/Priority-Sprache
+- pressure ist sichtbar und verhaltenswirksam
+- hold / protection / displacement sind erklärbar
+- signal-family priorities greifen in echte Runtime-Entscheidungen ein
+- conservative adaptive rebalance verschiebt Ressourcen zwischen refinement / record / decode
 
 ---
 
 ## Spätere Phasen
 
-### Phase 2
-- echte mehrstufige Surveillance-Resolution-Engine
-- GPU-seitige Reduction/Decimation
-- UI-Detailfenster an Refinement koppeln
-
-Phase-2 Status (Wave E):
-- Derived-detection Governance: detection vs support-only klarer (Policy + Debug)
-- Fused candidate evidence summaries mit Rollen/Kindern und Support-Only Hinweis
-- Surveillance-Level Summaries berichten Rollen/Kind (Primary/Derived/Support/Presentation)
-
-### Phase 3
-- Scheduler/Priority/Budget-Engine
-- Kandidatenpriorisierung
-- automatische Decoder-Slot-Vergabe
-
-Phase-3 Status (Wave 3E):
-- Wave 3A: Priority-Scoring + BudgetModel scaffolding integriert
-- Wave 3B: Arbitration/Admission + Hold/Displacement-Logik fÃ¼r Refinement/Record/Decode
-- Wave 3C: Pressure-Summaries + Decision-Queue-Stats + Reason-Taxonomie + Tests (Hold/Displacement)
-- Wave 3E: Konservative cross-resource Rebalance-Schicht (Refinement/Record/Decode) mit profil-/intent-spezifischem Schutz, Debug-Surface und Szenario-Tests
-
 ### Phase 4
 - breitbandige Multi-Span-Profile
 - 20-80 MHz konkrete Betriebsmodi
 - adaptive Quality-of-Service
-
----
-
-## Erfolgskriterien für Phase 1
-
-- Fork existiert als neues Repo
-- Projekt ist logisch als Wideband-Fork positioniert
-- neue Architekturbegriffe sind im Code und in der Config sichtbar
-- bestehende Kernfunktionen bleiben lauffähig
-- Grundlage für spätere skalierbare, autonome Arbeitsweise ist gelegt
+- weitere Scheduler-/Betriebsintelligenz über die konservative Phase-3-Rebalance hinaus
 
 ---
 

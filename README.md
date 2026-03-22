@@ -13,7 +13,8 @@ Go-based SDR analysis engine and live spectrum/waterfall UI, evolved from the or
 - WFM stereo + RDS baseband
 - Mock mode for testing without hardware
 - Phase-1 architecture foundation complete: explicit pipeline/surveillance/refinement/resources config model plus candidate/refinement/admission scaffolding
-- Phase-2 (in progress): derived detection governance, multi-resolution support levels, fused candidate evidence summaries
+- Phase-2 milestone complete: multi-resolution surveillance levels, derived detection governance, support levels, and fused candidate evidence summaries
+- Phase-3 milestone complete: conservative runtime prioritization/admission/pressure/hold/displacement/rebalance behavior across refinement, record, and decode
 
 ---
 
