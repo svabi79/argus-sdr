@@ -165,24 +165,32 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		snap := phaseSnap.Snapshot()
 		windowStats := buildWindowStats(snap.refinement.Input.Windows)
 		arbitration := buildArbitrationSnapshot(snap.refinement, snap.arbitration)
+		spectraBins := map[string]int{}
+		for _, spec := range snap.surveillance.Spectra {
+			if len(spec.Spectrum) == 0 {
+				continue
+			}
+			spectraBins[spec.Level.Name] = len(spec.Spectrum)
+		}
 		out := map[string]any{
-			"plan":                snap.refinement.Input.Plan,
-			"windows":             snap.refinement.Input.Windows,
-			"window_stats":        windowStats,
-			"request":             snap.refinement.Input.Request,
-			"context":             snap.refinement.Input.Context,
-			"detail_level":        snap.refinement.Input.Detail,
-			"arbitration":         arbitration,
-			"work_items":          snap.refinement.Input.WorkItems,
-			"candidates":          len(snap.refinement.Input.Candidates),
-			"scheduled":           len(snap.refinement.Input.Scheduled),
-			"signals":             len(snap.refinement.Result.Signals),
-			"decisions":           len(snap.refinement.Result.Decisions),
-			"surveillance_level":  snap.surveillance.Level,
-			"surveillance_levels": snap.surveillance.Levels,
-			"display_level":       snap.surveillance.DisplayLevel,
-			"refinement_level":    snap.refinement.Input.Level,
-			"presentation_level":  snap.presentation,
+			"plan":                      snap.refinement.Input.Plan,
+			"windows":                   snap.refinement.Input.Windows,
+			"window_stats":              windowStats,
+			"request":                   snap.refinement.Input.Request,
+			"context":                   snap.refinement.Input.Context,
+			"detail_level":              snap.refinement.Input.Detail,
+			"arbitration":               arbitration,
+			"work_items":                snap.refinement.Input.WorkItems,
+			"candidates":                len(snap.refinement.Input.Candidates),
+			"scheduled":                 len(snap.refinement.Input.Scheduled),
+			"signals":                   len(snap.refinement.Result.Signals),
+			"decisions":                 len(snap.refinement.Result.Decisions),
+			"surveillance_level":        snap.surveillance.Level,
+			"surveillance_levels":       snap.surveillance.Levels,
+			"surveillance_spectra_bins": spectraBins,
+			"display_level":             snap.surveillance.DisplayLevel,
+			"refinement_level":          snap.refinement.Input.Level,
+			"presentation_level":        snap.presentation,
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	})
