@@ -58,12 +58,19 @@ type streamSession struct {
 	deemphL float64
 	deemphR float64
 
-	// Stereo decode: phase-continuous 38kHz oscillator
-	stereoPhase float64
 	// Stereo lock state for live WFM streaming
 	stereoEnabled  bool
 	stereoOnCount  int
 	stereoOffCount int
+	// Pilot-locked stereo PLL state (19kHz pilot)
+	pilotPhase   float64
+	pilotFreq    float64
+	pilotAlpha   float64
+	pilotBeta    float64
+	pilotErrAvg  float64
+	pilotI       float64
+	pilotQ       float64
+	pilotLPAlpha float64
 
 	// Polyphase resampler (replaces integer-decimate hack)
 	monoResampler       *dsp.Resampler
@@ -73,18 +80,20 @@ type streamSession struct {
 
 	// AQ-4: Stateful FIR filters for click-free stereo decode
 	stereoFilterRate int
-	stereoLPF    *dsp.StatefulFIRReal // 15kHz lowpass for L+R
-	stereoBPHi   *dsp.StatefulFIRReal // 53kHz LP for bandpass high
-	stereoBPLo   *dsp.StatefulFIRReal // 23kHz LP for bandpass low
-	stereoLRLPF  *dsp.StatefulFIRReal // 15kHz LP for demodulated L-R
-	stereoAALPF  *dsp.StatefulFIRReal // Anti-alias LP for pre-decim (mono path)
+	stereoLPF        *dsp.StatefulFIRReal // 15kHz lowpass for L+R
+	stereoBPHi       *dsp.StatefulFIRReal // 53kHz LP for bandpass high
+	stereoBPLo       *dsp.StatefulFIRReal // 23kHz LP for bandpass low
+	stereoLRLPF      *dsp.StatefulFIRReal // 15kHz LP for demodulated L-R
+	stereoAALPF      *dsp.StatefulFIRReal // Anti-alias LP for pre-decim (mono path)
+	pilotLPFHi       *dsp.StatefulFIRReal // ~21kHz LP for pilot bandpass high
+	pilotLPFLo       *dsp.StatefulFIRReal // ~17kHz LP for pilot bandpass low
 
 	// Stateful pre-demod anti-alias FIR (eliminates cold-start transients
 	// and avoids per-frame FIR recomputation)
-	preDemodFIR     *dsp.StatefulFIRComplex
-	preDemodDecim   int     // cached decimation factor
-	preDemodRate    int     // cached snipRate this FIR was built for
-	preDemodCutoff  float64 // cached cutoff
+	preDemodFIR    *dsp.StatefulFIRComplex
+	preDemodDecim  int     // cached decimation factor
+	preDemodRate   int     // cached snipRate this FIR was built for
+	preDemodCutoff float64 // cached cutoff
 
 	// AQ-2: De-emphasis config (µs, 0 = disabled)
 	deemphasisUs float64
@@ -732,8 +741,23 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	return audio, streamAudioRate
 }
 
-// stereoDecodeStateful: phase-continuous 38kHz oscillator for L-R extraction.
-// AQ-4: Uses persistent FIR filter state across frames for click-free stereo.
+// pllCoefficients returns the proportional (alpha) and integral (beta) gains
+// for a Type-II PLL using the specified loop bandwidth and damping factor.
+// loopBW is in Hz, sampleRate in samples/sec.
+func pllCoefficients(loopBW, damping float64, sampleRate int) (float64, float64) {
+	if sampleRate <= 0 || loopBW <= 0 {
+		return 0, 0
+	}
+	bl := loopBW / float64(sampleRate)
+	theta := bl / (damping + 0.25/damping)
+	d := 1 + 2*damping*theta + theta*theta
+	alpha := (4 * damping * theta) / d
+	beta := (4 * theta * theta) / d
+	return alpha, beta
+}
+
+// stereoDecodeStateful: pilot-locked 38kHz oscillator for L-R extraction.
+// Uses persistent FIR filter state across frames for click-free stereo.
 // Reuses session scratch buffers to minimize allocations.
 func (sess *streamSession) stereoDecodeStateful(mono []float32, sampleRate int) ([]float32, bool) {
 	if len(mono) == 0 || sampleRate <= 0 {
@@ -748,41 +772,102 @@ func (sess *streamSession) stereoDecodeStateful(mono []float32, sampleRate int) 
 		sess.stereoBPHi = dsp.NewStatefulFIRReal(dsp.LowpassFIR(53000, sampleRate, 101))
 		sess.stereoBPLo = dsp.NewStatefulFIRReal(dsp.LowpassFIR(23000, sampleRate, 101))
 		sess.stereoLRLPF = dsp.NewStatefulFIRReal(lp)
+		// Narrow pilot bandpass via LPF(21k)-LPF(17k).
+		sess.pilotLPFHi = dsp.NewStatefulFIRReal(dsp.LowpassFIR(21000, sampleRate, 101))
+		sess.pilotLPFLo = dsp.NewStatefulFIRReal(dsp.LowpassFIR(17000, sampleRate, 101))
 		sess.stereoFilterRate = sampleRate
+		// Initialize PLL for 19kHz pilot tracking.
+		sess.pilotPhase = 0
+		sess.pilotFreq = 2 * math.Pi * 19000 / float64(sampleRate)
+		sess.pilotAlpha, sess.pilotBeta = pllCoefficients(50, 0.707, sampleRate)
+		sess.pilotErrAvg = 0
+		sess.pilotI = 0
+		sess.pilotQ = 0
+		sess.pilotLPAlpha = 1 - math.Exp(-2*math.Pi*200/float64(sampleRate))
 	}
 
-	// Reuse scratch for intermediates: need 4*n float32 for bpf, lr, hi, lo
-	// plus 2*n for output. We'll use scratchAudio for bpf+lr (2*n) and
-	// allocate hi/lo from the stateful FIR ProcessInto.
-	scratch := sess.growAudio(n * 4)
-	bpf := scratch[:n]
-	lr := scratch[n : 2*n]
-	hiBuf := scratch[2*n : 3*n]
-	loBuf := scratch[3*n : 4*n]
+	// Reuse scratch for intermediates: lpr, bpfLR, lr, work1, work2.
+	scratch := sess.growAudio(n * 5)
+	lpr := scratch[:n]
+	bpfLR := scratch[n : 2*n]
+	lr := scratch[2*n : 3*n]
+	work1 := scratch[3*n : 4*n]
+	work2 := scratch[4*n : 5*n]
 
-	lpr := sess.stereoLPF.Process(mono) // allocates — but could use ProcessInto too
+	sess.stereoLPF.ProcessInto(mono, lpr)
 
-	sess.stereoBPHi.ProcessInto(mono, hiBuf)
-	sess.stereoBPLo.ProcessInto(mono, loBuf)
+	// 23-53kHz bandpass for L-R DSB-SC.
+	sess.stereoBPHi.ProcessInto(mono, work1)
+	sess.stereoBPLo.ProcessInto(mono, work2)
 	for i := 0; i < n; i++ {
-		bpf[i] = hiBuf[i] - loBuf[i]
+		bpfLR[i] = work1[i] - work2[i]
 	}
 
-	phase := sess.stereoPhase
-	inc := 2 * math.Pi * 38000 / float64(sampleRate)
+	// 19kHz pilot bandpass for PLL.
+	sess.pilotLPFHi.ProcessInto(mono, work1)
+	sess.pilotLPFLo.ProcessInto(mono, work2)
+	for i := 0; i < n; i++ {
+		work1[i] = work1[i] - work2[i]
+	}
+	pilot := work1
+
+	phase := sess.pilotPhase
+	freq := sess.pilotFreq
+	alpha := sess.pilotAlpha
+	beta := sess.pilotBeta
+	iState := sess.pilotI
+	qState := sess.pilotQ
+	lpAlpha := sess.pilotLPAlpha
+	minFreq := 2 * math.Pi * 17000 / float64(sampleRate)
+	maxFreq := 2 * math.Pi * 21000 / float64(sampleRate)
 	var pilotPower float64
 	var totalPower float64
-	for i := range bpf {
-		phase += inc
-		v := bpf[i] * float32(2*math.Cos(phase))
-		lr[i] = v
-		pilotPower += math.Abs(float64(bpf[i]))
-		totalPower += math.Abs(float64(mono[i]))
-	}
-	sess.stereoPhase = math.Mod(phase, 2*math.Pi)
+	var errSum float64
+	for i := 0; i < n; i++ {
+		p := float64(pilot[i])
+		sinP, cosP := math.Sincos(phase)
+		iMix := p * cosP
+		qMix := p * -sinP
+		iState += lpAlpha * (iMix - iState)
+		qState += lpAlpha * (qMix - qState)
+		err := math.Atan2(qState, iState)
+		freq += beta * err
+		if freq < minFreq {
+			freq = minFreq
+		} else if freq > maxFreq {
+			freq = maxFreq
+		}
+		phase += freq + alpha*err
+		if phase > 2*math.Pi {
+			phase -= 2 * math.Pi
+		} else if phase < 0 {
+			phase += 2 * math.Pi
+		}
 
-	lr = sess.stereoLRLPF.Process(lr)
-	locked := totalPower > 0 && (pilotPower/totalPower) > 0.12
+		totalPower += float64(mono[i]) * float64(mono[i])
+		pilotPower += p * p
+		errSum += math.Abs(err)
+
+		lr[i] = bpfLR[i] * float32(2*math.Sin(2*phase))
+	}
+	sess.pilotPhase = phase
+	sess.pilotFreq = freq
+	sess.pilotI = iState
+	sess.pilotQ = qState
+	blockErr := errSum / float64(n)
+	sess.pilotErrAvg = 0.9*sess.pilotErrAvg + 0.1*blockErr
+
+	lr = sess.stereoLRLPF.ProcessInto(lr, lr)
+
+	pilotRatio := 0.0
+	if totalPower > 0 {
+		pilotRatio = pilotPower / totalPower
+	}
+	freqHz := sess.pilotFreq * float64(sampleRate) / (2 * math.Pi)
+	// Lock heuristics: pilot power fraction and PLL phase error stability.
+	// Pilot power is a small but stable fraction of composite energy; require
+	// a modest floor plus PLL settling to avoid flapping in noise.
+	locked := pilotRatio > 0.003 && math.Abs(freqHz-19000) < 250 && sess.pilotErrAvg < 0.35
 
 	out := make([]float32, n*2)
 	for i := 0; i < n; i++ {
@@ -794,46 +879,64 @@ func (sess *streamSession) stereoDecodeStateful(mono []float32, sampleRate int) 
 
 // dspStateSnapshot captures persistent DSP state for segment splits.
 type dspStateSnapshot struct {
-	overlapIQ       []complex64
-	deemphL         float64
-	deemphR         float64
-	stereoPhase     float64
+	overlapIQ           []complex64
+	deemphL             float64
+	deemphR             float64
+	pilotPhase          float64
+	pilotFreq           float64
+	pilotAlpha          float64
+	pilotBeta           float64
+	pilotErrAvg         float64
+	pilotI              float64
+	pilotQ              float64
+	pilotLPAlpha        float64
 	monoResampler       *dsp.Resampler
 	monoResamplerRate   int
 	stereoResampler     *dsp.StereoResampler
 	stereoResamplerRate int
 	stereoLPF           *dsp.StatefulFIRReal
 	stereoFilterRate    int
-	stereoBPHi      *dsp.StatefulFIRReal
-	stereoBPLo      *dsp.StatefulFIRReal
-	stereoLRLPF     *dsp.StatefulFIRReal
-	stereoAALPF     *dsp.StatefulFIRReal
-	preDemodFIR     *dsp.StatefulFIRComplex
-	preDemodDecim   int
-	preDemodRate    int
-	preDemodCutoff  float64
+	stereoBPHi          *dsp.StatefulFIRReal
+	stereoBPLo          *dsp.StatefulFIRReal
+	stereoLRLPF         *dsp.StatefulFIRReal
+	stereoAALPF         *dsp.StatefulFIRReal
+	pilotLPFHi          *dsp.StatefulFIRReal
+	pilotLPFLo          *dsp.StatefulFIRReal
+	preDemodFIR         *dsp.StatefulFIRComplex
+	preDemodDecim       int
+	preDemodRate        int
+	preDemodCutoff      float64
 }
 
 func (sess *streamSession) captureDSPState() dspStateSnapshot {
 	return dspStateSnapshot{
-		overlapIQ:       sess.overlapIQ,
-		deemphL:         sess.deemphL,
-		deemphR:         sess.deemphR,
-		stereoPhase:     sess.stereoPhase,
+		overlapIQ:           sess.overlapIQ,
+		deemphL:             sess.deemphL,
+		deemphR:             sess.deemphR,
+		pilotPhase:          sess.pilotPhase,
+		pilotFreq:           sess.pilotFreq,
+		pilotAlpha:          sess.pilotAlpha,
+		pilotBeta:           sess.pilotBeta,
+		pilotErrAvg:         sess.pilotErrAvg,
+		pilotI:              sess.pilotI,
+		pilotQ:              sess.pilotQ,
+		pilotLPAlpha:        sess.pilotLPAlpha,
 		monoResampler:       sess.monoResampler,
 		monoResamplerRate:   sess.monoResamplerRate,
 		stereoResampler:     sess.stereoResampler,
 		stereoResamplerRate: sess.stereoResamplerRate,
 		stereoLPF:           sess.stereoLPF,
 		stereoFilterRate:    sess.stereoFilterRate,
-		stereoBPHi:      sess.stereoBPHi,
-		stereoBPLo:      sess.stereoBPLo,
-		stereoLRLPF:     sess.stereoLRLPF,
-		stereoAALPF:     sess.stereoAALPF,
-		preDemodFIR:     sess.preDemodFIR,
-		preDemodDecim:   sess.preDemodDecim,
-		preDemodRate:    sess.preDemodRate,
-		preDemodCutoff:  sess.preDemodCutoff,
+		stereoBPHi:          sess.stereoBPHi,
+		stereoBPLo:          sess.stereoBPLo,
+		stereoLRLPF:         sess.stereoLRLPF,
+		stereoAALPF:         sess.stereoAALPF,
+		pilotLPFHi:          sess.pilotLPFHi,
+		pilotLPFLo:          sess.pilotLPFLo,
+		preDemodFIR:         sess.preDemodFIR,
+		preDemodDecim:       sess.preDemodDecim,
+		preDemodRate:        sess.preDemodRate,
+		preDemodCutoff:      sess.preDemodCutoff,
 	}
 }
 
@@ -841,7 +944,14 @@ func (sess *streamSession) restoreDSPState(s dspStateSnapshot) {
 	sess.overlapIQ = s.overlapIQ
 	sess.deemphL = s.deemphL
 	sess.deemphR = s.deemphR
-	sess.stereoPhase = s.stereoPhase
+	sess.pilotPhase = s.pilotPhase
+	sess.pilotFreq = s.pilotFreq
+	sess.pilotAlpha = s.pilotAlpha
+	sess.pilotBeta = s.pilotBeta
+	sess.pilotErrAvg = s.pilotErrAvg
+	sess.pilotI = s.pilotI
+	sess.pilotQ = s.pilotQ
+	sess.pilotLPAlpha = s.pilotLPAlpha
 	sess.monoResampler = s.monoResampler
 	sess.monoResamplerRate = s.monoResamplerRate
 	sess.stereoResampler = s.stereoResampler
@@ -852,6 +962,8 @@ func (sess *streamSession) restoreDSPState(s dspStateSnapshot) {
 	sess.stereoBPLo = s.stereoBPLo
 	sess.stereoLRLPF = s.stereoLRLPF
 	sess.stereoAALPF = s.stereoAALPF
+	sess.pilotLPFHi = s.pilotLPFHi
+	sess.pilotLPFLo = s.pilotLPFLo
 	sess.preDemodFIR = s.preDemodFIR
 	sess.preDemodDecim = s.preDemodDecim
 	sess.preDemodRate = s.preDemodRate
