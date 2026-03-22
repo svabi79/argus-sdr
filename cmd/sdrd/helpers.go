@@ -125,19 +125,23 @@ func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleR
 		jobs := make([]gpudemod.ExtractJob, len(signals))
 		for i, sig := range signals {
 			bw := sig.BWHz
+			sigMHz := sig.CenterHz / 1e6
+			isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
+			jobOutRate := decimTarget
+			if isWFM {
+				jobOutRate = 500000
+			}
 			// Minimum extraction BW: ensure enough bandwidth for demod features
 			// FM broadcast (87.5-108 MHz) needs >=150kHz for stereo pilot + RDS at 57kHz
 			// Also widen for any signal classified as WFM (in case of re-extraction)
-			sigMHz := sig.CenterHz / 1e6
-			isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
 			if isWFM {
-				if bw < 150000 {
-					bw = 150000
+				if bw < 250000 {
+					bw = 250000
 				}
 			} else if bw < 20000 {
 				bw = 20000
 			}
-			jobs[i] = gpudemod.ExtractJob{OffsetHz: sig.CenterHz - centerHz, BW: bw, OutRate: decimTarget}
+			jobs[i] = gpudemod.ExtractJob{OffsetHz: sig.CenterHz - centerHz, BW: bw, OutRate: jobOutRate}
 		}
 		if gpuOuts, gpuRates, err := runner.ShiftFilterDecimateBatch(iq, jobs); err == nil && len(gpuOuts) == len(signals) {
 			// batch extraction OK (silent)
@@ -162,8 +166,8 @@ func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleR
 		sigMHz := sig.CenterHz / 1e6
 		isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
 		if isWFM {
-			if bw < 150000 {
-				bw = 150000
+			if bw < 250000 {
+				bw = 250000
 			}
 		} else if bw < 20000 {
 			bw = 20000
@@ -283,7 +287,9 @@ func extractForStreaming(
 		sigMHz := sig.CenterHz / 1e6
 		isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) ||
 			(sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
+		jobOutRate := decimTarget
 		if isWFM {
+			jobOutRate = 300000
 			if bw < 150000 {
 				bw = 150000
 			}
@@ -308,7 +314,7 @@ func extractForStreaming(
 		jobs[i] = gpudemod.ExtractJob{
 			OffsetHz:   sig.CenterHz - centerHz,
 			BW:         bw,
-			OutRate:    decimTarget,
+			OutRate:    jobOutRate,
 			PhaseStart: gpuPhaseStart,
 		}
 	}
@@ -318,12 +324,18 @@ func extractForStreaming(
 	if runner != nil {
 		results, err := runner.ShiftFilterDecimateBatchWithPhase(gpuIQ, jobs)
 		if err == nil && len(results) == len(signals) {
-			decim := sampleRate / decimTarget
-			if decim < 1 {
-				decim = 1
-			}
-			trimSamples := overlapLen / decim
 			for i, res := range results {
+				outRate := decimTarget
+				sigMHz := signals[i].CenterHz / 1e6
+				isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (signals[i].Class != nil && (signals[i].Class.ModType == "WFM" || signals[i].Class.ModType == "WFM_STEREO"))
+				if isWFM {
+					outRate = 500000
+				}
+				decim := sampleRate / outRate
+				if decim < 1 {
+					decim = 1
+				}
+				trimSamples := overlapLen / decim
 				// Update phase state — advance only by NEW data length, not overlap
 				phaseInc := -2.0 * math.Pi * jobs[i].OffsetHz / float64(sampleRate)
 				phaseState[signals[i].ID].phase += phaseInc * float64(len(allIQ))
@@ -377,7 +389,13 @@ func extractForStreaming(
 		}
 		taps := dsp.LowpassFIR(cutoff, sampleRate, firTaps)
 		filtered := dsp.ApplyFIR(shifted, taps)
-		decim := sampleRate / decimTarget
+		sigMHz := sig.CenterHz / 1e6
+		isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
+		outRate := decimTarget
+		if isWFM {
+			outRate = 500000
+		}
+		decim := sampleRate / outRate
 		if decim < 1 {
 			decim = 1
 		}

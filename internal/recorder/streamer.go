@@ -60,12 +60,19 @@ type streamSession struct {
 
 	// Stereo decode: phase-continuous 38kHz oscillator
 	stereoPhase float64
+	// Stereo lock state for live WFM streaming
+	stereoEnabled  bool
+	stereoOnCount  int
+	stereoOffCount int
 
 	// Polyphase resampler (replaces integer-decimate hack)
-	monoResampler   *dsp.Resampler
-	stereoResampler *dsp.StereoResampler
+	monoResampler       *dsp.Resampler
+	monoResamplerRate   int
+	stereoResampler     *dsp.StereoResampler
+	stereoResamplerRate int
 
 	// AQ-4: Stateful FIR filters for click-free stereo decode
+	stereoFilterRate int
 	stereoLPF    *dsp.StatefulFIRReal // 15kHz lowpass for L+R
 	stereoBPHi   *dsp.StatefulFIRReal // 53kHz LP for bandpass high
 	stereoBPLo   *dsp.StatefulFIRReal // 23kHz LP for bandpass low
@@ -222,8 +229,10 @@ func (st *Streamer) FeedSnippets(items []streamFeedItem) {
 	st.mu.Lock()
 	recEnabled := st.policy.Enabled && (st.policy.RecordAudio || st.policy.RecordIQ)
 	hasListeners := st.hasListenersLocked()
+	pending := len(st.pendingListens)
 	st.mu.Unlock()
 
+	log.Printf("LIVEAUDIO STREAM: feedSnippets items=%d recEnabled=%v hasListeners=%v pending=%d", len(items), recEnabled, hasListeners, pending)
 	if (!recEnabled && !hasListeners) || len(items) == 0 {
 		return
 	}
@@ -264,12 +273,36 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 		// Decide whether this signal needs a session
 		needsRecording := recEnabled && sig.SNRDb >= st.policy.MinSNRDb && st.classAllowed(sig.Class)
 		needsListen := st.signalHasListenerLocked(sig)
+		className := "<nil>"
+		demodName := ""
+		if sig.Class != nil {
+			className = string(sig.Class.ModType)
+			demodName, _ = resolveDemod(sig)
+		}
+		log.Printf("LIVEAUDIO STREAM: signal id=%d center=%.3fMHz bw=%.0f snr=%.1f class=%s demod=%s needsRecord=%v needsListen=%v", sig.ID, sig.CenterHz/1e6, sig.BWHz, sig.SNRDb, className, demodName, needsRecording, needsListen)
 
 		if !needsRecording && !needsListen {
 			continue
 		}
 
 		sess, exists := st.sessions[sig.ID]
+		requestedMode := ""
+		for _, pl := range st.pendingListens {
+			if math.Abs(sig.CenterHz-pl.freq) < 200000 {
+				if m := normalizeRequestedMode(pl.mode); m != "" {
+					requestedMode = m
+					break
+				}
+			}
+		}
+		if exists && sess.listenOnly && requestedMode != "" && sess.demodName != requestedMode {
+			for _, sub := range sess.audioSubs {
+				st.pendingListens[sub.id] = &pendingListen{freq: sig.CenterHz, bw: sig.BWHz, mode: requestedMode, ch: sub.ch}
+			}
+			delete(st.sessions, sig.ID)
+			sess = nil
+			exists = false
+		}
 		if !exists {
 			if needsRecording {
 				s, err := st.openRecordingSession(sig, now)
@@ -370,10 +403,13 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 
 func (st *Streamer) signalHasListenerLocked(sig *detector.Signal) bool {
 	if sess, ok := st.sessions[sig.ID]; ok && len(sess.audioSubs) > 0 {
+		log.Printf("LIVEAUDIO MATCH: signal id=%d matched existing session listener center=%.3fMHz", sig.ID, sig.CenterHz/1e6)
 		return true
 	}
-	for _, pl := range st.pendingListens {
-		if math.Abs(sig.CenterHz-pl.freq) < 200000 {
+	for subID, pl := range st.pendingListens {
+		delta := math.Abs(sig.CenterHz - pl.freq)
+		if delta < 200000 {
+			log.Printf("LIVEAUDIO MATCH: signal id=%d matched pending subscriber=%d center=%.3fMHz req=%.3fMHz delta=%.0fHz", sig.ID, subID, sig.CenterHz/1e6, pl.freq/1e6, delta)
 			return true
 		}
 	}
@@ -382,6 +418,10 @@ func (st *Streamer) signalHasListenerLocked(sig *detector.Signal) bool {
 
 func (st *Streamer) attachPendingListeners(sess *streamSession) {
 	for subID, pl := range st.pendingListens {
+		requestedMode := normalizeRequestedMode(pl.mode)
+		if requestedMode != "" && sess.demodName != requestedMode {
+			continue
+		}
 		if math.Abs(sess.centerHz-pl.freq) < 200000 {
 			sess.audioSubs = append(sess.audioSubs, audioSub{id: subID, ch: pl.ch})
 			delete(st.pendingListens, subID)
@@ -453,10 +493,15 @@ func (st *Streamer) SubscribeAudio(freq float64, bw float64, mode string) (int64
 	st.nextSub++
 	subID := st.nextSub
 
+	requestedMode := normalizeRequestedMode(mode)
+
 	// Try to find a matching session
 	var bestSess *streamSession
 	bestDist := math.MaxFloat64
 	for _, sess := range st.sessions {
+		if requestedMode != "" && sess.demodName != requestedMode {
+			continue
+		}
 		d := math.Abs(sess.centerHz - freq)
 		if d < bestDist {
 			bestDist = d
@@ -491,6 +536,7 @@ func (st *Streamer) SubscribeAudio(freq float64, bw float64, mode string) (int64
 		DemodName:  "NFM",
 	}
 	log.Printf("STREAM: subscriber %d pending (freq=%.1fMHz)", subID, freq/1e6)
+	log.Printf("LIVEAUDIO MATCH: subscriber=%d pending req=%.3fMHz bw=%.0f mode=%s", subID, freq/1e6, bw, mode)
 	return subID, ch, info, nil
 }
 
@@ -606,23 +652,48 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		}
 	}
 
-	// --- Stateful stereo decode ---
+	// --- Stateful stereo decode with conservative lock/hysteresis ---
 	channels := 1
 	if isWFMStereo {
-		channels = 2
-		audio = sess.stereoDecodeStateful(audio, actualDemodRate)
+		channels = 2 // keep transport format stable for live WFM_STEREO sessions
+		stereoAudio, locked := sess.stereoDecodeStateful(audio, actualDemodRate)
+		if locked {
+			sess.stereoOnCount++
+			sess.stereoOffCount = 0
+			if sess.stereoOnCount >= 4 {
+				sess.stereoEnabled = true
+			}
+		} else {
+			sess.stereoOnCount = 0
+			sess.stereoOffCount++
+			if sess.stereoOffCount >= 10 {
+				sess.stereoEnabled = false
+			}
+		}
+		if sess.stereoEnabled && len(stereoAudio) > 0 {
+			audio = stereoAudio
+		} else {
+			dual := make([]float32, len(audio)*2)
+			for i, s := range audio {
+				dual[i*2] = s
+				dual[i*2+1] = s
+			}
+			audio = dual
+		}
 	}
 
 	// --- Polyphase resample to exact 48kHz ---
 	if actualDemodRate != streamAudioRate {
 		if channels > 1 {
-			if sess.stereoResampler == nil {
+			if sess.stereoResampler == nil || sess.stereoResamplerRate != actualDemodRate {
 				sess.stereoResampler = dsp.NewStereoResampler(actualDemodRate, streamAudioRate, resamplerTaps)
+				sess.stereoResamplerRate = actualDemodRate
 			}
 			audio = sess.stereoResampler.Process(audio)
 		} else {
-			if sess.monoResampler == nil {
+			if sess.monoResampler == nil || sess.monoResamplerRate != actualDemodRate {
 				sess.monoResampler = dsp.NewResampler(actualDemodRate, streamAudioRate, resamplerTaps)
+				sess.monoResamplerRate = actualDemodRate
 			}
 			audio = sess.monoResampler.Process(audio)
 		}
@@ -652,25 +723,32 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		}
 	}
 
+	if isWFM {
+		for i := range audio {
+			audio[i] *= 0.35
+		}
+	}
+
 	return audio, streamAudioRate
 }
 
 // stereoDecodeStateful: phase-continuous 38kHz oscillator for L-R extraction.
 // AQ-4: Uses persistent FIR filter state across frames for click-free stereo.
 // Reuses session scratch buffers to minimize allocations.
-func (sess *streamSession) stereoDecodeStateful(mono []float32, sampleRate int) []float32 {
+func (sess *streamSession) stereoDecodeStateful(mono []float32, sampleRate int) ([]float32, bool) {
 	if len(mono) == 0 || sampleRate <= 0 {
-		return nil
+		return nil, false
 	}
 	n := len(mono)
 
-	// Lazy-init stateful filters on first call
-	if sess.stereoLPF == nil {
+	// Rebuild rate-dependent stereo filters when sampleRate changes
+	if sess.stereoLPF == nil || sess.stereoFilterRate != sampleRate {
 		lp := dsp.LowpassFIR(15000, sampleRate, 101)
 		sess.stereoLPF = dsp.NewStatefulFIRReal(lp)
 		sess.stereoBPHi = dsp.NewStatefulFIRReal(dsp.LowpassFIR(53000, sampleRate, 101))
 		sess.stereoBPLo = dsp.NewStatefulFIRReal(dsp.LowpassFIR(23000, sampleRate, 101))
 		sess.stereoLRLPF = dsp.NewStatefulFIRReal(lp)
+		sess.stereoFilterRate = sampleRate
 	}
 
 	// Reuse scratch for intermediates: need 4*n float32 for bpf, lr, hi, lo
@@ -692,20 +770,26 @@ func (sess *streamSession) stereoDecodeStateful(mono []float32, sampleRate int) 
 
 	phase := sess.stereoPhase
 	inc := 2 * math.Pi * 38000 / float64(sampleRate)
+	var pilotPower float64
+	var totalPower float64
 	for i := range bpf {
 		phase += inc
-		lr[i] = bpf[i] * float32(2*math.Cos(phase))
+		v := bpf[i] * float32(2*math.Cos(phase))
+		lr[i] = v
+		pilotPower += math.Abs(float64(bpf[i]))
+		totalPower += math.Abs(float64(mono[i]))
 	}
 	sess.stereoPhase = math.Mod(phase, 2*math.Pi)
 
 	lr = sess.stereoLRLPF.Process(lr)
+	locked := totalPower > 0 && (pilotPower/totalPower) > 0.12
 
 	out := make([]float32, n*2)
 	for i := 0; i < n; i++ {
 		out[i*2] = 0.5 * (lpr[i] + lr[i])
 		out[i*2+1] = 0.5 * (lpr[i] - lr[i])
 	}
-	return out
+	return out, locked
 }
 
 // dspStateSnapshot captures persistent DSP state for segment splits.
@@ -714,9 +798,12 @@ type dspStateSnapshot struct {
 	deemphL         float64
 	deemphR         float64
 	stereoPhase     float64
-	monoResampler   *dsp.Resampler
-	stereoResampler *dsp.StereoResampler
-	stereoLPF       *dsp.StatefulFIRReal
+	monoResampler       *dsp.Resampler
+	monoResamplerRate   int
+	stereoResampler     *dsp.StereoResampler
+	stereoResamplerRate int
+	stereoLPF           *dsp.StatefulFIRReal
+	stereoFilterRate    int
 	stereoBPHi      *dsp.StatefulFIRReal
 	stereoBPLo      *dsp.StatefulFIRReal
 	stereoLRLPF     *dsp.StatefulFIRReal
@@ -733,9 +820,12 @@ func (sess *streamSession) captureDSPState() dspStateSnapshot {
 		deemphL:         sess.deemphL,
 		deemphR:         sess.deemphR,
 		stereoPhase:     sess.stereoPhase,
-		monoResampler:   sess.monoResampler,
-		stereoResampler: sess.stereoResampler,
-		stereoLPF:       sess.stereoLPF,
+		monoResampler:       sess.monoResampler,
+		monoResamplerRate:   sess.monoResamplerRate,
+		stereoResampler:     sess.stereoResampler,
+		stereoResamplerRate: sess.stereoResamplerRate,
+		stereoLPF:           sess.stereoLPF,
+		stereoFilterRate:    sess.stereoFilterRate,
 		stereoBPHi:      sess.stereoBPHi,
 		stereoBPLo:      sess.stereoBPLo,
 		stereoLRLPF:     sess.stereoLRLPF,
@@ -753,8 +843,11 @@ func (sess *streamSession) restoreDSPState(s dspStateSnapshot) {
 	sess.deemphR = s.deemphR
 	sess.stereoPhase = s.stereoPhase
 	sess.monoResampler = s.monoResampler
+	sess.monoResamplerRate = s.monoResamplerRate
 	sess.stereoResampler = s.stereoResampler
+	sess.stereoResamplerRate = s.stereoResamplerRate
 	sess.stereoLPF = s.stereoLPF
+	sess.stereoFilterRate = s.stereoFilterRate
 	sess.stereoBPHi = s.stereoBPHi
 	sess.stereoBPLo = s.stereoBPLo
 	sess.stereoLRLPF = s.stereoLRLPF
@@ -819,6 +912,21 @@ func (st *Streamer) openRecordingSession(sig *detector.Signal, now time.Time) (*
 
 func (st *Streamer) openListenSession(sig *detector.Signal, now time.Time) *streamSession {
 	demodName, channels := resolveDemod(sig)
+	for _, pl := range st.pendingListens {
+		if math.Abs(sig.CenterHz-pl.freq) < 200000 {
+			if requested := normalizeRequestedMode(pl.mode); requested != "" {
+				demodName = requested
+				if demodName == "WFM_STEREO" {
+					channels = 2
+				} else if d := demod.Get(demodName); d != nil {
+					channels = d.Channels()
+				} else {
+					channels = 1
+				}
+				break
+			}
+		}
+	}
 
 	sess := &streamSession{
 		signalID:     sig.ID,
@@ -855,6 +963,17 @@ func resolveDemod(sig *detector.Signal) (string, int) {
 		channels = d.Channels()
 	}
 	return demodName, channels
+}
+
+func normalizeRequestedMode(mode string) string {
+	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	case "", "AUTO":
+		return ""
+	case "WFM", "WFM_STEREO", "NFM", "AM", "USB", "LSB", "CW":
+		return strings.ToUpper(strings.TrimSpace(mode))
+	default:
+		return ""
+	}
 }
 
 // growIQ returns a complex64 slice of at least n elements, reusing sess.scratchIQ.
