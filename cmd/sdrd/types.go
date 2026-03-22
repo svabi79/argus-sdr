@@ -48,12 +48,13 @@ type DecisionDebug struct {
 }
 
 type ArbitrationSnapshot struct {
-	Budgets             *pipeline.BudgetModel         `json:"budgets,omitempty"`
-	HoldPolicy          *pipeline.HoldPolicy          `json:"hold_policy,omitempty"`
-	RefinementAdmission *pipeline.RefinementAdmission `json:"refinement_admission,omitempty"`
-	Queue               pipeline.DecisionQueueStats   `json:"queue,omitempty"`
-	DecisionSummary     decisionSummary               `json:"decision_summary,omitempty"`
-	DecisionItems       []compactDecision             `json:"decision_items,omitempty"`
+	Budgets             *pipeline.BudgetModel           `json:"budgets,omitempty"`
+	HoldPolicy          *pipeline.HoldPolicy            `json:"hold_policy,omitempty"`
+	RefinementAdmission *pipeline.RefinementAdmission   `json:"refinement_admission,omitempty"`
+	Queue               pipeline.DecisionQueueStats     `json:"queue,omitempty"`
+	Pressure            *pipeline.BudgetPressureSummary `json:"pressure,omitempty"`
+	DecisionSummary     decisionSummary                 `json:"decision_summary,omitempty"`
+	DecisionItems       []compactDecision               `json:"decision_items,omitempty"`
 }
 
 type SpectrumFrame struct {
