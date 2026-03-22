@@ -1,6 +1,10 @@
 package pipeline
 
-import "sdr-wideband-suite/internal/classifier"
+import (
+	"strings"
+
+	"sdr-wideband-suite/internal/classifier"
+)
 
 type SignalDecision struct {
 	Candidate        Candidate `json:"candidate"`
@@ -12,17 +16,28 @@ type SignalDecision struct {
 
 func DecideSignalAction(policy Policy, candidate Candidate, cls *classifier.Classification) SignalDecision {
 	decision := SignalDecision{Candidate: candidate}
+	classTag := ""
+	hintTag := strings.TrimSpace(candidate.Hint)
 	if cls != nil {
 		decision.Class = string(cls.ModType)
+		classTag = decision.Class
 	}
-	if cls != nil && WantsClass(policy.AutoRecordClasses, string(cls.ModType)) {
+	if classTag != "" && WantsClass(policy.AutoRecordClasses, classTag) {
 		decision.ShouldRecord = true
 		decision.Reason = "matched auto_record_classes"
+	} else if classTag == "" && hintTag != "" && WantsClass(policy.AutoRecordClasses, hintTag) {
+		decision.ShouldRecord = true
+		decision.Reason = "matched auto_record_classes (hint)"
 	}
-	if cls != nil && WantsClass(policy.AutoDecodeClasses, string(cls.ModType)) {
+	if classTag != "" && WantsClass(policy.AutoDecodeClasses, classTag) {
 		decision.ShouldAutoDecode = true
 		if decision.Reason == "" {
 			decision.Reason = "matched auto_decode_classes"
+		}
+	} else if classTag == "" && hintTag != "" && WantsClass(policy.AutoDecodeClasses, hintTag) {
+		decision.ShouldAutoDecode = true
+		if decision.Reason == "" {
+			decision.Reason = "matched auto_decode_classes (hint)"
 		}
 	}
 	if decision.Reason == "" && candidate.Hint != "" {
