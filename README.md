@@ -84,7 +84,7 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `resources.max_refinement_jobs` — processing budget hint
 - `resources.max_recording_streams` — recording/streaming budget hint
 - `resources.max_decode_jobs` — decode budget hint
-- `resources.decision_hold_ms` — hold time for queue slots before churn
+- `resources.decision_hold_ms` — baseline hold time for queue slots before churn (arbitration scales per profile/strategy)
 - `profiles[]` — named operating profiles/intent metadata
 
 In phase 1, the engine stays backward compatible, but the config model now reflects the intended separation between:
@@ -94,6 +94,8 @@ In phase 1, the engine stays backward compatible, but the config model now refle
 - resource policy
 - presentation
 - operator goals / future autonomous intent
+
+Refinement plans now rank candidates, while a shared arbitration step admits refinement/record/decode work based on budgets and hold policy.
 
 The long-term target is that you describe *what the system should do* (for example broad-span monitoring intent, preferred signal families, auto-record/decode priorities), while the engine decides *how* to allocate surveillance, refinement and decoding budgets.
 
@@ -159,7 +161,7 @@ go build -tags sdrplay ./cmd/sdrd
 - `GET /api/gpu`
 - `GET /api/pipeline/policy`
 - `GET /api/pipeline/recommendations`
-- `GET /api/refinement` → latest refinement plan/windows snapshot (includes `window_stats`, `queue_stats`, `decision_summary`, `decision_items`, `arbitration`, levels, request/context/budgets/work_items)
+- `GET /api/refinement` → latest refinement plan/windows snapshot (includes `window_stats`, levels, request/context/work_items, plus `arbitration` with budgets/hold policy/refinement admission/queue/decision summary)
 
 ### Signals / Events
 - `GET /api/signals` → current live signals

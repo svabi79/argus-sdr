@@ -757,7 +757,7 @@ async function loadRefinement() {
     if (!res.ok) return;
     refinementInfo = await res.json();
     decisionIndex = new Map();
-    const items = Array.isArray(refinementInfo.decision_items) ? refinementInfo.decision_items : [];
+    const items = Array.isArray(refinementInfo.arbitration?.decision_items) ? refinementInfo.arbitration.decision_items : [];
     items.forEach(item => {
       if (item && item.id != null) decisionIndex.set(String(item.id), item);
     });
@@ -864,13 +864,13 @@ function updateHeroMetrics() {
   healthFps.textContent = `${renderFps.toFixed(0)} fps`;
   if (healthRefinePlan) {
     const plan = refinementInfo.plan || {};
-    const decisionSummary = refinementInfo.decision_summary || {};
+    const decisionSummary = refinementInfo.arbitration?.decision_summary || {};
     const recOn = decisionSummary.record_enabled ?? 0;
     const decOn = decisionSummary.decode_enabled ?? 0;
     const reasonCounts = decisionSummary.reasons || {};
     const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0];
     const reasonText = topReason ? `· ${topReason[0]}` : '';
-    const queueStats = refinementInfo.queue_stats || {};
+    const queueStats = refinementInfo.arbitration?.queue || {};
     const queueText = (queueStats.record_queued || queueStats.decode_queued)
       ? `· q ${queueStats.record_queued || 0}/${queueStats.decode_queued || 0}`
       : '';

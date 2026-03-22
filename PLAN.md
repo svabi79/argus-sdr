@@ -126,7 +126,7 @@ Wichtig:
   - track
   - present
   - record
-- Gemeinsame Arbitration-/Budget-Sicht für refinement/record/decode vorbereiten
+- Gemeinsame Arbitration-/Budget-Sicht für refinement/record/decode zentralisieren (Admission + Queue/Hold + Debug-Surface)
 
 ### F. Dokumentierte Betriebsprofile
 - initiale Profile definieren, z. B.:
