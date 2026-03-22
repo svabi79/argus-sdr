@@ -53,8 +53,8 @@ func TestApplyConfigUpdate(t *testing.T) {
 			AutoDecodeClasses: &autoDecode,
 		},
 		Surveillance: &SurveillanceUpdate{FrameRate: &survFPS, DisplayBins: &displayBins, DisplayFPS: &displayFPS},
-		Refinement: &RefinementUpdate{MinSpanHz: &minSpan, MaxSpanHz: &maxSpan, AutoSpan: &autoSpan},
-		Resources:  &ResourcesUpdate{MaxRefinementJobs: &maxRefJobs, MaxDecodeJobs: &maxDecode, DecisionHoldMs: &decisionHold},
+		Refinement:   &RefinementUpdate{MinSpanHz: &minSpan, MaxSpanHz: &maxSpan, AutoSpan: &autoSpan},
+		Resources:    &ResourcesUpdate{MaxRefinementJobs: &maxRefJobs, MaxDecodeJobs: &maxDecode, DecisionHoldMs: &decisionHold},
 		Detector: &DetectorUpdate{
 			ThresholdDb:    &threshold,
 			CFARMode:       &cfarMode,
@@ -106,6 +106,9 @@ func TestApplyConfigUpdate(t *testing.T) {
 	}
 	if updated.Pipeline.Mode != mode {
 		t.Fatalf("pipeline mode: %v", updated.Pipeline.Mode)
+	}
+	if updated.Pipeline.Profile != profile {
+		t.Fatalf("pipeline profile: %v", updated.Pipeline.Profile)
 	}
 	if updated.Pipeline.Goals.Intent != intent {
 		t.Fatalf("pipeline intent: %v", updated.Pipeline.Goals.Intent)

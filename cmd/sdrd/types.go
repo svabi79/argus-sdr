@@ -19,6 +19,8 @@ type SpectrumDebug struct {
 	Scores         []map[string]any         `json:"scores,omitempty"`
 	RefinementPlan *pipeline.RefinementPlan `json:"refinement_plan,omitempty"`
 	Windows        *RefinementWindowStats   `json:"refinement_windows,omitempty"`
+	Refinement     *RefinementDebug         `json:"refinement,omitempty"`
+	Decisions      *DecisionDebug           `json:"decisions,omitempty"`
 }
 
 type RefinementWindowStats struct {
@@ -27,6 +29,20 @@ type RefinementWindowStats struct {
 	MaxSpan float64        `json:"max_span_hz"`
 	AvgSpan float64        `json:"avg_span_hz"`
 	Sources map[string]int `json:"sources,omitempty"`
+}
+
+type RefinementDebug struct {
+	Plan      *pipeline.RefinementPlan      `json:"plan,omitempty"`
+	Request   *pipeline.RefinementRequest   `json:"request,omitempty"`
+	WorkItems []pipeline.RefinementWorkItem `json:"work_items,omitempty"`
+	Windows   *RefinementWindowStats        `json:"windows,omitempty"`
+	Queue     decisionQueueStats            `json:"queue,omitempty"`
+	Budgets   *pipeline.BudgetModel         `json:"budgets,omitempty"`
+}
+
+type DecisionDebug struct {
+	Summary decisionSummary   `json:"summary"`
+	Items   []compactDecision `json:"items,omitempty"`
 }
 
 type SpectrumFrame struct {

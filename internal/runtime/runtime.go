@@ -63,23 +63,23 @@ type ConfigUpdate struct {
 }
 
 type DetectorUpdate struct {
-	ThresholdDb     *float64 `json:"threshold_db"`
-	MinDuration     *int     `json:"min_duration_ms"`
-	HoldMs          *int     `json:"hold_ms"`
-	EmaAlpha        *float64 `json:"ema_alpha"`
-	HysteresisDb    *float64 `json:"hysteresis_db"`
-	MinStableFrames *int     `json:"min_stable_frames"`
-	GapToleranceMs  *int     `json:"gap_tolerance_ms"`
-	CFARMode        *string  `json:"cfar_mode"`
-	CFARGuardHz     *float64 `json:"cfar_guard_hz"`
-	CFARTrainHz     *float64 `json:"cfar_train_hz"`
-	CFARGuardCells  *int     `json:"cfar_guard_cells"`
-	CFARTrainCells  *int     `json:"cfar_train_cells"`
-	CFARRank        *int     `json:"cfar_rank"`
-	CFARScaleDb     *float64 `json:"cfar_scale_db"`
-	CFARWrapAround  *bool    `json:"cfar_wrap_around"`
-	EdgeMarginDb    *float64 `json:"edge_margin_db"`
-	MergeGapHz      *float64 `json:"merge_gap_hz"`
+	ThresholdDb      *float64 `json:"threshold_db"`
+	MinDuration      *int     `json:"min_duration_ms"`
+	HoldMs           *int     `json:"hold_ms"`
+	EmaAlpha         *float64 `json:"ema_alpha"`
+	HysteresisDb     *float64 `json:"hysteresis_db"`
+	MinStableFrames  *int     `json:"min_stable_frames"`
+	GapToleranceMs   *int     `json:"gap_tolerance_ms"`
+	CFARMode         *string  `json:"cfar_mode"`
+	CFARGuardHz      *float64 `json:"cfar_guard_hz"`
+	CFARTrainHz      *float64 `json:"cfar_train_hz"`
+	CFARGuardCells   *int     `json:"cfar_guard_cells"`
+	CFARTrainCells   *int     `json:"cfar_train_cells"`
+	CFARRank         *int     `json:"cfar_rank"`
+	CFARScaleDb      *float64 `json:"cfar_scale_db"`
+	CFARWrapAround   *bool    `json:"cfar_wrap_around"`
+	EdgeMarginDb     *float64 `json:"edge_margin_db"`
+	MergeGapHz       *float64 `json:"merge_gap_hz"`
 	ClassHistorySize *int     `json:"class_history_size"`
 	ClassSwitchRatio *float64 `json:"class_switch_ratio"`
 }
@@ -178,6 +178,9 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 	if update.Pipeline != nil {
 		if update.Pipeline.Mode != nil {
 			next.Pipeline.Mode = *update.Pipeline.Mode
+		}
+		if update.Pipeline.Profile != nil {
+			next.Pipeline.Profile = *update.Pipeline.Profile
 		}
 		if update.Pipeline.Intent != nil {
 			next.Pipeline.Goals.Intent = *update.Pipeline.Intent

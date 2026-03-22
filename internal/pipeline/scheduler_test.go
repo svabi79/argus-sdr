@@ -42,6 +42,21 @@ func TestBuildRefinementPlanTracksDrops(t *testing.T) {
 	if len(plan.Selected) != 1 || plan.Selected[0].Candidate.ID != 2 {
 		t.Fatalf("unexpected plan selection: %+v", plan.Selected)
 	}
+	if len(plan.WorkItems) != len(cands) {
+		t.Fatalf("expected work items for all candidates, got %d", len(plan.WorkItems))
+	}
+	item2 := findWorkItem(plan.WorkItems, 2)
+	if item2 == nil || item2.Status != RefinementStatusSelected || item2.Reason != RefinementReasonSelected {
+		t.Fatalf("expected candidate 2 selected with reason, got %+v", item2)
+	}
+	item1 := findWorkItem(plan.WorkItems, 1)
+	if item1 == nil || item1.Reason != RefinementReasonBelowSNR {
+		t.Fatalf("expected candidate 1 dropped by snr, got %+v", item1)
+	}
+	item3 := findWorkItem(plan.WorkItems, 3)
+	if item3 == nil || item3.Reason != RefinementReasonBudget {
+		t.Fatalf("expected candidate 3 dropped by budget, got %+v", item3)
+	}
 }
 
 func TestBuildRefinementPlanRespectsMaxConcurrent(t *testing.T) {
@@ -139,4 +154,16 @@ func TestBuildRefinementPlanPriorityStats(t *testing.T) {
 	if plan.Selected[0].Breakdown == nil {
 		t.Fatalf("expected breakdown on selected candidate")
 	}
+	if plan.Selected[0].Score == nil || plan.Selected[0].Score.Total == 0 {
+		t.Fatalf("expected score on selected candidate")
+	}
+}
+
+func findWorkItem(items []RefinementWorkItem, id int64) *RefinementWorkItem {
+	for i := range items {
+		if items[i].Candidate.ID == id {
+			return &items[i]
+		}
+	}
+	return nil
 }

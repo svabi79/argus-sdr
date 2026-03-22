@@ -93,6 +93,8 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			state.queueStats = rt.queueStats
 			state.presentation = pipeline.AnalysisLevel{
 				Name:       "presentation",
+				Role:       "presentation",
+				Truth:      "presentation",
 				SampleRate: rt.cfg.SampleRate,
 				FFTSize:    rt.cfg.Surveillance.DisplayBins,
 				CenterHz:   rt.cfg.CenterHz,
@@ -146,6 +148,24 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 				if hasWindows {
 					debugInfo.Windows = windowStats
+				}
+				refinementDebug := &RefinementDebug{}
+				if hasPlan {
+					refinementDebug.Plan = &plan
+					refinementDebug.Request = &state.refinement.Input.Request
+					refinementDebug.WorkItems = state.refinement.Input.WorkItems
+				}
+				if hasWindows {
+					refinementDebug.Windows = windowStats
+				}
+				refinementDebug.Queue = state.queueStats
+				policy := pipeline.PolicyFromConfig(rt.cfg)
+				budget := pipeline.BudgetModelFromPolicy(policy)
+				refinementDebug.Budgets = &budget
+				debugInfo.Refinement = refinementDebug
+				debugInfo.Decisions = &DecisionDebug{
+					Summary: summarizeDecisions(state.refinement.Result.Decisions),
+					Items:   compactDecisions(state.refinement.Result.Decisions),
 				}
 			}
 			h.broadcast(SpectrumFrame{Timestamp: art.now.UnixMilli(), CenterHz: rt.cfg.CenterHz, SampleHz: rt.cfg.SampleRate, FFTSize: rt.cfg.FFTSize, Spectrum: art.surveillanceSpectrum, Signals: displaySignals, Debug: debugInfo})

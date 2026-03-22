@@ -47,12 +47,13 @@ func TestSurveillanceLevelsRespectStrategy(t *testing.T) {
 	policy := pipeline.Policy{SurveillanceStrategy: "single-resolution"}
 	primary := pipeline.AnalysisLevel{Name: "primary", SampleRate: 2000000, FFTSize: 2048}
 	secondary := pipeline.AnalysisLevel{Name: "secondary", SampleRate: 1000000, FFTSize: 1024}
-	levels := surveillanceLevels(policy, primary, secondary)
+	presentation := pipeline.AnalysisLevel{Name: "presentation", SampleRate: 2000000, FFTSize: 2048}
+	levels, _ := surveillanceLevels(policy, primary, secondary, presentation)
 	if len(levels) != 1 {
 		t.Fatalf("expected single level for single-resolution, got %d", len(levels))
 	}
 	policy.SurveillanceStrategy = "multi-res"
-	levels = surveillanceLevels(policy, primary, secondary)
+	levels, _ = surveillanceLevels(policy, primary, secondary, presentation)
 	if len(levels) != 2 {
 		t.Fatalf("expected secondary level for multi-res, got %d", len(levels))
 	}

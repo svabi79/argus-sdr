@@ -14,7 +14,9 @@ func TestEnforceDecisionBudgets(t *testing.T) {
 		{Candidate: pipeline.Candidate{ID: 3, SNRDb: 10}, ShouldRecord: true, ShouldAutoDecode: false},
 	}
 	q := newDecisionQueues()
-	stats := q.Apply(decisions, 1, 1, 0, time.Now(), pipeline.Policy{SignalPriorities: []string{"digital"}})
+	policy := pipeline.Policy{SignalPriorities: []string{"digital"}, MaxRecordingStreams: 1, MaxDecodeJobs: 1}
+	budget := pipeline.BudgetModelFromPolicy(policy)
+	stats := q.Apply(decisions, budget, time.Now(), policy)
 	if stats.RecordSelected != 1 || stats.DecodeSelected != 1 {
 		t.Fatalf("unexpected counts: record=%d decode=%d", stats.RecordSelected, stats.DecodeSelected)
 	}

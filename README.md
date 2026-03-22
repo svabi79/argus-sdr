@@ -56,6 +56,7 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 
 ### New phase-1 pipeline fields
 - `pipeline.mode` — operating mode label (`legacy`, `wideband-balanced`, ...)
+- `pipeline.profile` — last applied operating profile name (if any)
 - `pipeline.goals.*` — declarative target/intent layer for future autonomous operation
   - `intent`
   - `monitor_start_hz` / `monitor_end_hz` / `monitor_span_hz`
@@ -64,7 +65,7 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
   - `auto_decode_classes`
 - `surveillance.analysis_fft_size` — analysis FFT size used by the surveillance layer
 - `surveillance.frame_rate` — surveillance cadence target
-- `surveillance.strategy` — currently `single-resolution`, reserved for future multi-resolution modes
+- `surveillance.strategy` — `single-resolution` or `multi-resolution`
 - `surveillance.display_bins` — preferred presentation density for clients/UI
 - `surveillance.display_fps` — preferred presentation cadence for clients/UI
 - `refinement.enabled` — enables explicit candidate refinement stage
@@ -74,9 +75,11 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `refinement.auto_span` — use mod-type heuristics when candidate bandwidth is missing/odd
 - `resources.prefer_gpu` — GPU preference hint
 
-**Profile defaults (wideband)**
-- `wideband-balanced`: min_span_hz=4000, max_span_hz=200000
-- `wideband-aggressive`: min_span_hz=6000, max_span_hz=250000
+**Operating profiles (wideband)**
+- `wideband-balanced`: multi-resolution, 4096 FFT, refinement span 4000-200000 Hz
+- `wideband-aggressive`: multi-resolution, 8192 FFT, refinement span 6000-250000 Hz
+- `archive`: record-forward bias, higher record/decode budgets
+- `digital-hunting`: digital-first priorities and decode bias
 - `resources.max_refinement_jobs` — processing budget hint
 - `resources.max_recording_streams` — recording/streaming budget hint
 - `resources.max_decode_jobs` — decode budget hint
@@ -155,7 +158,7 @@ go build -tags sdrplay ./cmd/sdrd
 - `GET /api/gpu`
 - `GET /api/pipeline/policy`
 - `GET /api/pipeline/recommendations`
-- `GET /api/refinement` → latest refinement plan/windows snapshot (includes `window_stats`, `queue_stats`, `decision_summary`, `decision_items`, levels)
+- `GET /api/refinement` → latest refinement plan/windows snapshot (includes `window_stats`, `queue_stats`, `decision_summary`, `decision_items`, levels, request/context/budgets/work_items)
 
 ### Signals / Events
 - `GET /api/signals` → current live signals

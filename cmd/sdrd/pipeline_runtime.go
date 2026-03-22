@@ -241,6 +241,8 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	scheduled := pipeline.ScheduleCandidates(candidates, policy)
 	level := pipeline.AnalysisLevel{
 		Name:       "surveillance",
+		Role:       "surveillance",
+		Truth:      "surveillance",
 		SampleRate: rt.cfg.SampleRate,
 		FFTSize:    rt.cfg.Surveillance.AnalysisFFTSize,
 		CenterHz:   rt.cfg.CenterHz,
@@ -257,6 +259,8 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	}
 	lowLevel := pipeline.AnalysisLevel{
 		Name:       "surveillance-lowres",
+		Role:       "surveillance-lowres",
+		Truth:      "surveillance",
 		SampleRate: lowRate,
 		FFTSize:    lowFFT,
 		CenterHz:   rt.cfg.CenterHz,
@@ -265,17 +269,20 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	}
 	displayLevel := pipeline.AnalysisLevel{
 		Name:       "presentation",
+		Role:       "presentation",
+		Truth:      "presentation",
 		SampleRate: rt.cfg.SampleRate,
 		FFTSize:    rt.cfg.Surveillance.DisplayBins,
 		CenterHz:   rt.cfg.CenterHz,
 		SpanHz:     spanForPolicy(policy, float64(rt.cfg.SampleRate)),
 		Source:     "display",
 	}
-	levels := surveillanceLevels(policy, level, lowLevel)
+	levels, context := surveillanceLevels(policy, level, lowLevel, displayLevel)
 	return pipeline.SurveillanceResult{
 		Level:        level,
 		Levels:       levels,
 		DisplayLevel: displayLevel,
+		Context:      context,
 		Candidates:   candidates,
 		Scheduled:    scheduled,
 		Finished:     art.finished,
@@ -292,9 +299,24 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 	if len(scheduled) == 0 && len(plan.Selected) > 0 {
 		scheduled = append([]pipeline.ScheduledCandidate(nil), plan.Selected...)
 	}
+	workItems := make([]pipeline.RefinementWorkItem, 0, len(plan.WorkItems))
+	if len(plan.WorkItems) > 0 {
+		workItems = append(workItems, plan.WorkItems...)
+	}
+	workIndex := map[int64]int{}
+	for i := range workItems {
+		if workItems[i].Candidate.ID == 0 {
+			continue
+		}
+		workIndex[workItems[i].Candidate.ID] = i
+	}
 	windows := make([]pipeline.RefinementWindow, 0, len(scheduled))
 	for _, sc := range scheduled {
-		windows = append(windows, pipeline.RefinementWindowForCandidate(policy, sc.Candidate))
+		window := pipeline.RefinementWindowForCandidate(policy, sc.Candidate)
+		windows = append(windows, window)
+		if idx, ok := workIndex[sc.Candidate.ID]; ok {
+			workItems[idx].Window = window
+		}
 	}
 	levelSpan := spanForPolicy(policy, float64(rt.cfg.SampleRate))
 	if _, maxSpan, ok := windowSpanBounds(windows); ok {
@@ -302,16 +324,33 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 	}
 	level := pipeline.AnalysisLevel{
 		Name:       "refinement",
+		Role:       "refinement",
+		Truth:      "refinement",
 		SampleRate: rt.cfg.SampleRate,
 		FFTSize:    rt.cfg.FFTSize,
 		CenterHz:   rt.cfg.CenterHz,
 		SpanHz:     levelSpan,
 		Source:     "refinement-window",
 	}
+	detailLevel := pipeline.AnalysisLevel{
+		Name:       "detail",
+		Role:       "detail",
+		Truth:      "refinement",
+		SampleRate: rt.cfg.SampleRate,
+		FFTSize:    rt.cfg.FFTSize,
+		CenterHz:   rt.cfg.CenterHz,
+		SpanHz:     levelSpan,
+		Source:     "detail-spectrum",
+	}
 	input := pipeline.RefinementInput{
 		Level:      level,
+		Detail:     detailLevel,
+		Context:    surv.Context,
+		Request:    pipeline.RefinementRequest{Strategy: plan.Strategy, Reason: "surveillance-plan", SpanHintHz: levelSpan},
+		Budgets:    pipeline.BudgetModelFromPolicy(policy),
 		Candidates: append([]pipeline.Candidate(nil), surv.Candidates...),
 		Scheduled:  scheduled,
+		WorkItems:  workItems,
 		Plan:       plan,
 		Windows:    windows,
 		SampleRate: rt.cfg.SampleRate,
@@ -319,8 +358,12 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 		CenterHz:   rt.cfg.CenterHz,
 		Source:     "surveillance-detector",
 	}
+	input.Context.Refinement = level
+	input.Context.Detail = detailLevel
 	if !policy.RefinementEnabled {
 		input.Scheduled = nil
+		input.WorkItems = nil
+		input.Request.Reason = pipeline.RefinementReasonDisabled
 	}
 	return input
 }
@@ -389,10 +432,8 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 			}
 		}
 	}
-	maxRecord := rt.cfg.Resources.MaxRecordingStreams
-	maxDecode := rt.cfg.Resources.MaxDecodeJobs
-	hold := time.Duration(rt.cfg.Resources.DecisionHoldMs) * time.Millisecond
-	queueStats := rt.decisionQueues.Apply(decisions, maxRecord, maxDecode, hold, art.now, policy)
+	budget := pipeline.BudgetModelFromPolicy(policy)
+	queueStats := rt.decisionQueues.Apply(decisions, budget, art.now, policy)
 	rt.queueStats = queueStats
 	summary := summarizeDecisions(decisions)
 	if rec != nil {
@@ -531,16 +572,21 @@ func windowSpanBounds(windows []pipeline.RefinementWindow) (float64, float64, bo
 	return minSpan, maxSpan, ok
 }
 
-func surveillanceLevels(policy pipeline.Policy, primary pipeline.AnalysisLevel, secondary pipeline.AnalysisLevel) []pipeline.AnalysisLevel {
+func surveillanceLevels(policy pipeline.Policy, primary pipeline.AnalysisLevel, secondary pipeline.AnalysisLevel, presentation pipeline.AnalysisLevel) ([]pipeline.AnalysisLevel, pipeline.AnalysisContext) {
 	levels := []pipeline.AnalysisLevel{primary}
+	context := pipeline.AnalysisContext{
+		Surveillance: primary,
+		Presentation: presentation,
+	}
 	strategy := strings.ToLower(strings.TrimSpace(policy.SurveillanceStrategy))
 	switch strategy {
 	case "multi-res", "multi-resolution", "multi", "multi_res":
 		if secondary.SampleRate != primary.SampleRate || secondary.FFTSize != primary.FFTSize {
 			levels = append(levels, secondary)
+			context.Derived = append(context.Derived, secondary)
 		}
 	}
-	return levels
+	return levels, context
 }
 
 func sameIQBuffer(a []complex64, b []complex64) bool {

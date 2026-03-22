@@ -137,9 +137,13 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		w.Header().Set("Content-Type", "application/json")
 		cfg := cfgManager.Snapshot()
 		policy := pipeline.PolicyFromConfig(cfg)
+		budget := pipeline.BudgetModelFromPolicy(policy)
 		recommend := map[string]any{
+			"profile":                policy.Profile,
 			"mode":                   policy.Mode,
 			"intent":                 policy.Intent,
+			"surveillance_strategy":  policy.SurveillanceStrategy,
+			"refinement_strategy":    policy.RefinementStrategy,
 			"monitor_center_hz":      policy.MonitorCenterHz,
 			"monitor_start_hz":       policy.MonitorStartHz,
 			"monitor_end_hz":         policy.MonitorEndHz,
@@ -151,6 +155,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"refinement_auto_span":   policy.RefinementAutoSpan,
 			"refinement_min_span_hz": policy.RefinementMinSpanHz,
 			"refinement_max_span_hz": policy.RefinementMaxSpanHz,
+			"budgets":                budget,
 		}
 		_ = json.NewEncoder(w).Encode(recommend)
 	})
@@ -163,6 +168,11 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"windows":             snap.refinement.Input.Windows,
 			"window_stats":        windowStats,
 			"queue_stats":         snap.queueStats,
+			"request":             snap.refinement.Input.Request,
+			"context":             snap.refinement.Input.Context,
+			"detail_level":        snap.refinement.Input.Detail,
+			"budgets":             snap.refinement.Input.Budgets,
+			"work_items":          snap.refinement.Input.WorkItems,
 			"candidates":          len(snap.refinement.Input.Candidates),
 			"scheduled":           len(snap.refinement.Input.Scheduled),
 			"signals":             len(snap.refinement.Result.Signals),

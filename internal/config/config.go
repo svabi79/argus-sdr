@@ -81,8 +81,9 @@ type PipelineGoalConfig struct {
 }
 
 type PipelineConfig struct {
-	Mode  string             `yaml:"mode" json:"mode"`
-	Goals PipelineGoalConfig `yaml:"goals" json:"goals"`
+	Mode    string             `yaml:"mode" json:"mode"`
+	Profile string             `yaml:"profile,omitempty" json:"profile,omitempty"`
+	Goals   PipelineGoalConfig `yaml:"goals" json:"goals"`
 }
 
 type SurveillanceConfig struct {
@@ -190,10 +191,153 @@ func Default() Config {
 			DecisionHoldMs:      2000,
 		},
 		Profiles: []ProfileConfig{
-			{Name: "legacy", Description: "Current single-band pipeline behavior", Pipeline: &PipelineConfig{Mode: "legacy", Goals: PipelineGoalConfig{Intent: "general-monitoring"}}},
-			{Name: "wideband-balanced", Description: "Prepared baseline for scalable wideband surveillance", Pipeline: &PipelineConfig{Mode: "wideband-balanced", Goals: PipelineGoalConfig{Intent: "wideband-surveillance"}}},
-			{Name: "wideband-aggressive", Description: "Higher surveillance/refinement budgets for future broad-span monitoring", Pipeline: &PipelineConfig{Mode: "wideband-aggressive", Goals: PipelineGoalConfig{Intent: "high-density-wideband-surveillance"}}},
-			{Name: "archive", Description: "Record-first monitoring profile", Pipeline: &PipelineConfig{Mode: "archive", Goals: PipelineGoalConfig{Intent: "archive-and-triage"}}},
+			{
+				Name:        "legacy",
+				Description: "Current single-band pipeline behavior",
+				Pipeline:    &PipelineConfig{Mode: "legacy", Profile: "legacy", Goals: PipelineGoalConfig{Intent: "general-monitoring"}},
+				Surveillance: &SurveillanceConfig{
+					AnalysisFFTSize: 2048,
+					FrameRate:       15,
+					Strategy:        "single-resolution",
+					DisplayBins:     2048,
+					DisplayFPS:      15,
+				},
+				Refinement: &RefinementConfig{
+					Enabled:           true,
+					MaxConcurrent:     8,
+					MinCandidateSNRDb: 0,
+					MinSpanHz:         0,
+					MaxSpanHz:         0,
+					AutoSpan:          boolPtr(true),
+				},
+				Resources: &ResourceConfig{
+					PreferGPU:           false,
+					MaxRefinementJobs:   8,
+					MaxRecordingStreams: 16,
+					MaxDecodeJobs:       16,
+					DecisionHoldMs:      2000,
+				},
+			},
+			{
+				Name:        "wideband-balanced",
+				Description: "Baseline multi-resolution wideband surveillance",
+				Pipeline: &PipelineConfig{Mode: "wideband-balanced", Profile: "wideband-balanced", Goals: PipelineGoalConfig{
+					Intent:           "wideband-surveillance",
+					SignalPriorities: []string{"digital", "wfm"},
+				}},
+				Surveillance: &SurveillanceConfig{
+					AnalysisFFTSize: 4096,
+					FrameRate:       12,
+					Strategy:        "multi-resolution",
+					DisplayBins:     2048,
+					DisplayFPS:      12,
+				},
+				Refinement: &RefinementConfig{
+					Enabled:           true,
+					MaxConcurrent:     16,
+					MinCandidateSNRDb: 0,
+					MinSpanHz:         4000,
+					MaxSpanHz:         200000,
+					AutoSpan:          boolPtr(true),
+				},
+				Resources: &ResourceConfig{
+					PreferGPU:           true,
+					MaxRefinementJobs:   16,
+					MaxRecordingStreams: 16,
+					MaxDecodeJobs:       12,
+					DecisionHoldMs:      2000,
+				},
+			},
+			{
+				Name:        "wideband-aggressive",
+				Description: "Higher surveillance/refinement budgets for dense wideband monitoring",
+				Pipeline: &PipelineConfig{Mode: "wideband-aggressive", Profile: "wideband-aggressive", Goals: PipelineGoalConfig{
+					Intent:           "high-density-wideband-surveillance",
+					SignalPriorities: []string{"digital", "wfm", "trunk"},
+				}},
+				Surveillance: &SurveillanceConfig{
+					AnalysisFFTSize: 8192,
+					FrameRate:       10,
+					Strategy:        "multi-resolution",
+					DisplayBins:     4096,
+					DisplayFPS:      10,
+				},
+				Refinement: &RefinementConfig{
+					Enabled:           true,
+					MaxConcurrent:     32,
+					MinCandidateSNRDb: 0,
+					MinSpanHz:         6000,
+					MaxSpanHz:         250000,
+					AutoSpan:          boolPtr(true),
+				},
+				Resources: &ResourceConfig{
+					PreferGPU:           true,
+					MaxRefinementJobs:   32,
+					MaxRecordingStreams: 24,
+					MaxDecodeJobs:       16,
+					DecisionHoldMs:      2000,
+				},
+			},
+			{
+				Name:        "archive",
+				Description: "Record-first monitoring profile",
+				Pipeline: &PipelineConfig{Mode: "archive", Profile: "archive", Goals: PipelineGoalConfig{
+					Intent:           "archive-and-triage",
+					SignalPriorities: []string{"wfm", "nfm", "digital"},
+				}},
+				Surveillance: &SurveillanceConfig{
+					AnalysisFFTSize: 4096,
+					FrameRate:       12,
+					Strategy:        "single-resolution",
+					DisplayBins:     2048,
+					DisplayFPS:      12,
+				},
+				Refinement: &RefinementConfig{
+					Enabled:           true,
+					MaxConcurrent:     12,
+					MinCandidateSNRDb: 0,
+					MinSpanHz:         4000,
+					MaxSpanHz:         200000,
+					AutoSpan:          boolPtr(true),
+				},
+				Resources: &ResourceConfig{
+					PreferGPU:           true,
+					MaxRefinementJobs:   12,
+					MaxRecordingStreams: 24,
+					MaxDecodeJobs:       12,
+					DecisionHoldMs:      2500,
+				},
+			},
+			{
+				Name:        "digital-hunting",
+				Description: "Digital-first refinement and decode focus",
+				Pipeline: &PipelineConfig{Mode: "digital-hunting", Profile: "digital-hunting", Goals: PipelineGoalConfig{
+					Intent:           "digital-surveillance",
+					SignalPriorities: []string{"ft8", "wspr", "fsk", "psk", "dmr"},
+				}},
+				Surveillance: &SurveillanceConfig{
+					AnalysisFFTSize: 4096,
+					FrameRate:       12,
+					Strategy:        "multi-resolution",
+					DisplayBins:     2048,
+					DisplayFPS:      12,
+				},
+				Refinement: &RefinementConfig{
+					Enabled:           true,
+					MaxConcurrent:     16,
+					MinCandidateSNRDb: 0,
+					MinSpanHz:         3000,
+					MaxSpanHz:         120000,
+					AutoSpan:          boolPtr(true),
+				},
+				Resources: &ResourceConfig{
+					PreferGPU:           true,
+					MaxRefinementJobs:   16,
+					MaxRecordingStreams: 12,
+					MaxDecodeJobs:       16,
+					DecisionHoldMs:      2000,
+				},
+			},
 		},
 		Detector: DetectorConfig{
 			ThresholdDb:      -20,

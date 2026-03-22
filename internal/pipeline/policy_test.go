@@ -12,11 +12,17 @@ func TestApplyNamedProfile(t *testing.T) {
 	if cfg.Pipeline.Mode != "wideband-balanced" {
 		t.Fatalf("mode not applied: %s", cfg.Pipeline.Mode)
 	}
+	if cfg.Pipeline.Profile != "wideband-balanced" {
+		t.Fatalf("profile not applied: %s", cfg.Pipeline.Profile)
+	}
 	if cfg.Pipeline.Goals.Intent != "wideband-surveillance" {
 		t.Fatalf("intent not applied: %s", cfg.Pipeline.Goals.Intent)
 	}
 	if cfg.Surveillance.AnalysisFFTSize < 4096 {
 		t.Fatalf("analysis fft too small: %d", cfg.Surveillance.AnalysisFFTSize)
+	}
+	if cfg.Surveillance.Strategy != "multi-resolution" {
+		t.Fatalf("strategy not applied: %s", cfg.Surveillance.Strategy)
 	}
 	if !cfg.Refinement.Enabled {
 		t.Fatalf("refinement should stay enabled")
@@ -42,6 +48,7 @@ func TestPolicyFromConfig(t *testing.T) {
 	cfg.Resources.MaxRefinementJobs = 5
 	cfg.Refinement.MinCandidateSNRDb = 2.5
 	cfg.Resources.PreferGPU = true
+	cfg.Resources.MaxRecordingStreams = 7
 	p := PolicyFromConfig(cfg)
 	if p.Mode != "archive" || p.Intent != "archive-and-triage" || p.SurveillanceFFTSize != 8192 || p.SurveillanceFPS != 9 || p.DisplayBins != 1200 || p.DisplayFPS != 6 {
 		t.Fatalf("unexpected policy: %+v", p)
@@ -54,5 +61,11 @@ func TestPolicyFromConfig(t *testing.T) {
 	}
 	if !p.RefinementEnabled || p.MaxRefinementJobs != 5 || p.MinCandidateSNRDb != 2.5 || !p.PreferGPU {
 		t.Fatalf("unexpected policy details: %+v", p)
+	}
+	if p.MaxRecordingStreams != 7 {
+		t.Fatalf("unexpected record budget: %+v", p.MaxRecordingStreams)
+	}
+	if p.RefinementStrategy == "" {
+		t.Fatalf("expected refinement strategy to be set")
 	}
 }
