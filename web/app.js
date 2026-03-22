@@ -762,6 +762,7 @@ async function loadRefinement() {
       if (item && item.id != null) decisionIndex.set(String(item.id), item);
     });
     updateSignalDecisionSummary(window._selectedSignal?.id);
+    updateSignalQueueSummary();
   } catch {}
 }
 
@@ -2171,6 +2172,7 @@ signalList.addEventListener('click', (ev) => {
     mode: target.dataset.class || ''
   };
   updateSignalDecisionSummary(window._selectedSignal.id);
+  updateSignalQueueSummary();
 });
 
 if (liveListenBtn) {
