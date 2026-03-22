@@ -149,6 +149,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"monitor_start_hz":       policy.MonitorStartHz,
 			"monitor_end_hz":         policy.MonitorEndHz,
 			"monitor_span_hz":        policy.MonitorSpanHz,
+			"monitor_windows":        policy.MonitorWindows,
 			"signal_priorities":      policy.SignalPriorities,
 			"auto_record_classes":    policy.AutoRecordClasses,
 			"auto_decode_classes":    policy.AutoDecodeClasses,

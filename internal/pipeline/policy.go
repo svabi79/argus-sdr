@@ -10,6 +10,7 @@ type Policy struct {
 	MonitorStartHz               float64                     `json:"monitor_start_hz,omitempty"`
 	MonitorEndHz                 float64                     `json:"monitor_end_hz,omitempty"`
 	MonitorSpanHz                float64                     `json:"monitor_span_hz,omitempty"`
+	MonitorWindows               []MonitorWindow             `json:"monitor_windows,omitempty"`
 	SignalPriorities             []string                    `json:"signal_priorities,omitempty"`
 	AutoRecordClasses            []string                    `json:"auto_record_classes,omitempty"`
 	AutoDecodeClasses            []string                    `json:"auto_decode_classes,omitempty"`
@@ -72,6 +73,16 @@ func PolicyFromConfig(cfg config.Config) Policy {
 	}
 	p.RefinementStrategy, _ = refinementStrategy(p)
 	p.SurveillanceDetection = SurveillanceDetectionPolicyFromPolicy(p)
+	p.MonitorWindows = NormalizeMonitorWindows(cfg.Pipeline.Goals, cfg.CenterHz)
+	if len(p.MonitorWindows) > 0 {
+		if start, end, ok := MonitorWindowBounds(p.MonitorWindows); ok {
+			p.MonitorStartHz = start
+			p.MonitorEndHz = end
+			if end > start {
+				p.MonitorSpanHz = end - start
+			}
+		}
+	}
 	if p.MonitorSpanHz <= 0 && p.MonitorStartHz != 0 && p.MonitorEndHz != 0 && p.MonitorEndHz > p.MonitorStartHz {
 		p.MonitorSpanHz = p.MonitorEndHz - p.MonitorStartHz
 	}

@@ -15,6 +15,14 @@ type Band struct {
 	EndHz   float64 `yaml:"end_hz" json:"end_hz"`
 }
 
+type MonitorWindow struct {
+	Label    string  `yaml:"label" json:"label"`
+	StartHz  float64 `yaml:"start_hz" json:"start_hz"`
+	EndHz    float64 `yaml:"end_hz" json:"end_hz"`
+	CenterHz float64 `yaml:"center_hz" json:"center_hz"`
+	SpanHz   float64 `yaml:"span_hz" json:"span_hz"`
+}
+
 type DetectorConfig struct {
 	ThresholdDb      float64 `yaml:"threshold_db" json:"threshold_db"`
 	MinDurationMs    int     `yaml:"min_duration_ms" json:"min_duration_ms"`
@@ -72,13 +80,14 @@ type DecoderConfig struct {
 }
 
 type PipelineGoalConfig struct {
-	Intent            string   `yaml:"intent" json:"intent"`
-	MonitorStartHz    float64  `yaml:"monitor_start_hz" json:"monitor_start_hz"`
-	MonitorEndHz      float64  `yaml:"monitor_end_hz" json:"monitor_end_hz"`
-	MonitorSpanHz     float64  `yaml:"monitor_span_hz" json:"monitor_span_hz"`
-	SignalPriorities  []string `yaml:"signal_priorities" json:"signal_priorities"`
-	AutoRecordClasses []string `yaml:"auto_record_classes" json:"auto_record_classes"`
-	AutoDecodeClasses []string `yaml:"auto_decode_classes" json:"auto_decode_classes"`
+	Intent            string          `yaml:"intent" json:"intent"`
+	MonitorStartHz    float64         `yaml:"monitor_start_hz" json:"monitor_start_hz"`
+	MonitorEndHz      float64         `yaml:"monitor_end_hz" json:"monitor_end_hz"`
+	MonitorSpanHz     float64         `yaml:"monitor_span_hz" json:"monitor_span_hz"`
+	MonitorWindows    []MonitorWindow `yaml:"monitor_windows" json:"monitor_windows"`
+	SignalPriorities  []string        `yaml:"signal_priorities" json:"signal_priorities"`
+	AutoRecordClasses []string        `yaml:"auto_record_classes" json:"auto_record_classes"`
+	AutoDecodeClasses []string        `yaml:"auto_decode_classes" json:"auto_decode_classes"`
 }
 
 type PipelineConfig struct {

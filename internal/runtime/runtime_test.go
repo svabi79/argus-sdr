@@ -26,6 +26,10 @@ func TestApplyConfigUpdate(t *testing.T) {
 	profile := "wideband-balanced"
 	intent := "wideband-surveillance"
 	monitorSpan := 500000.0
+	monitorWindows := []config.MonitorWindow{
+		{Label: "primary", StartHz: 100, EndHz: 200},
+		{Label: "secondary", CenterHz: 400, SpanHz: 50},
+	}
 	signalPriorities := []string{"digital", "weak"}
 	autoRecord := []string{"WFM"}
 	autoDecode := []string{"FT8"}
@@ -49,6 +53,7 @@ func TestApplyConfigUpdate(t *testing.T) {
 			Profile:           &profile,
 			Intent:            &intent,
 			MonitorSpanHz:     &monitorSpan,
+			MonitorWindows:    &monitorWindows,
 			SignalPriorities:  &signalPriorities,
 			AutoRecordClasses: &autoRecord,
 			AutoDecodeClasses: &autoDecode,
@@ -116,6 +121,9 @@ func TestApplyConfigUpdate(t *testing.T) {
 	}
 	if updated.Pipeline.Goals.MonitorSpanHz != monitorSpan {
 		t.Fatalf("monitor span: %v", updated.Pipeline.Goals.MonitorSpanHz)
+	}
+	if len(updated.Pipeline.Goals.MonitorWindows) != len(monitorWindows) {
+		t.Fatalf("monitor windows not applied")
 	}
 	if len(updated.Pipeline.Goals.SignalPriorities) != len(signalPriorities) {
 		t.Fatalf("signal priorities not applied")

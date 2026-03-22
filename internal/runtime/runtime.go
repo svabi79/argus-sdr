@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -10,15 +11,16 @@ import (
 )
 
 type PipelineUpdate struct {
-	Mode              *string   `json:"mode"`
-	Profile           *string   `json:"profile"`
-	Intent            *string   `json:"intent"`
-	MonitorStartHz    *float64  `json:"monitor_start_hz"`
-	MonitorEndHz      *float64  `json:"monitor_end_hz"`
-	MonitorSpanHz     *float64  `json:"monitor_span_hz"`
-	SignalPriorities  *[]string `json:"signal_priorities"`
-	AutoRecordClasses *[]string `json:"auto_record_classes"`
-	AutoDecodeClasses *[]string `json:"auto_decode_classes"`
+	Mode              *string                 `json:"mode"`
+	Profile           *string                 `json:"profile"`
+	Intent            *string                 `json:"intent"`
+	MonitorStartHz    *float64                `json:"monitor_start_hz"`
+	MonitorEndHz      *float64                `json:"monitor_end_hz"`
+	MonitorSpanHz     *float64                `json:"monitor_span_hz"`
+	MonitorWindows    *[]config.MonitorWindow `json:"monitor_windows"`
+	SignalPriorities  *[]string               `json:"signal_priorities"`
+	AutoRecordClasses *[]string               `json:"auto_record_classes"`
+	AutoDecodeClasses *[]string               `json:"auto_decode_classes"`
 }
 
 type SurveillanceUpdate struct {
@@ -198,6 +200,13 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 				return m.cfg, errors.New("monitor_span_hz must be > 0")
 			}
 			next.Pipeline.Goals.MonitorSpanHz = *update.Pipeline.MonitorSpanHz
+		}
+		if update.Pipeline.MonitorWindows != nil {
+			windows := *update.Pipeline.MonitorWindows
+			if err := validateMonitorWindows(windows); err != nil {
+				return m.cfg, err
+			}
+			next.Pipeline.Goals.MonitorWindows = append([]config.MonitorWindow(nil), windows...)
 		}
 		if update.Pipeline.SignalPriorities != nil {
 			next.Pipeline.Goals.SignalPriorities = append([]string(nil), (*update.Pipeline.SignalPriorities)...)
@@ -495,6 +504,25 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 
 	m.cfg = next
 	return m.cfg, nil
+}
+
+func validateMonitorWindows(windows []config.MonitorWindow) error {
+	for i, w := range windows {
+		hasStart := w.StartHz != 0 || w.EndHz != 0
+		if hasStart {
+			if w.StartHz <= 0 || w.EndHz <= 0 || w.EndHz <= w.StartHz {
+				return fmt.Errorf("monitor_windows[%d] requires start_hz < end_hz", i)
+			}
+			continue
+		}
+		if w.CenterHz <= 0 {
+			return fmt.Errorf("monitor_windows[%d] requires center_hz when start/end not set", i)
+		}
+		if w.SpanHz <= 0 {
+			return fmt.Errorf("monitor_windows[%d] requires span_hz > 0 when start/end not set", i)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) ApplySettings(update SettingsUpdate) (config.Config, error) {

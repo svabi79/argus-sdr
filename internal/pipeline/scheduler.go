@@ -109,6 +109,9 @@ func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budget
 			plan.MonitorSpanHz = end - start
 		}
 	}
+	if len(policy.MonitorWindows) > 0 {
+		plan.MonitorWindows = append([]MonitorWindow(nil), policy.MonitorWindows...)
+	}
 	if len(candidates) == 0 {
 		return plan
 	}

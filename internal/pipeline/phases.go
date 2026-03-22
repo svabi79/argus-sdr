@@ -63,6 +63,7 @@ type RefinementPlan struct {
 	MonitorStartHz    float64              `json:"monitor_start_hz,omitempty"`
 	MonitorEndHz      float64              `json:"monitor_end_hz,omitempty"`
 	MonitorSpanHz     float64              `json:"monitor_span_hz,omitempty"`
+	MonitorWindows    []MonitorWindow      `json:"monitor_windows,omitempty"`
 	DroppedByMonitor  int                  `json:"dropped_by_monitor"`
 	DroppedBySNR      int                  `json:"dropped_by_snr"`
 	DroppedByBudget   int                  `json:"dropped_by_budget"`

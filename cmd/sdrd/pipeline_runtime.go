@@ -813,6 +813,17 @@ func spanForPolicy(policy pipeline.Policy, fallback float64) float64 {
 	if policy.MonitorSpanHz > 0 {
 		return policy.MonitorSpanHz
 	}
+	if len(policy.MonitorWindows) > 0 {
+		maxSpan := 0.0
+		for _, w := range policy.MonitorWindows {
+			if w.SpanHz > maxSpan {
+				maxSpan = w.SpanHz
+			}
+		}
+		if maxSpan > 0 {
+			return maxSpan
+		}
+	}
 	if policy.MonitorStartHz != 0 && policy.MonitorEndHz != 0 && policy.MonitorEndHz > policy.MonitorStartHz {
 		return policy.MonitorEndHz - policy.MonitorStartHz
 	}

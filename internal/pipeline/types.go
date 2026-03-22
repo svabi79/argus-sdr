@@ -29,6 +29,16 @@ type LevelEvidence struct {
 	Provenance string        `json:"provenance,omitempty"`
 }
 
+// MonitorWindow describes a monitoring window to gate candidates.
+type MonitorWindow struct {
+	Label    string  `json:"label,omitempty"`
+	StartHz  float64 `json:"start_hz,omitempty"`
+	EndHz    float64 `json:"end_hz,omitempty"`
+	CenterHz float64 `json:"center_hz,omitempty"`
+	SpanHz   float64 `json:"span_hz,omitempty"`
+	Source   string  `json:"source,omitempty"`
+}
+
 // RefinementWindow describes the local analysis span that refinement should use.
 type RefinementWindow struct {
 	CenterHz float64 `json:"center_hz"`

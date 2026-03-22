@@ -76,3 +76,24 @@ func TestPolicyFromConfig(t *testing.T) {
 		t.Fatalf("expected refinement strategy to be set")
 	}
 }
+
+func TestPolicyFromConfigMonitorWindows(t *testing.T) {
+	cfg := config.Default()
+	cfg.Pipeline.Goals.MonitorWindows = []config.MonitorWindow{
+		{Label: "fm", StartHz: 88e6, EndHz: 108e6},
+		{Label: "air", CenterHz: 120e6, SpanHz: 2e6},
+	}
+	cfg.Pipeline.Goals.MonitorSpanHz = 0
+	cfg.Pipeline.Goals.MonitorStartHz = 0
+	cfg.Pipeline.Goals.MonitorEndHz = 0
+	p := PolicyFromConfig(cfg)
+	if len(p.MonitorWindows) != 2 {
+		t.Fatalf("expected monitor windows to be set")
+	}
+	if p.MonitorSpanHz <= 0 {
+		t.Fatalf("expected monitor span to be derived from windows")
+	}
+	if p.MonitorStartHz == 0 || p.MonitorEndHz == 0 || p.MonitorEndHz <= p.MonitorStartHz {
+		t.Fatalf("expected monitor bounds to be derived")
+	}
+}
