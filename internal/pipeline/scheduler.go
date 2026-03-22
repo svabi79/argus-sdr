@@ -26,6 +26,10 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 	snrWeight, bwWeight, peakWeight := refinementIntentWeights(policy.Intent)
 	scored := make([]ScheduledCandidate, 0, len(candidates))
 	for _, c := range candidates {
+		if !candidateInMonitor(policy, c) {
+			plan.DroppedByMonitor++
+			continue
+		}
 		if c.SNRDb < policy.MinCandidateSNRDb {
 			plan.DroppedBySNR++
 			continue

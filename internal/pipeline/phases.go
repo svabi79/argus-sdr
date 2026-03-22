@@ -27,6 +27,7 @@ type RefinementPlan struct {
 	TotalCandidates   int                  `json:"total_candidates"`
 	MinCandidateSNRDb float64              `json:"min_candidate_snr_db"`
 	Budget            int                  `json:"budget"`
+	DroppedByMonitor  int                  `json:"dropped_by_monitor"`
 	DroppedBySNR      int                  `json:"dropped_by_snr"`
 	DroppedByBudget   int                  `json:"dropped_by_budget"`
 	Selected          []ScheduledCandidate `json:"selected,omitempty"`

@@ -60,6 +60,23 @@ func TestBuildRefinementPlanRespectsMaxConcurrent(t *testing.T) {
 	}
 }
 
+func TestBuildRefinementPlanAppliesMonitorSpan(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 5, MinCandidateSNRDb: 0, MonitorStartHz: 150, MonitorEndHz: 350}
+	cands := []Candidate{
+		{ID: 1, CenterHz: 100, BandwidthHz: 20},
+		{ID: 2, CenterHz: 200, BandwidthHz: 50},
+		{ID: 3, CenterHz: 300, BandwidthHz: 100},
+		{ID: 4, CenterHz: 500, BandwidthHz: 50},
+	}
+	plan := BuildRefinementPlan(cands, policy)
+	if plan.DroppedByMonitor != 2 {
+		t.Fatalf("expected 2 dropped by monitor, got %d", plan.DroppedByMonitor)
+	}
+	if len(plan.Selected) != 2 {
+		t.Fatalf("expected 2 selected within monitor, got %d", len(plan.Selected))
+	}
+}
+
 func TestAutoSpanForHint(t *testing.T) {
 	span, source := AutoSpanForHint("WFM_STEREO")
 	if span < 150000 || source == "" {
