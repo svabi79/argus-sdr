@@ -19,6 +19,8 @@ type decisionQueueStats struct {
 	RecordBudget   int     `json:"record_budget"`
 	DecodeBudget   int     `json:"decode_budget"`
 	HoldMs         int     `json:"hold_ms"`
+	RecordHoldMs   int     `json:"record_hold_ms"`
+	DecodeHoldMs   int     `json:"decode_hold_ms"`
 	RecordDropped  int     `json:"record_dropped"`
 	DecodeDropped  int     `json:"decode_dropped"`
 }
@@ -52,7 +54,9 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, budget pipe
 	if dq == nil {
 		return decisionQueueStats{}
 	}
-	hold := time.Duration(budget.HoldMs) * time.Millisecond
+	holdPolicy := pipeline.HoldPolicyFromPolicy(policy)
+	recordHold := time.Duration(holdPolicy.RecordMs) * time.Millisecond
+	decodeHold := time.Duration(holdPolicy.DecodeMs) * time.Millisecond
 	recSeen := map[int64]bool{}
 	decSeen := map[int64]bool{}
 	for i := range decisions {
@@ -99,8 +103,8 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, budget pipe
 	purgeExpired(dq.recordHold, now)
 	purgeExpired(dq.decodeHold, now)
 
-	recSelected := selectQueued("record", dq.record, dq.recordHold, budget.Record.Max, hold, now, policy)
-	decSelected := selectQueued("decode", dq.decode, dq.decodeHold, budget.Decode.Max, hold, now, policy)
+	recSelected := selectQueued("record", dq.record, dq.recordHold, budget.Record.Max, recordHold, now, policy)
+	decSelected := selectQueued("decode", dq.decode, dq.decodeHold, budget.Decode.Max, decodeHold, now, policy)
 
 	stats := decisionQueueStats{
 		RecordQueued:   len(dq.record),
@@ -114,6 +118,8 @@ func (dq *decisionQueues) Apply(decisions []pipeline.SignalDecision, budget pipe
 		RecordBudget:   budget.Record.Max,
 		DecodeBudget:   budget.Decode.Max,
 		HoldMs:         budget.HoldMs,
+		RecordHoldMs:   holdPolicy.RecordMs,
+		DecodeHoldMs:   holdPolicy.DecodeMs,
 	}
 
 	for i := range decisions {

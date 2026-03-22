@@ -90,7 +90,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			} else {
 				displaySignals = rt.det.StableSignals()
 			}
-			state.queueStats = rt.queueStats
+			state.arbitration = rt.arbitration
 			state.presentation = pipeline.AnalysisLevel{
 				Name:       "presentation",
 				Role:       "presentation",
@@ -158,14 +158,8 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				if hasWindows {
 					refinementDebug.Windows = windowStats
 				}
-				refinementDebug.Queue = state.queueStats
-				refinementDebug.Budgets = &state.refinement.Input.Budgets
-				refinementDebug.Arbitration = buildArbitrationSnapshot(state.refinement, state.queueStats)
+				refinementDebug.Arbitration = buildArbitrationSnapshot(state.refinement, state.arbitration)
 				debugInfo.Refinement = refinementDebug
-				debugInfo.Decisions = &DecisionDebug{
-					Summary: summarizeDecisions(state.refinement.Result.Decisions),
-					Items:   compactDecisions(state.refinement.Result.Decisions),
-				}
 			}
 			h.broadcast(SpectrumFrame{Timestamp: art.now.UnixMilli(), CenterHz: rt.cfg.CenterHz, SampleHz: rt.cfg.SampleRate, FFTSize: rt.cfg.FFTSize, Spectrum: art.surveillanceSpectrum, Signals: displaySignals, Debug: debugInfo})
 		}

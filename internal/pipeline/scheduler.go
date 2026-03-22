@@ -52,21 +52,30 @@ type RefinementExecution struct {
 }
 
 const (
-	RefinementStatusSelected = "selected"
-	RefinementStatusDropped  = "dropped"
-	RefinementStatusDeferred = "deferred"
+	RefinementStatusPlanned   = "planned"
+	RefinementStatusAdmitted  = "admitted"
+	RefinementStatusRunning   = "running"
+	RefinementStatusCompleted = "completed"
+	RefinementStatusDropped   = "dropped"
+	RefinementStatusSkipped   = "skipped"
+	RefinementStatusDisplaced = "displaced"
 )
 
 const (
-	RefinementReasonSelected     = "selected"
+	RefinementReasonPlanned      = "planned"
+	RefinementReasonAdmitted     = "admitted"
+	RefinementReasonRunning      = "running"
+	RefinementReasonCompleted    = "completed"
 	RefinementReasonMonitorGate  = "dropped:monitor"
 	RefinementReasonBelowSNR     = "dropped:snr"
-	RefinementReasonBudget       = "dropped:budget"
+	RefinementReasonBudget       = "skipped:budget"
 	RefinementReasonDisabled     = "dropped:disabled"
 	RefinementReasonUnclassified = "dropped:unclassified"
+	RefinementReasonDisplaced    = "skipped:displaced"
 )
 
-// BuildRefinementPlan scores and budgets candidates for costly local refinement.
+// BuildRefinementPlan scores and ranks candidates for costly local refinement.
+// Admission/budget enforcement is handled by arbitration to keep refinement/record/decode consistent.
 // Current heuristic is intentionally simple and deterministic; later phases can add
 // richer scoring (novelty, persistence, profile-aware band priorities, decoder value).
 func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
@@ -152,7 +161,8 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 			Priority:  priority,
 			Score:     score,
 			Breakdown: &score.Breakdown,
-			Status:    RefinementStatusDeferred,
+			Status:    RefinementStatusPlanned,
+			Reason:    RefinementReasonPlanned,
 		})
 	}
 	sort.Slice(scored, func(i, j int) bool {
@@ -178,37 +188,17 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 		plan.PriorityMax = maxPriority
 		plan.PriorityAvg = sumPriority / float64(len(scored))
 	}
-	limit := plan.Budget
-	if limit <= 0 || limit > len(scored) {
-		limit = len(scored)
-	}
-	plan.Selected = scored[:limit]
-	if len(plan.Selected) > 0 {
-		plan.PriorityCutoff = plan.Selected[len(plan.Selected)-1].Priority
-	}
-	plan.DroppedByBudget = len(scored) - len(plan.Selected)
-	if len(plan.Selected) > 0 {
-		selected := map[int64]struct{}{}
-		for _, s := range plan.Selected {
-			selected[s.Candidate.ID] = struct{}{}
-		}
-		for i := range workItems {
-			item := &workItems[i]
-			if _, ok := selected[item.Candidate.ID]; ok {
-				item.Status = RefinementStatusSelected
-				item.Reason = RefinementReasonSelected
-			} else if item.Status == RefinementStatusDeferred {
-				item.Status = RefinementStatusDropped
-				item.Reason = RefinementReasonBudget
-			}
-		}
-	}
+	plan.Ranked = append(plan.Ranked, scored...)
 	plan.WorkItems = workItems
 	return plan
 }
 
 func ScheduleCandidates(candidates []Candidate, policy Policy) []ScheduledCandidate {
-	return BuildRefinementPlan(candidates, policy).Selected
+	plan := BuildRefinementPlan(candidates, policy)
+	if len(plan.Ranked) > 0 {
+		return plan.Ranked
+	}
+	return plan.Selected
 }
 
 func refinementStrategy(policy Policy) (string, string) {

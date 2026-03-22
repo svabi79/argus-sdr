@@ -52,6 +52,7 @@ type RefinementPlan struct {
 	PriorityMax       float64              `json:"priority_max,omitempty"`
 	PriorityAvg       float64              `json:"priority_avg,omitempty"`
 	PriorityCutoff    float64              `json:"priority_cutoff,omitempty"`
+	Ranked            []ScheduledCandidate `json:"ranked,omitempty"`
 	Selected          []ScheduledCandidate `json:"selected,omitempty"`
 	WorkItems         []RefinementWorkItem `json:"work_items,omitempty"`
 }
@@ -68,6 +69,7 @@ type RefinementInput struct {
 	Context    AnalysisContext      `json:"context,omitempty"`
 	Request    RefinementRequest    `json:"request,omitempty"`
 	Budgets    BudgetModel          `json:"budgets,omitempty"`
+	Admission  RefinementAdmission  `json:"admission,omitempty"`
 	Candidates []Candidate          `json:"candidates,omitempty"`
 	Scheduled  []ScheduledCandidate `json:"scheduled,omitempty"`
 	WorkItems  []RefinementWorkItem `json:"work_items,omitempty"`

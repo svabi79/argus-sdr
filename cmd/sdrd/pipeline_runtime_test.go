@@ -35,8 +35,8 @@ func TestScheduledCandidateSelectionUsesPolicy(t *testing.T) {
 		{ID: 2, SNRDb: 12, BandwidthHz: 5000},
 		{ID: 3, SNRDb: 8, BandwidthHz: 7000},
 	}, policy)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 scheduled candidate, got %d", len(got))
+	if len(got) != 2 {
+		t.Fatalf("expected 2 scheduled candidates after gating, got %d", len(got))
 	}
 	if got[0].Candidate.ID != 2 {
 		t.Fatalf("expected highest priority candidate, got %d", got[0].Candidate.ID)

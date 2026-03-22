@@ -35,6 +35,7 @@ func DecisionPriorityBoost(policy Policy, hint string, class string, queue strin
 		boost += hintMatchBoost(policy.AutoDecodeClasses, tag, 3.0)
 	}
 	boost += intentQueueBoost(policy.Intent, queue)
+	boost += queueStrategyBoost(policy, queue)
 	return boost
 }
 
@@ -84,6 +85,31 @@ func intentQueueBoost(intent string, queue string) float64 {
 		}
 		if strings.Contains(intent, "decode") || strings.Contains(intent, "analysis") || strings.Contains(intent, "classif") {
 			boost += 1.0
+		}
+	}
+	return boost
+}
+
+func queueStrategyBoost(policy Policy, queue string) float64 {
+	queue = strings.ToLower(strings.TrimSpace(queue))
+	if queue == "" {
+		return 0
+	}
+	boost := 0.0
+	profile := strings.ToLower(strings.TrimSpace(policy.Profile))
+	strategy := strings.ToLower(strings.TrimSpace(policy.RefinementStrategy))
+	if strings.Contains(profile, "archive") || strings.Contains(strategy, "archive") {
+		if queue == "record" {
+			boost += 1.5
+		} else if queue == "decode" {
+			boost += 0.5
+		}
+	}
+	if strings.Contains(profile, "digital") || strings.Contains(strategy, "digital") {
+		if queue == "decode" {
+			boost += 1.5
+		} else if queue == "record" {
+			boost += 0.3
 		}
 	}
 	return boost

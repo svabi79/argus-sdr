@@ -42,8 +42,8 @@ type dspRuntime struct {
 	rdsMap           map[int64]*rdsState
 	streamPhaseState map[int64]*streamExtractState
 	streamOverlap    *streamIQOverlap
-	decisionQueues   *decisionQueues
-	queueStats       decisionQueueStats
+	arbiter          *arbitrator
+	arbitration      arbitrationState
 	gotSamples       bool
 }
 
@@ -79,6 +79,7 @@ func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, 
 		rdsMap:           map[int64]*rdsState{},
 		streamPhaseState: map[int64]*streamExtractState{},
 		streamOverlap:    &streamIQOverlap{},
+		arbiter:          newArbitrator(),
 	}
 	if rt.useGPU && gpuState != nil {
 		snap := gpuState.snapshot()
@@ -327,17 +328,16 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	}
 }
 
-func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pipeline.RefinementInput {
+func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult, now time.Time) pipeline.RefinementInput {
 	policy := pipeline.PolicyFromConfig(rt.cfg)
 	plan := pipeline.BuildRefinementPlan(surv.Candidates, policy)
-	scheduled := append([]pipeline.ScheduledCandidate(nil), surv.Scheduled...)
-	if len(scheduled) == 0 && len(plan.Selected) > 0 {
-		scheduled = append([]pipeline.ScheduledCandidate(nil), plan.Selected...)
+	admission := rt.arbiter.AdmitRefinement(plan, policy, now)
+	plan = admission.Plan
+	workItems := make([]pipeline.RefinementWorkItem, 0, len(admission.WorkItems))
+	if len(admission.WorkItems) > 0 {
+		workItems = append(workItems, admission.WorkItems...)
 	}
-	workItems := make([]pipeline.RefinementWorkItem, 0, len(plan.WorkItems))
-	if len(plan.WorkItems) > 0 {
-		workItems = append(workItems, plan.WorkItems...)
-	}
+	scheduled := append([]pipeline.ScheduledCandidate(nil), admission.Admitted...)
 	workIndex := map[int64]int{}
 	for i := range workItems {
 		if workItems[i].Candidate.ID == 0 {
@@ -403,6 +403,7 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 		Context:    surv.Context,
 		Request:    pipeline.RefinementRequest{Strategy: plan.Strategy, Reason: "surveillance-plan", SpanHintHz: levelSpan},
 		Budgets:    pipeline.BudgetModelFromPolicy(policy),
+		Admission:  admission.Admission,
 		Candidates: append([]pipeline.Candidate(nil), surv.Candidates...),
 		Scheduled:  scheduled,
 		WorkItems:  workItems,
@@ -416,16 +417,34 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 	input.Context.Refinement = level
 	input.Context.Detail = detailLevel
 	if !policy.RefinementEnabled {
+		for i := range input.WorkItems {
+			item := &input.WorkItems[i]
+			if item.Status == pipeline.RefinementStatusDropped {
+				continue
+			}
+			item.Status = pipeline.RefinementStatusDropped
+			item.Reason = pipeline.RefinementReasonDisabled
+		}
 		input.Scheduled = nil
-		input.WorkItems = nil
 		input.Request.Reason = pipeline.RefinementReasonDisabled
+		input.Admission.Reason = pipeline.RefinementReasonDisabled
+		input.Admission.Admitted = 0
+		input.Admission.Skipped = 0
+		input.Admission.Displaced = 0
+		input.Plan.Selected = nil
+		input.Plan.DroppedByBudget = 0
 	}
+	rt.arbitration.Budgets = input.Budgets
+	rt.arbitration.Refinement = input.Admission
+	rt.arbitration.HoldPolicy = pipeline.HoldPolicyFromPolicy(policy)
 	return input
 }
 
 func (rt *dspRuntime) runRefinement(art *spectrumArtifacts, surv pipeline.SurveillanceResult, extractMgr *extractionManager, rec *recorder.Manager) pipeline.RefinementStep {
-	input := rt.buildRefinementInput(surv)
+	input := rt.buildRefinementInput(surv, art.now)
+	markWorkItemsStatus(input.WorkItems, pipeline.RefinementStatusAdmitted, pipeline.RefinementStatusRunning, pipeline.RefinementReasonRunning)
 	result := rt.refineSignals(art, input, extractMgr, rec)
+	markWorkItemsCompleted(input.WorkItems, result.Candidates)
 	return pipeline.RefinementStep{Input: input, Result: result}
 }
 
@@ -488,8 +507,10 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 		}
 	}
 	budget := pipeline.BudgetModelFromPolicy(policy)
-	queueStats := rt.decisionQueues.Apply(decisions, budget, art.now, policy)
-	rt.queueStats = queueStats
+	queueStats := rt.arbiter.ApplyDecisions(decisions, budget, art.now, policy)
+	rt.arbitration.Budgets = budget
+	rt.arbitration.HoldPolicy = pipeline.HoldPolicyFromPolicy(policy)
+	rt.arbitration.Queue = queueStats
 	summary := summarizeDecisions(decisions)
 	if rec != nil {
 		if summary.RecordEnabled > 0 {
@@ -652,4 +673,35 @@ func sameIQBuffer(a []complex64, b []complex64) bool {
 		return true
 	}
 	return &a[0] == &b[0]
+}
+
+func markWorkItemsStatus(items []pipeline.RefinementWorkItem, from string, to string, reason string) {
+	for i := range items {
+		if items[i].Status != from {
+			continue
+		}
+		items[i].Status = to
+		if reason != "" {
+			items[i].Reason = reason
+		}
+	}
+}
+
+func markWorkItemsCompleted(items []pipeline.RefinementWorkItem, candidates []pipeline.Candidate) {
+	if len(items) == 0 || len(candidates) == 0 {
+		return
+	}
+	done := map[int64]struct{}{}
+	for _, cand := range candidates {
+		if cand.ID != 0 {
+			done[cand.ID] = struct{}{}
+		}
+	}
+	for i := range items {
+		if _, ok := done[items[i].Candidate.ID]; !ok {
+			continue
+		}
+		items[i].Status = pipeline.RefinementStatusCompleted
+		items[i].Reason = pipeline.RefinementReasonCompleted
+	}
 }

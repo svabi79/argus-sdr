@@ -164,24 +164,20 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		w.Header().Set("Content-Type", "application/json")
 		snap := phaseSnap.Snapshot()
 		windowStats := buildWindowStats(snap.refinement.Input.Windows)
-		arbitration := buildArbitrationSnapshot(snap.refinement, snap.queueStats)
+		arbitration := buildArbitrationSnapshot(snap.refinement, snap.arbitration)
 		out := map[string]any{
 			"plan":                snap.refinement.Input.Plan,
 			"windows":             snap.refinement.Input.Windows,
 			"window_stats":        windowStats,
-			"queue_stats":         snap.queueStats,
 			"request":             snap.refinement.Input.Request,
 			"context":             snap.refinement.Input.Context,
 			"detail_level":        snap.refinement.Input.Detail,
-			"budgets":             snap.refinement.Input.Budgets,
 			"arbitration":         arbitration,
 			"work_items":          snap.refinement.Input.WorkItems,
 			"candidates":          len(snap.refinement.Input.Candidates),
 			"scheduled":           len(snap.refinement.Input.Scheduled),
 			"signals":             len(snap.refinement.Result.Signals),
 			"decisions":           len(snap.refinement.Result.Decisions),
-			"decision_summary":    summarizeDecisions(snap.refinement.Result.Decisions),
-			"decision_items":      compactDecisions(snap.refinement.Result.Decisions),
 			"surveillance_level":  snap.surveillance.Level,
 			"surveillance_levels": snap.surveillance.Levels,
 			"display_level":       snap.surveillance.DisplayLevel,

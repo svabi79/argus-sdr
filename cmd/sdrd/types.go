@@ -36,8 +36,6 @@ type RefinementDebug struct {
 	Request     *pipeline.RefinementRequest   `json:"request,omitempty"`
 	WorkItems   []pipeline.RefinementWorkItem `json:"work_items,omitempty"`
 	Windows     *RefinementWindowStats        `json:"windows,omitempty"`
-	Queue       decisionQueueStats            `json:"queue,omitempty"`
-	Budgets     *pipeline.BudgetModel         `json:"budgets,omitempty"`
 	Arbitration *ArbitrationSnapshot          `json:"arbitration,omitempty"`
 }
 
@@ -47,11 +45,20 @@ type DecisionDebug struct {
 }
 
 type ArbitrationSnapshot struct {
-	Budgets         *pipeline.BudgetModel    `json:"budgets,omitempty"`
-	RefinementPlan  *pipeline.RefinementPlan `json:"refinement_plan,omitempty"`
-	Queue           decisionQueueStats       `json:"queue,omitempty"`
-	DecisionSummary decisionSummary          `json:"decision_summary,omitempty"`
-	DecisionItems   []compactDecision        `json:"decision_items,omitempty"`
+	Budgets             *pipeline.BudgetModel       `json:"budgets,omitempty"`
+	HoldPolicy          *pipeline.HoldPolicy        `json:"hold_policy,omitempty"`
+	RefinementPlan      *pipeline.RefinementPlan    `json:"refinement_plan,omitempty"`
+	RefinementAdmission *pipeline.RefinementAdmission `json:"refinement_admission,omitempty"`
+	Queue               decisionQueueStats          `json:"queue,omitempty"`
+	DecisionSummary     decisionSummary             `json:"decision_summary,omitempty"`
+	DecisionItems       []compactDecision           `json:"decision_items,omitempty"`
+}
+
+type arbitrationState struct {
+	Budgets    pipeline.BudgetModel
+	HoldPolicy pipeline.HoldPolicy
+	Refinement pipeline.RefinementAdmission
+	Queue      decisionQueueStats
 }
 
 type SpectrumFrame struct {
