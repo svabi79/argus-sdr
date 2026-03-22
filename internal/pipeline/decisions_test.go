@@ -77,3 +77,42 @@ func TestDecideSignalActionWindowAutoDecode(t *testing.T) {
 		t.Fatalf("expected decode window match to be set")
 	}
 }
+
+func TestDecideSignalActionOverlappingRecordDecodeWindows(t *testing.T) {
+	policy := Policy{
+		MonitorWindows: finalizeMonitorWindows([]MonitorWindow{
+			{
+				Label:      "record-zone",
+				StartHz:    100,
+				EndHz:      200,
+				CenterHz:   150,
+				SpanHz:     100,
+				AutoRecord: true,
+			},
+			{
+				Label:      "decode-zone",
+				StartHz:    140,
+				EndHz:      260,
+				CenterHz:   200,
+				SpanHz:     120,
+				AutoDecode: true,
+			},
+		}),
+	}
+	decision := DecideSignalAction(policy, Candidate{ID: 5, CenterHz: 150}, nil)
+	if !decision.ShouldRecord {
+		t.Fatalf("expected record decision from overlapping window")
+	}
+	if !decision.ShouldAutoDecode {
+		t.Fatalf("expected decode decision from overlapping window")
+	}
+	if decision.RecordWindow == nil || decision.RecordWindow.Label != "record-zone" {
+		t.Fatalf("expected record window match to be record-zone")
+	}
+	if decision.DecodeWindow == nil || decision.DecodeWindow.Label != "decode-zone" {
+		t.Fatalf("expected decode window match to be decode-zone")
+	}
+	if decision.MonitorDetail == nil || decision.MonitorDetail.Label != "record-zone" {
+		t.Fatalf("expected record-zone to be preferred monitor detail, got %+v", decision.MonitorDetail)
+	}
+}
