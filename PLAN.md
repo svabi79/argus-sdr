@@ -164,10 +164,11 @@ Phase-2 Status (Wave E):
 - Kandidatenpriorisierung
 - automatische Decoder-Slot-Vergabe
 
-Phase-3 Status (Wave 3C):
+Phase-3 Status (Wave 3E):
 - Wave 3A: Priority-Scoring + BudgetModel scaffolding integriert
 - Wave 3B: Arbitration/Admission + Hold/Displacement-Logik fÃ¼r Refinement/Record/Decode
 - Wave 3C: Pressure-Summaries + Decision-Queue-Stats + Reason-Taxonomie + Tests (Hold/Displacement)
+- Wave 3E: Konservative cross-resource Rebalance-Schicht (Refinement/Record/Decode) mit profil-/intent-spezifischem Schutz, Debug-Surface und Szenario-Tests
 
 ### Phase 4
 - breitbandige Multi-Span-Profile
