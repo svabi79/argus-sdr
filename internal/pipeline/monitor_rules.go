@@ -2,11 +2,13 @@ package pipeline
 
 import (
 	"math"
+	"strings"
 
 	"sdr-wideband-suite/internal/config"
 )
 
 const maxMonitorWindowBias = 0.2
+const maxMonitorWindowZoneBias = 0.15
 
 func NormalizeMonitorWindows(goals config.PipelineGoalConfig, centerHz float64) []MonitorWindow {
 	if len(goals.MonitorWindows) > 0 {
@@ -61,6 +63,7 @@ func finalizeMonitorWindows(windows []MonitorWindow) []MonitorWindow {
 	}
 	for i := range windows {
 		windows[i].Index = i
+		windows[i].Zone = normalizeMonitorZone(windows[i].Zone)
 		priority := normalizeMonitorPriority(windows[i].Priority)
 		windows[i].Priority = priority
 		spanBias := 0.0
@@ -78,6 +81,9 @@ func finalizeMonitorWindows(windows []MonitorWindow) []MonitorWindow {
 			totalBias = -maxMonitorWindowBias
 		}
 		windows[i].PriorityBias = totalBias
+		recordBias, decodeBias := monitorWindowZoneBias(windows[i].Zone)
+		windows[i].RecordBias = recordBias
+		windows[i].DecodeBias = decodeBias
 	}
 	return windows
 }
@@ -102,10 +108,12 @@ func MonitorWindowBounds(windows []MonitorWindow) (float64, float64, bool) {
 }
 
 func normalizeGoalWindow(raw config.MonitorWindow, fallbackCenter float64) (MonitorWindow, bool) {
+	zone := normalizeMonitorZone(raw.Zone)
 	if raw.StartHz > 0 && raw.EndHz > raw.StartHz {
 		span := raw.EndHz - raw.StartHz
 		return MonitorWindow{
 			Label:      raw.Label,
+			Zone:       zone,
 			StartHz:    raw.StartHz,
 			EndHz:      raw.EndHz,
 			CenterHz:   (raw.StartHz + raw.EndHz) / 2,
@@ -128,6 +136,7 @@ func normalizeGoalWindow(raw config.MonitorWindow, fallbackCenter float64) (Moni
 		}
 		return MonitorWindow{
 			Label:      raw.Label,
+			Zone:       zone,
 			StartHz:    center - half,
 			EndHz:      center + half,
 			CenterHz:   center,
@@ -152,6 +161,39 @@ func normalizeMonitorPriority(priority float64) float64 {
 		return -1
 	}
 	return priority
+}
+
+func normalizeMonitorZone(raw string) string {
+	zone := strings.ToLower(strings.TrimSpace(raw))
+	switch zone {
+	case "", "neutral", "monitor", "default":
+		return ""
+	case "focus", "priority", "hot":
+		return "focus"
+	case "record", "recording", "record-only":
+		return "record"
+	case "decode", "decoding", "decode-only":
+		return "decode"
+	case "background", "bg", "defer":
+		return "background"
+	default:
+		return ""
+	}
+}
+
+func monitorWindowZoneBias(zone string) (float64, float64) {
+	switch normalizeMonitorZone(zone) {
+	case "focus":
+		return maxMonitorWindowZoneBias, maxMonitorWindowZoneBias
+	case "record":
+		return maxMonitorWindowZoneBias, 0
+	case "decode":
+		return 0, maxMonitorWindowZoneBias
+	case "background":
+		return -maxMonitorWindowZoneBias, -maxMonitorWindowZoneBias
+	default:
+		return 0, 0
+	}
 }
 
 func monitorBounds(policy Policy) (float64, float64, bool) {
@@ -263,9 +305,12 @@ func MonitorWindowMatchesForCandidate(windows []MonitorWindow, candidate Candida
 		}
 		distance := math.Abs(candidate.CenterHz - center)
 		bias := win.PriorityBias * coverage
+		recordBias := win.RecordBias * coverage
+		decodeBias := win.DecodeBias * coverage
 		matches = append(matches, MonitorWindowMatch{
 			Index:      win.Index,
 			Label:      win.Label,
+			Zone:       win.Zone,
 			Source:     win.Source,
 			StartHz:    win.StartHz,
 			EndHz:      win.EndHz,
@@ -275,6 +320,8 @@ func MonitorWindowMatchesForCandidate(windows []MonitorWindow, candidate Candida
 			Coverage:   coverage,
 			DistanceHz: distance,
 			Bias:       bias,
+			RecordBias: recordBias,
+			DecodeBias: decodeBias,
 			AutoRecord: win.AutoRecord,
 			AutoDecode: win.AutoDecode,
 		})

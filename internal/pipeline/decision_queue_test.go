@@ -101,6 +101,46 @@ func TestDecisionQueueMonitorWindowBiasSelectsPreferred(t *testing.T) {
 	}
 }
 
+func TestDecisionQueueWindowZoneBiasSelectsPerAction(t *testing.T) {
+	arbiter := NewArbiter()
+	policy := Policy{
+		DecisionHoldMs:    250,
+		AutoRecordClasses: []string{"test"},
+		AutoDecodeClasses: []string{"test"},
+		MonitorWindows: finalizeMonitorWindows([]MonitorWindow{
+			{Label: "record-zone", StartHz: 100, EndHz: 200, SpanHz: 100, Zone: "record", AutoRecord: true, AutoDecode: true},
+			{Label: "decode-zone", StartHz: 300, EndHz: 400, SpanHz: 100, Zone: "decode", AutoRecord: true, AutoDecode: true},
+		}),
+	}
+	budget := BudgetModel{Record: BudgetQueue{Max: 1}, Decode: BudgetQueue{Max: 1}}
+	now := time.Now()
+
+	decisions := []SignalDecision{
+		DecideSignalAction(policy, Candidate{ID: 1, CenterHz: 150, SNRDb: 10, Hint: "test"}, nil),
+		DecideSignalAction(policy, Candidate{ID: 2, CenterHz: 350, SNRDb: 10, Hint: "test"}, nil),
+	}
+	arbiter.ApplyDecisions(decisions, budget, now, policy)
+
+	if !decisions[0].ShouldRecord {
+		t.Fatalf("expected record-zone candidate to be selected for record")
+	}
+	if decisions[1].ShouldRecord {
+		t.Fatalf("expected decode-zone candidate to be deferred for record")
+	}
+	if !decisions[1].ShouldAutoDecode {
+		t.Fatalf("expected decode-zone candidate to be selected for decode")
+	}
+	if decisions[0].ShouldAutoDecode {
+		t.Fatalf("expected record-zone candidate to be deferred for decode")
+	}
+	if decisions[0].RecordAdmission == nil || !strings.Contains(decisions[0].RecordAdmission.Reason, "window-zone:record") {
+		t.Fatalf("expected record admission to include window-zone tag, got %+v", decisions[0].RecordAdmission)
+	}
+	if decisions[1].DecodeAdmission == nil || !strings.Contains(decisions[1].DecodeAdmission.Reason, "window-zone:decode") {
+		t.Fatalf("expected decode admission to include window-zone tag, got %+v", decisions[1].DecodeAdmission)
+	}
+}
+
 func TestDecisionQueueHoldKeepsSelection(t *testing.T) {
 	arbiter := NewArbiter()
 	policy := Policy{DecisionHoldMs: 500}

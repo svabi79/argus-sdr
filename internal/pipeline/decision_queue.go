@@ -46,6 +46,7 @@ type queuedDecision struct {
 	Hint       string
 	Class      string
 	WindowTag  string
+	WindowZone string
 	WindowBias float64
 	FirstSeen  time.Time
 	LastSeen   time.Time
@@ -65,6 +66,7 @@ type queueSelection struct {
 	familyRanks     map[int64]int
 	tierFloors      map[int64]string
 	windowTags      map[int64]string
+	windowZones     map[int64]string
 	minScore        float64
 	maxScore        float64
 	cutoff          float64
@@ -109,8 +111,9 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 			qd.SNRDb = decisions[i].Candidate.SNRDb
 			qd.Hint = decisions[i].Candidate.Hint
 			qd.Class = decisions[i].Class
-			qd.WindowTag = windowTagForDecision(decisions[i])
-			qd.WindowBias = decisions[i].MonitorBias
+			qd.WindowTag = windowTagForDecision(decisions[i], "record")
+			qd.WindowZone = windowZoneForDecision(decisions[i], "record")
+			qd.WindowBias = decisions[i].MonitorBias + decisions[i].RecordBias
 			qd.LastSeen = now
 			recSeen[id] = true
 		}
@@ -123,8 +126,9 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 			qd.SNRDb = decisions[i].Candidate.SNRDb
 			qd.Hint = decisions[i].Candidate.Hint
 			qd.Class = decisions[i].Class
-			qd.WindowTag = windowTagForDecision(decisions[i])
-			qd.WindowBias = decisions[i].MonitorBias
+			qd.WindowTag = windowTagForDecision(decisions[i], "decode")
+			qd.WindowZone = windowZoneForDecision(decisions[i], "decode")
+			qd.WindowBias = decisions[i].MonitorBias + decisions[i].DecodeBias
 			qd.LastSeen = now
 			decSeen[id] = true
 		}
@@ -238,6 +242,7 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 		familyRanks:     map[int64]int{},
 		tierFloors:      map[int64]string{},
 		windowTags:      map[int64]string{},
+		windowZones:     map[int64]string{},
 	}
 	if len(queue) == 0 {
 		return selection
@@ -267,6 +272,9 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 		selection.tierFloors[id] = signalPriorityTierFloor(familyRank)
 		if qd.WindowTag != "" {
 			selection.windowTags[id] = qd.WindowTag
+		}
+		if qd.WindowZone != "" {
+			selection.windowZones[id] = qd.WindowZone
 		}
 		score := qd.SNRDb + boost + policyBoost + qd.WindowBias
 		selection.scores[id] = score
@@ -412,12 +420,14 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 		return nil
 	}
 	windowTag := selection.windowTags[id]
+	windowZone := selection.windowZones[id]
 	admission := &PriorityAdmission{
 		Basis:  queueName,
 		Score:  score,
 		Cutoff: selection.cutoff,
 		Tier:   selection.tiers[id],
 	}
+	zoneTag := windowZoneTag(windowZone)
 	admission.TierFloor = selection.tierFloors[id]
 	admission.Family = selection.families[id]
 	admission.FamilyRank = familyRankForOutput(selection.familyRanks[id])
@@ -428,6 +438,9 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 			if windowTag != "" {
 				extras = append(extras, windowTag)
 			}
+			if zoneTag != "" {
+				extras = append(extras, zoneTag)
+			}
 			if _, ok := selection.protected[id]; ok {
 				extras = append(extras, ReasonTagHoldProtected)
 			}
@@ -437,6 +450,9 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 			extras := []string{pressureTag, "budget:" + slugToken(budgetSource)}
 			if windowTag != "" {
 				extras = append(extras, windowTag)
+			}
+			if zoneTag != "" {
+				extras = append(extras, zoneTag)
 			}
 			if _, ok := selection.opportunistic[id]; ok {
 				extras = append(extras, "pressure:hold", ReasonTagDisplaceOpportunist, ReasonTagDisplaceTier, ReasonTagHoldDisplaced)
@@ -451,6 +467,9 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 		if windowTag != "" {
 			extras = append(extras, windowTag)
 		}
+		if zoneTag != "" {
+			extras = append(extras, zoneTag)
+		}
 		admission.Reason = admissionReason("queue:"+queueName+":displace", policy, holdPolicy, extras...)
 		return admission
 	}
@@ -460,6 +479,9 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 		if windowTag != "" {
 			extras = append(extras, windowTag)
 		}
+		if zoneTag != "" {
+			extras = append(extras, zoneTag)
+		}
 		admission.Reason = admissionReason("queue:"+queueName+":displace", policy, holdPolicy, extras...)
 		return admission
 	}
@@ -468,6 +490,9 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 	if windowTag != "" {
 		extras = append(extras, windowTag)
 	}
+	if zoneTag != "" {
+		extras = append(extras, zoneTag)
+	}
 	if _, ok := selection.expired[id]; ok {
 		extras = append(extras, ReasonTagHoldExpired)
 	}
@@ -475,19 +500,50 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 	return admission
 }
 
-func windowTagForDecision(decision SignalDecision) string {
-	if decision.MonitorDetail == nil {
+func windowTagForDecision(decision SignalDecision, action string) string {
+	match := windowMatchForDecision(decision, action)
+	if match == nil {
 		return ""
 	}
-	label := strings.TrimSpace(decision.MonitorDetail.Label)
+	label := strings.TrimSpace(match.Label)
 	if label == "" {
-		label = "index-" + strconv.Itoa(decision.MonitorDetail.Index)
+		label = "index-" + strconv.Itoa(match.Index)
 	}
 	label = slugToken(label)
 	if label == "" {
 		return ""
 	}
 	return "window:" + label
+}
+
+func windowZoneForDecision(decision SignalDecision, action string) string {
+	match := windowMatchForDecision(decision, action)
+	if match == nil {
+		return ""
+	}
+	return match.Zone
+}
+
+func windowMatchForDecision(decision SignalDecision, action string) *MonitorWindowMatch {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "record":
+		if decision.RecordWindow != nil {
+			return decision.RecordWindow
+		}
+	case "decode":
+		if decision.DecodeWindow != nil {
+			return decision.DecodeWindow
+		}
+	}
+	return decision.MonitorDetail
+}
+
+func windowZoneTag(zone string) string {
+	zone = slugToken(zone)
+	if zone == "" {
+		return ""
+	}
+	return "window-zone:" + zone
 }
 
 func oldestAge(queue map[int64]*queuedDecision, now time.Time) float64 {

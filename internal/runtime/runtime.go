@@ -508,6 +508,9 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 
 func validateMonitorWindows(windows []config.MonitorWindow) error {
 	for i, w := range windows {
+		if !isValidMonitorZone(w.Zone) {
+			return fmt.Errorf("monitor_windows[%d] zone is invalid", i)
+		}
 		if math.IsNaN(w.Priority) || math.IsInf(w.Priority, 0) || w.Priority < -1 || w.Priority > 1 {
 			return fmt.Errorf("monitor_windows[%d] priority must be between -1 and 1", i)
 		}
@@ -526,6 +529,22 @@ func validateMonitorWindows(windows []config.MonitorWindow) error {
 		}
 	}
 	return nil
+}
+
+func isValidMonitorZone(zone string) bool {
+	zone = strings.ToLower(strings.TrimSpace(zone))
+	if zone == "" {
+		return true
+	}
+	switch zone {
+	case "neutral", "monitor", "default", "focus", "priority", "hot",
+		"record", "recording", "record-only",
+		"decode", "decoding", "decode-only",
+		"background", "bg", "defer":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Manager) ApplySettings(update SettingsUpdate) (config.Config, error) {

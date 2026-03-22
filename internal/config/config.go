@@ -17,6 +17,7 @@ type Band struct {
 
 type MonitorWindow struct {
 	Label      string  `yaml:"label" json:"label"`
+	Zone       string  `yaml:"zone" json:"zone"`
 	StartHz    float64 `yaml:"start_hz" json:"start_hz"`
 	EndHz      float64 `yaml:"end_hz" json:"end_hz"`
 	CenterHz   float64 `yaml:"center_hz" json:"center_hz"`

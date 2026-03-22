@@ -13,6 +13,8 @@ type SignalDecision struct {
 	ShouldAutoDecode bool                `json:"should_auto_decode"`
 	Reason           string              `json:"reason,omitempty"`
 	MonitorBias      float64             `json:"monitor_bias,omitempty"`
+	RecordBias       float64             `json:"record_bias,omitempty"`
+	DecodeBias       float64             `json:"decode_bias,omitempty"`
 	MonitorDetail    *MonitorWindowMatch `json:"monitor_detail,omitempty"`
 	RecordWindow     *MonitorWindowMatch `json:"record_window,omitempty"`
 	DecodeWindow     *MonitorWindowMatch `json:"decode_window,omitempty"`
@@ -50,19 +52,29 @@ func DecideSignalAction(policy Policy, candidate Candidate, cls *classifier.Clas
 		}
 	}
 	recordMatch := bestMonitorActionMatch(candidate.MonitorMatches, true, false)
-	if !decision.ShouldRecord && recordMatch != nil {
-		decision.ShouldRecord = true
-		decision.RecordWindow = recordMatch
-		if decision.Reason == "" {
-			decision.Reason = DecisionReasonRecordWindow
+	if recordMatch != nil {
+		decision.RecordBias = recordMatch.RecordBias
+		if decision.RecordWindow == nil {
+			decision.RecordWindow = recordMatch
+		}
+		if !decision.ShouldRecord {
+			decision.ShouldRecord = true
+			if decision.Reason == "" {
+				decision.Reason = DecisionReasonRecordWindow
+			}
 		}
 	}
 	decodeMatch := bestMonitorActionMatch(candidate.MonitorMatches, false, true)
-	if !decision.ShouldAutoDecode && decodeMatch != nil {
-		decision.ShouldAutoDecode = true
-		decision.DecodeWindow = decodeMatch
-		if decision.Reason == "" {
-			decision.Reason = DecisionReasonDecodeWindow
+	if decodeMatch != nil {
+		decision.DecodeBias = decodeMatch.DecodeBias
+		if decision.DecodeWindow == nil {
+			decision.DecodeWindow = decodeMatch
+		}
+		if !decision.ShouldAutoDecode {
+			decision.ShouldAutoDecode = true
+			if decision.Reason == "" {
+				decision.Reason = DecisionReasonDecodeWindow
+			}
 		}
 	}
 	if decision.Reason == "" && candidate.Hint != "" {

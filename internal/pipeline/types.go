@@ -34,6 +34,7 @@ type LevelEvidence struct {
 type MonitorWindow struct {
 	Index        int     `json:"index,omitempty"`
 	Label        string  `json:"label,omitempty"`
+	Zone         string  `json:"zone,omitempty"`
 	StartHz      float64 `json:"start_hz,omitempty"`
 	EndHz        float64 `json:"end_hz,omitempty"`
 	CenterHz     float64 `json:"center_hz,omitempty"`
@@ -41,6 +42,8 @@ type MonitorWindow struct {
 	Source       string  `json:"source,omitempty"`
 	Priority     float64 `json:"priority,omitempty"`
 	PriorityBias float64 `json:"priority_bias,omitempty"`
+	RecordBias   float64 `json:"record_bias,omitempty"`
+	DecodeBias   float64 `json:"decode_bias,omitempty"`
 	AutoRecord   bool    `json:"auto_record,omitempty"`
 	AutoDecode   bool    `json:"auto_decode,omitempty"`
 }
@@ -49,6 +52,7 @@ type MonitorWindow struct {
 type MonitorWindowMatch struct {
 	Index      int     `json:"index"`
 	Label      string  `json:"label,omitempty"`
+	Zone       string  `json:"zone,omitempty"`
 	Source     string  `json:"source,omitempty"`
 	StartHz    float64 `json:"start_hz,omitempty"`
 	EndHz      float64 `json:"end_hz,omitempty"`
@@ -58,6 +62,8 @@ type MonitorWindowMatch struct {
 	Coverage   float64 `json:"coverage,omitempty"`
 	DistanceHz float64 `json:"distance_hz,omitempty"`
 	Bias       float64 `json:"bias,omitempty"`
+	RecordBias float64 `json:"record_bias,omitempty"`
+	DecodeBias float64 `json:"decode_bias,omitempty"`
 	AutoRecord bool    `json:"auto_record,omitempty"`
 	AutoDecode bool    `json:"auto_decode,omitempty"`
 }
@@ -66,6 +72,7 @@ type MonitorWindowMatch struct {
 type MonitorWindowStats struct {
 	Index        int     `json:"index"`
 	Label        string  `json:"label,omitempty"`
+	Zone         string  `json:"zone,omitempty"`
 	Source       string  `json:"source,omitempty"`
 	StartHz      float64 `json:"start_hz,omitempty"`
 	EndHz        float64 `json:"end_hz,omitempty"`
@@ -73,6 +80,8 @@ type MonitorWindowStats struct {
 	SpanHz       float64 `json:"span_hz,omitempty"`
 	Priority     float64 `json:"priority,omitempty"`
 	PriorityBias float64 `json:"priority_bias,omitempty"`
+	RecordBias   float64 `json:"record_bias,omitempty"`
+	DecodeBias   float64 `json:"decode_bias,omitempty"`
 	AutoRecord   bool    `json:"auto_record,omitempty"`
 	AutoDecode   bool    `json:"auto_decode,omitempty"`
 	Candidates   int     `json:"candidates,omitempty"`

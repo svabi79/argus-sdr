@@ -119,3 +119,42 @@ func TestMonitorWindowPriorityBiasUsesPriority(t *testing.T) {
 		t.Fatalf("expected high priority bias > low priority bias, got %.3f vs %.3f", high.PriorityBias, low.PriorityBias)
 	}
 }
+
+func TestMonitorWindowZoneBiases(t *testing.T) {
+	goals := config.PipelineGoalConfig{
+		MonitorWindows: []config.MonitorWindow{
+			{Label: "record", StartHz: 100, EndHz: 200, Zone: "record"},
+			{Label: "decode", StartHz: 300, EndHz: 400, Zone: "decode"},
+		},
+	}
+	policy := Policy{MonitorWindows: NormalizeMonitorWindows(goals, 0)}
+	if len(policy.MonitorWindows) != 2 {
+		t.Fatalf("expected 2 windows, got %d", len(policy.MonitorWindows))
+	}
+	var recordWin, decodeWin *MonitorWindow
+	for i := range policy.MonitorWindows {
+		win := &policy.MonitorWindows[i]
+		switch win.Label {
+		case "record":
+			recordWin = win
+		case "decode":
+			decodeWin = win
+		}
+	}
+	if recordWin == nil || decodeWin == nil {
+		t.Fatalf("expected both window entries")
+	}
+	if recordWin.RecordBias <= 0 || recordWin.DecodeBias != 0 {
+		t.Fatalf("unexpected record window biases: %+v", recordWin)
+	}
+	if decodeWin.DecodeBias <= 0 || decodeWin.RecordBias != 0 {
+		t.Fatalf("unexpected decode window biases: %+v", decodeWin)
+	}
+	matches := MonitorWindowMatches(policy, Candidate{CenterHz: 150, BandwidthHz: 0})
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match, got %d", len(matches))
+	}
+	if matches[0].RecordBias <= 0 || matches[0].DecodeBias != 0 {
+		t.Fatalf("unexpected match biases: %+v", matches[0])
+	}
+}

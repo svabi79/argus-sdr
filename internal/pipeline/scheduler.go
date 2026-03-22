@@ -415,6 +415,7 @@ func buildMonitorWindowStats(windows []MonitorWindow) []MonitorWindowStats {
 		stats = append(stats, MonitorWindowStats{
 			Index:        win.Index,
 			Label:        win.Label,
+			Zone:         win.Zone,
 			Source:       win.Source,
 			StartHz:      win.StartHz,
 			EndHz:        win.EndHz,
@@ -422,6 +423,8 @@ func buildMonitorWindowStats(windows []MonitorWindow) []MonitorWindowStats {
 			SpanHz:       win.SpanHz,
 			Priority:     win.Priority,
 			PriorityBias: win.PriorityBias,
+			RecordBias:   win.RecordBias,
+			DecodeBias:   win.DecodeBias,
 			AutoRecord:   win.AutoRecord,
 			AutoDecode:   win.AutoDecode,
 		})

@@ -46,6 +46,7 @@ type CandidateEvidenceStateSummary struct {
 type CandidateWindowSummary struct {
 	Index        int     `json:"index"`
 	Label        string  `json:"label,omitempty"`
+	Zone         string  `json:"zone,omitempty"`
 	Source       string  `json:"source,omitempty"`
 	StartHz      float64 `json:"start_hz,omitempty"`
 	EndHz        float64 `json:"end_hz,omitempty"`
@@ -53,6 +54,8 @@ type CandidateWindowSummary struct {
 	SpanHz       float64 `json:"span_hz,omitempty"`
 	Priority     float64 `json:"priority,omitempty"`
 	PriorityBias float64 `json:"priority_bias,omitempty"`
+	RecordBias   float64 `json:"record_bias,omitempty"`
+	DecodeBias   float64 `json:"decode_bias,omitempty"`
 	AutoRecord   bool    `json:"auto_record,omitempty"`
 	AutoDecode   bool    `json:"auto_decode,omitempty"`
 	Candidates   int     `json:"candidates"`
@@ -230,6 +233,7 @@ func buildCandidateWindowSummary(candidates []pipeline.Candidate, windows []pipe
 		entry := CandidateWindowSummary{
 			Index:        win.Index,
 			Label:        win.Label,
+			Zone:         win.Zone,
 			Source:       win.Source,
 			StartHz:      win.StartHz,
 			EndHz:        win.EndHz,
@@ -237,6 +241,8 @@ func buildCandidateWindowSummary(candidates []pipeline.Candidate, windows []pipe
 			SpanHz:       win.SpanHz,
 			Priority:     win.Priority,
 			PriorityBias: win.PriorityBias,
+			RecordBias:   win.RecordBias,
+			DecodeBias:   win.DecodeBias,
 			AutoRecord:   win.AutoRecord,
 			AutoDecode:   win.AutoDecode,
 		}
