@@ -771,7 +771,11 @@ function formatLevelSummary(level) {
   const name = level.name || 'level';
   const fft = level.fft_size ? `${level.fft_size} bins` : 'bins n/a';
   const span = level.span_hz ? fmtHz(level.span_hz) : 'span n/a';
-  return `${name} · ${fft} · ${span}`;
+  const binHz = level.bin_hz || ((level.sample_rate && level.fft_size) ? (level.sample_rate / level.fft_size) : 0);
+  const binText = binHz ? `${binHz.toFixed(1)} Hz/bin` : 'bin n/a';
+  const decim = level.decimation && level.decimation > 1 ? `decim ${level.decimation}` : '';
+  const source = level.source ? `src ${level.source}` : '';
+  return [name, fft, span, binText, decim, source].filter(Boolean).join(' · ');
 }
 
 function queueConfigUpdate(partial) {
@@ -879,8 +883,12 @@ function updateHeroMetrics() {
   if (healthRefineWindows) {
     const stats = refinementInfo.window_stats || null;
     if (stats && stats.count) {
-      const levels = refinementInfo.surveillance_level ? ` · ${formatLevelSummary(refinementInfo.surveillance_level)}` : '';
-      healthRefineWindows.textContent = `${fmtHz(stats.min_span_hz || 0)}–${fmtHz(stats.max_span_hz || 0)}${levels}`;
+      const levelSet = refinementInfo.surveillance_level_set || {};
+      const primary = levelSet.primary || refinementInfo.surveillance_level;
+      const presentation = levelSet.presentation || refinementInfo.display_level || null;
+      const primaryText = primary ? ` · primary ${formatLevelSummary(primary)}` : '';
+      const presentationText = presentation ? ` · display ${formatLevelSummary(presentation)}` : '';
+      healthRefineWindows.textContent = `${fmtHz(stats.min_span_hz || 0)}–${fmtHz(stats.max_span_hz || 0)}${primaryText}${presentationText}`;
     } else {
       const windows = refinementInfo.windows || [];
       if (!Array.isArray(windows) || windows.length === 0) {
