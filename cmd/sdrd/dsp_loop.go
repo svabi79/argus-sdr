@@ -111,7 +111,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			var debugInfo *SpectrumDebug
 			plan := state.refinement.Input.Plan
-			windowSummary := buildWindowSummary(plan, state.refinement.Input.Windows, state.surveillance.Candidates)
+			windowSummary := buildWindowSummary(plan, state.refinement.Input.Windows, state.surveillance.Candidates, state.refinement.Input.WorkItems, state.refinement.Result.Decisions)
 			var windowStats *RefinementWindowStats
 			var monitorSummary []pipeline.MonitorWindowStats
 			if windowSummary != nil {

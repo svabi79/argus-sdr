@@ -165,7 +165,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 	mux.HandleFunc("/api/refinement", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		snap := phaseSnap.Snapshot()
-		windowSummary := buildWindowSummary(snap.refinement.Input.Plan, snap.refinement.Input.Windows, snap.surveillance.Candidates)
+		windowSummary := buildWindowSummary(snap.refinement.Input.Plan, snap.refinement.Input.Windows, snap.surveillance.Candidates, snap.refinement.Input.WorkItems, snap.refinement.Result.Decisions)
 		var windowStats *RefinementWindowStats
 		var monitorSummary []pipeline.MonitorWindowStats
 		if windowSummary != nil {
