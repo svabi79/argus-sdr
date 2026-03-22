@@ -6,6 +6,7 @@ type ArbitrationState struct {
 	Refinement RefinementAdmission   `json:"refinement,omitempty"`
 	Queue      DecisionQueueStats    `json:"queue,omitempty"`
 	Pressure   BudgetPressureSummary `json:"pressure,omitempty"`
+	Rebalance  BudgetRebalance       `json:"rebalance,omitempty"`
 }
 
 func BuildArbitrationState(policy Policy, budget BudgetModel, admission RefinementAdmission, queue DecisionQueueStats) ArbitrationState {
@@ -15,5 +16,6 @@ func BuildArbitrationState(policy Policy, budget BudgetModel, admission Refineme
 		Refinement: admission,
 		Queue:      queue,
 		Pressure:   BuildBudgetPressureSummary(budget, admission, queue),
+		Rebalance:  budget.Rebalance,
 	}
 }

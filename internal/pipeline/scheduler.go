@@ -87,9 +87,12 @@ const (
 // Current heuristic is intentionally simple and deterministic; later phases can add
 // richer scoring (novelty, persistence, profile-aware band priorities, decoder value).
 func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
+	return BuildRefinementPlanWithBudget(candidates, policy, BudgetModelFromPolicy(policy))
+}
+
+func BuildRefinementPlanWithBudget(candidates []Candidate, policy Policy, budgetModel BudgetModel) RefinementPlan {
 	strategy, strategyReason := refinementStrategy(policy)
-	budgetModel := BudgetModelFromPolicy(policy)
-	budget := budgetModel.Refinement.Max
+	budget := budgetQueueLimit(budgetModel.Refinement)
 	holdPolicy := HoldPolicyFromPolicy(policy)
 	plan := RefinementPlan{
 		TotalCandidates:   len(candidates),

@@ -9,6 +9,7 @@ func buildArbitrationSnapshot(step pipeline.RefinementStep, arb pipeline.Arbitra
 		RefinementAdmission: &arb.Refinement,
 		Queue:               arb.Queue,
 		Pressure:            &arb.Pressure,
+		Rebalance:           &arb.Rebalance,
 		DecisionSummary:     summarizeDecisions(step.Result.Decisions),
 		DecisionItems:       compactDecisions(step.Result.Decisions),
 	}

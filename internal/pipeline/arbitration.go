@@ -128,6 +128,11 @@ func HoldPolicyFromPolicy(policy Policy) HoldPolicy {
 }
 
 func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold *RefinementHold) RefinementAdmissionResult {
+	budget := BudgetModelFromPolicy(policy)
+	return AdmitRefinementPlanWithBudget(plan, policy, budget, now, hold)
+}
+
+func AdmitRefinementPlanWithBudget(plan RefinementPlan, policy Policy, budgetModel BudgetModel, now time.Time, hold *RefinementHold) RefinementAdmissionResult {
 	ranked := plan.Ranked
 	if len(ranked) == 0 {
 		ranked = plan.Selected
@@ -143,7 +148,6 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 	}
 
 	holdPolicy := HoldPolicyFromPolicy(policy)
-	budgetModel := BudgetModelFromPolicy(policy)
 	admission.DecisionHoldMs = holdPolicy.BaseMs
 	admission.HoldMs = holdPolicy.RefinementMs
 	admission.HoldSource = "resources.decision_hold_ms"

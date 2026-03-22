@@ -24,6 +24,16 @@ func (a *Arbiter) AdmitRefinement(plan RefinementPlan, policy Policy, now time.T
 	return AdmitRefinementPlan(plan, policy, now, a.refinementHold)
 }
 
+func (a *Arbiter) AdmitRefinementWithBudget(plan RefinementPlan, policy Policy, budget BudgetModel, now time.Time) RefinementAdmissionResult {
+	if a == nil {
+		return AdmitRefinementPlanWithBudget(plan, policy, budget, now, nil)
+	}
+	if a.refinementHold == nil {
+		a.refinementHold = &RefinementHold{Active: map[int64]time.Time{}}
+	}
+	return AdmitRefinementPlanWithBudget(plan, policy, budget, now, a.refinementHold)
+}
+
 func (a *Arbiter) ApplyDecisions(decisions []SignalDecision, budget BudgetModel, now time.Time, policy Policy) DecisionQueueStats {
 	if a == nil || a.queues == nil {
 		return DecisionQueueStats{}

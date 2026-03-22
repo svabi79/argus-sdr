@@ -53,6 +53,7 @@ type ArbitrationSnapshot struct {
 	RefinementAdmission *pipeline.RefinementAdmission   `json:"refinement_admission,omitempty"`
 	Queue               pipeline.DecisionQueueStats     `json:"queue,omitempty"`
 	Pressure            *pipeline.BudgetPressureSummary `json:"pressure,omitempty"`
+	Rebalance           *pipeline.BudgetRebalance       `json:"rebalance,omitempty"`
 	DecisionSummary     decisionSummary                 `json:"decision_summary,omitempty"`
 	DecisionItems       []compactDecision               `json:"decision_items,omitempty"`
 }

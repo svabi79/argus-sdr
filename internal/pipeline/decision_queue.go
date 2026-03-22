@@ -134,8 +134,10 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 	recExpired := expireHold(dq.recordHold, now)
 	decExpired := expireHold(dq.decodeHold, now)
 
-	recSelected := selectQueued("record", dq.record, dq.recordHold, budget.Record.Max, recordHold, now, policy, recExpired)
-	decSelected := selectQueued("decode", dq.decode, dq.decodeHold, budget.Decode.Max, decodeHold, now, policy, decExpired)
+	recordBudget := budgetQueueLimit(budget.Record)
+	decodeBudget := budgetQueueLimit(budget.Decode)
+	recSelected := selectQueued("record", dq.record, dq.recordHold, recordBudget, recordHold, now, policy, recExpired)
+	decSelected := selectQueued("decode", dq.decode, dq.decodeHold, decodeBudget, decodeHold, now, policy, decExpired)
 	recPressure := buildQueuePressure(budget.Record, len(dq.record), len(recSelected.selected), len(dq.recordHold))
 	decPressure := buildQueuePressure(budget.Decode, len(dq.decode), len(decSelected.selected), len(dq.decodeHold))
 	recPressureTag := pressureReasonTag(recPressure)
@@ -150,8 +152,8 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 		DecodeActive:          len(dq.decodeHold),
 		RecordOldestS:         oldestAge(dq.record, now),
 		DecodeOldestS:         oldestAge(dq.decode, now),
-		RecordBudget:          budget.Record.Max,
-		DecodeBudget:          budget.Decode.Max,
+		RecordBudget:          recordBudget,
+		DecodeBudget:          decodeBudget,
 		HoldMs:                holdPolicy.BaseMs,
 		DecisionHoldMs:        holdPolicy.BaseMs,
 		RecordHoldMs:          holdPolicy.RecordMs,

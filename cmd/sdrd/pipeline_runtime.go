@@ -539,8 +539,11 @@ func (rt *dspRuntime) derivedDetectorForLevel(level pipeline.AnalysisLevel) *der
 
 func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult, now time.Time) pipeline.RefinementInput {
 	policy := pipeline.PolicyFromConfig(rt.cfg)
-	plan := pipeline.BuildRefinementPlan(surv.Candidates, policy)
-	admission := rt.arbiter.AdmitRefinement(plan, policy, now)
+	baseBudget := pipeline.BudgetModelFromPolicy(policy)
+	pressure := pipeline.BuildBudgetPressureSummary(baseBudget, rt.arbitration.Refinement, rt.arbitration.Queue)
+	budget := pipeline.ApplyBudgetRebalance(policy, baseBudget, pressure)
+	plan := pipeline.BuildRefinementPlanWithBudget(surv.Candidates, policy, budget)
+	admission := rt.arbiter.AdmitRefinementWithBudget(plan, policy, budget, now)
 	plan = admission.Plan
 	workItems := make([]pipeline.RefinementWorkItem, 0, len(admission.WorkItems))
 	if len(admission.WorkItems) > 0 {
@@ -593,7 +596,7 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult, now
 		Detail:     detailLevel,
 		Context:    surv.Context,
 		Request:    pipeline.RefinementRequest{Strategy: plan.Strategy, Reason: "surveillance-plan", SpanHintHz: levelSpan},
-		Budgets:    pipeline.BudgetModelFromPolicy(policy),
+		Budgets:    budget,
 		Admission:  admission.Admission,
 		Candidates: append([]pipeline.Candidate(nil), surv.Candidates...),
 		Scheduled:  scheduled,
@@ -695,7 +698,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 			}
 		}
 	}
-	budget := pipeline.BudgetModelFromPolicy(policy)
+	budget := input.Budgets
 	queueStats := rt.arbiter.ApplyDecisions(decisions, budget, art.now, policy)
 	rt.setArbitration(policy, budget, input.Admission, queueStats)
 	summary := summarizeDecisions(decisions)

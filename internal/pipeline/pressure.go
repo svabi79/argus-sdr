@@ -43,27 +43,28 @@ func buildQueuePressure(queue BudgetQueue, queued, selected, active int) BudgetP
 }
 
 func buildPressure(queue BudgetQueue, demand int, queued int, selected int, active int) BudgetPressure {
+	maxBudget := budgetQueueLimit(queue)
 	effective := queue.EffectiveMax
 	preference := queue.Preference
-	if effective <= 0 && queue.Max > 0 {
+	if effective <= 0 && maxBudget > 0 {
 		if preference <= 0 {
 			preference = 1.0
 		}
-		effective = float64(queue.Max) * preference
+		effective = float64(maxBudget) * preference
 	}
 	pressure := 0.0
 	level := ""
 	switch {
 	case demand == 0:
 		level = "idle"
-	case queue.Max <= 0:
+	case maxBudget <= 0:
 		level = "blocked"
 	case effective > 0:
 		pressure = float64(demand) / effective
 		level = pressureLevel(pressure)
 	}
 	return BudgetPressure{
-		Max:        queue.Max,
+		Max:        maxBudget,
 		Effective:  roundFloat(pressureEffectiveMax(effective)),
 		Preference: preference,
 		Demand:     demand,

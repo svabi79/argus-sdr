@@ -3,11 +3,13 @@ package pipeline
 import "strings"
 
 type BudgetQueue struct {
-	Max          int     `json:"max"`
-	IntentBias   float64 `json:"intent_bias,omitempty"`
-	Preference   float64 `json:"preference,omitempty"`
-	EffectiveMax float64 `json:"effective_max,omitempty"`
-	Source       string  `json:"source,omitempty"`
+	Max            int     `json:"max"`
+	IntentBias     float64 `json:"intent_bias,omitempty"`
+	Preference     float64 `json:"preference,omitempty"`
+	EffectiveMax   float64 `json:"effective_max,omitempty"`
+	RebalancedMax  int     `json:"rebalanced_max,omitempty"`
+	RebalanceDelta int     `json:"rebalance_delta,omitempty"`
+	Source         string  `json:"source,omitempty"`
 }
 
 type BudgetPreference struct {
@@ -26,6 +28,7 @@ type BudgetModel struct {
 	Profile    string           `json:"profile,omitempty"`
 	Strategy   string           `json:"strategy,omitempty"`
 	Preference BudgetPreference `json:"preference,omitempty"`
+	Rebalance  BudgetRebalance  `json:"rebalance,omitempty"`
 }
 
 func BudgetModelFromPolicy(policy Policy) BudgetModel {
@@ -62,6 +65,11 @@ func BudgetModelFromPolicy(policy Policy) BudgetModel {
 		Strategy:   policy.RefinementStrategy,
 		Preference: preference,
 	}
+}
+
+func BudgetModelFromPolicyWithRebalance(policy Policy, pressure BudgetPressureSummary) BudgetModel {
+	base := BudgetModelFromPolicy(policy)
+	return ApplyBudgetRebalance(policy, base, pressure)
 }
 
 func refinementBudgetFromPolicy(policy Policy) (int, string) {
@@ -186,4 +194,14 @@ func effectiveBudget(max int, preference float64) float64 {
 		preference = 1.0
 	}
 	return float64(max) * preference
+}
+
+func budgetQueueLimit(queue BudgetQueue) int {
+	if queue.RebalanceDelta != 0 {
+		return queue.RebalancedMax
+	}
+	if queue.RebalancedMax != 0 {
+		return queue.RebalancedMax
+	}
+	return queue.Max
 }
