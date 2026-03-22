@@ -44,18 +44,22 @@ func TestScheduledCandidateSelectionUsesPolicy(t *testing.T) {
 }
 
 func TestSurveillanceLevelsRespectStrategy(t *testing.T) {
+	cfg := config.Default()
+	det := detector.New(cfg.Detector, cfg.SampleRate, cfg.FFTSize)
+	window := fftutil.Hann(cfg.FFTSize)
+	rt := newDSPRuntime(cfg, det, window, &gpuStatus{})
 	policy := pipeline.Policy{SurveillanceStrategy: "single-resolution"}
-	primary := pipeline.AnalysisLevel{Name: "primary", SampleRate: 2000000, FFTSize: 2048}
-	secondary := pipeline.AnalysisLevel{Name: "secondary", SampleRate: 1000000, FFTSize: 1024}
-	presentation := pipeline.AnalysisLevel{Name: "presentation", SampleRate: 2000000, FFTSize: 2048}
-	levels, _ := surveillanceLevels(policy, primary, secondary, presentation)
-	if len(levels) != 1 {
-		t.Fatalf("expected single level for single-resolution, got %d", len(levels))
+	plan := rt.buildSurveillancePlan(policy)
+	if len(plan.Levels) != 1 {
+		t.Fatalf("expected single level for single-resolution, got %d", len(plan.Levels))
 	}
 	policy.SurveillanceStrategy = "multi-res"
-	levels, _ = surveillanceLevels(policy, primary, secondary, presentation)
-	if len(levels) != 2 {
-		t.Fatalf("expected secondary level for multi-res, got %d", len(levels))
+	plan = rt.buildSurveillancePlan(policy)
+	if len(plan.Levels) != 2 {
+		t.Fatalf("expected secondary level for multi-res, got %d", len(plan.Levels))
+	}
+	if plan.Levels[1].Decimation != 2 {
+		t.Fatalf("expected decimation factor 2, got %d", plan.Levels[1].Decimation)
 	}
 }
 

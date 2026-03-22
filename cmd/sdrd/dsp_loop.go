@@ -13,7 +13,6 @@ import (
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
-	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/recorder"
 )
 
@@ -91,16 +90,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				displaySignals = rt.det.StableSignals()
 			}
 			state.arbitration = rt.arbitration
-			state.presentation = pipeline.AnalysisLevel{
-				Name:       "presentation",
-				Role:       "presentation",
-				Truth:      "presentation",
-				SampleRate: rt.cfg.SampleRate,
-				FFTSize:    rt.cfg.Surveillance.DisplayBins,
-				CenterHz:   rt.cfg.CenterHz,
-				SpanHz:     float64(rt.cfg.SampleRate),
-				Source:     "display",
-			}
+			state.presentation = state.surveillance.DisplayLevel
 			if phaseSnap != nil {
 				phaseSnap.Set(*state)
 			}

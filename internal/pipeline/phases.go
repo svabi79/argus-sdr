@@ -8,9 +8,16 @@ type AnalysisLevel struct {
 	Truth      string  `json:"truth,omitempty"`
 	SampleRate int     `json:"sample_rate"`
 	FFTSize    int     `json:"fft_size"`
+	BinHz      float64 `json:"bin_hz,omitempty"`
+	Decimation int     `json:"decimation,omitempty"`
 	CenterHz   float64 `json:"center_hz"`
 	SpanHz     float64 `json:"span_hz"`
 	Source     string  `json:"source,omitempty"`
+}
+
+type SurveillanceLevelSpectrum struct {
+	Level    AnalysisLevel `json:"level"`
+	Spectrum []float64     `json:"spectrum_db,omitempty"`
 }
 
 type AnalysisContext struct {
@@ -22,16 +29,17 @@ type AnalysisContext struct {
 }
 
 type SurveillanceResult struct {
-	Level        AnalysisLevel        `json:"level"`
-	Levels       []AnalysisLevel      `json:"levels,omitempty"`
-	Candidates   []Candidate          `json:"candidates"`
-	Scheduled    []ScheduledCandidate `json:"scheduled,omitempty"`
-	Finished     []detector.Event     `json:"finished"`
-	Signals      []detector.Signal    `json:"signals"`
-	NoiseFloor   float64              `json:"noise_floor"`
-	Thresholds   []float64            `json:"thresholds,omitempty"`
-	DisplayLevel AnalysisLevel        `json:"display_level"`
-	Context      AnalysisContext      `json:"context,omitempty"`
+	Level        AnalysisLevel               `json:"level"`
+	Levels       []AnalysisLevel             `json:"levels,omitempty"`
+	Candidates   []Candidate                 `json:"candidates"`
+	Scheduled    []ScheduledCandidate        `json:"scheduled,omitempty"`
+	Finished     []detector.Event            `json:"finished"`
+	Signals      []detector.Signal           `json:"signals"`
+	NoiseFloor   float64                     `json:"noise_floor"`
+	Thresholds   []float64                   `json:"thresholds,omitempty"`
+	DisplayLevel AnalysisLevel               `json:"display_level"`
+	Context      AnalysisContext             `json:"context,omitempty"`
+	Spectra      []SurveillanceLevelSpectrum `json:"spectra,omitempty"`
 }
 
 type RefinementPlan struct {

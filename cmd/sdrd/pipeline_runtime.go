@@ -35,6 +35,9 @@ type dspRuntime struct {
 	detailWindow     []float64
 	detailPlan       *fftutil.CmplxPlan
 	detailFFT        int
+	survWindows      map[int][]float64
+	survPlans        map[int]*fftutil.CmplxPlan
+	survFIR          map[int][]float64
 	dcEnabled        bool
 	iqEnabled        bool
 	useGPU           bool
@@ -52,12 +55,28 @@ type spectrumArtifacts struct {
 	surveillanceIQ       []complex64
 	detailIQ             []complex64
 	surveillanceSpectrum []float64
+	surveillanceSpectra  []pipeline.SurveillanceLevelSpectrum
+	surveillancePlan     surveillancePlan
 	detailSpectrum       []float64
 	finished             []detector.Event
 	detected             []detector.Signal
 	thresholds           []float64
 	noiseFloor           float64
 	now                  time.Time
+}
+
+type surveillanceLevelSpec struct {
+	Level    pipeline.AnalysisLevel
+	Decim    int
+	AllowGPU bool
+}
+
+type surveillancePlan struct {
+	Primary      pipeline.AnalysisLevel
+	Levels       []pipeline.AnalysisLevel
+	Presentation pipeline.AnalysisLevel
+	Context      pipeline.AnalysisContext
+	Specs        []surveillanceLevelSpec
 }
 
 func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, gpuState *gpuStatus) *dspRuntime {
@@ -73,6 +92,9 @@ func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, 
 		detailWindow:     fftutil.Hann(detailFFT),
 		detailPlan:       fftutil.NewCmplxPlan(detailFFT),
 		detailFFT:        detailFFT,
+		survWindows:      map[int][]float64{},
+		survPlans:        map[int]*fftutil.CmplxPlan{},
+		survFIR:          map[int][]float64{},
 		dcEnabled:        cfg.DCBlock,
 		iqEnabled:        cfg.IQBalance,
 		useGPU:           cfg.UseGPUFFT,
@@ -98,6 +120,7 @@ func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, 
 
 func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *recorder.Manager, gpuState *gpuStatus) {
 	prevFFT := rt.cfg.FFTSize
+	prevSampleRate := rt.cfg.SampleRate
 	prevUseGPU := rt.useGPU
 	prevDetailFFT := rt.detailFFT
 	rt.cfg = upd.cfg
@@ -136,6 +159,13 @@ func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *rec
 		rt.detailFFT = detailFFT
 		rt.detailWindow = fftutil.Hann(detailFFT)
 		rt.detailPlan = fftutil.NewCmplxPlan(detailFFT)
+	}
+	if prevSampleRate != rt.cfg.SampleRate {
+		rt.survFIR = map[int][]float64{}
+	}
+	if prevFFT != rt.cfg.FFTSize {
+		rt.survWindows = map[int][]float64{}
+		rt.survPlans = map[int]*fftutil.CmplxPlan{}
 	}
 	rt.dcEnabled = upd.dcBlock
 	rt.iqEnabled = upd.iqBalance
@@ -199,6 +229,90 @@ func (rt *dspRuntime) spectrumFromIQWithPlan(iq []complex64, window []float64, p
 	return fftutil.SpectrumWithPlan(iq, window, plan)
 }
 
+func (rt *dspRuntime) windowForFFT(fftSize int) []float64 {
+	if fftSize <= 0 {
+		return nil
+	}
+	if fftSize == rt.cfg.FFTSize {
+		return rt.window
+	}
+	if rt.survWindows == nil {
+		rt.survWindows = map[int][]float64{}
+	}
+	if window, ok := rt.survWindows[fftSize]; ok {
+		return window
+	}
+	window := fftutil.Hann(fftSize)
+	rt.survWindows[fftSize] = window
+	return window
+}
+
+func (rt *dspRuntime) planForFFT(fftSize int) *fftutil.CmplxPlan {
+	if fftSize <= 0 {
+		return nil
+	}
+	if fftSize == rt.cfg.FFTSize {
+		return rt.plan
+	}
+	if rt.survPlans == nil {
+		rt.survPlans = map[int]*fftutil.CmplxPlan{}
+	}
+	if plan, ok := rt.survPlans[fftSize]; ok {
+		return plan
+	}
+	plan := fftutil.NewCmplxPlan(fftSize)
+	rt.survPlans[fftSize] = plan
+	return plan
+}
+
+func (rt *dspRuntime) spectrumForLevel(iq []complex64, fftSize int, gpuState *gpuStatus, allowGPU bool) []float64 {
+	if len(iq) == 0 || fftSize <= 0 {
+		return nil
+	}
+	if len(iq) > fftSize {
+		iq = iq[len(iq)-fftSize:]
+	}
+	window := rt.windowForFFT(fftSize)
+	plan := rt.planForFFT(fftSize)
+	return rt.spectrumFromIQWithPlan(iq, window, plan, gpuState, allowGPU)
+}
+
+func sanitizeSpectrum(spectrum []float64) {
+	for i := range spectrum {
+		if math.IsNaN(spectrum[i]) || math.IsInf(spectrum[i], 0) {
+			spectrum[i] = -200
+		}
+	}
+}
+
+func (rt *dspRuntime) decimationTaps(factor int) []float64 {
+	if factor <= 1 {
+		return nil
+	}
+	if rt.survFIR == nil {
+		rt.survFIR = map[int][]float64{}
+	}
+	if taps, ok := rt.survFIR[factor]; ok {
+		return taps
+	}
+	cutoff := float64(rt.cfg.SampleRate/factor) * 0.5 * 0.8
+	taps := dsp.LowpassFIR(cutoff, rt.cfg.SampleRate, 101)
+	rt.survFIR[factor] = taps
+	return taps
+}
+
+func (rt *dspRuntime) decimateSurveillanceIQ(iq []complex64, factor int) []complex64 {
+	if factor <= 1 {
+		return iq
+	}
+	taps := rt.decimationTaps(factor)
+	if len(taps) == 0 {
+		return dsp.Decimate(iq, factor)
+	}
+	filtered := dsp.ApplyFIR(iq, taps)
+	return dsp.Decimate(filtered, factor)
+}
+
 func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manager, dcBlocker *dsp.DCBlocker, gpuState *gpuStatus) (*spectrumArtifacts, error) {
 	required := rt.cfg.FFTSize
 	if rt.detailFFT > required {
@@ -238,19 +352,44 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 		}
 	}
 	survSpectrum := rt.spectrumFromIQ(survIQ, gpuState)
-	for i := range survSpectrum {
-		if math.IsNaN(survSpectrum[i]) || math.IsInf(survSpectrum[i], 0) {
-			survSpectrum[i] = -200
-		}
-	}
+	sanitizeSpectrum(survSpectrum)
 	detailSpectrum := survSpectrum
 	if !sameIQBuffer(detailIQ, survIQ) {
 		detailSpectrum = rt.spectrumFromIQWithPlan(detailIQ, rt.detailWindow, rt.detailPlan, gpuState, false)
-		for i := range detailSpectrum {
-			if math.IsNaN(detailSpectrum[i]) || math.IsInf(detailSpectrum[i], 0) {
-				detailSpectrum[i] = -200
-			}
+		sanitizeSpectrum(detailSpectrum)
+	}
+	policy := pipeline.PolicyFromConfig(rt.cfg)
+	plan := rt.buildSurveillancePlan(policy)
+	surveillanceSpectra := make([]pipeline.SurveillanceLevelSpectrum, 0, len(plan.Specs))
+	for _, spec := range plan.Specs {
+		if spec.Level.FFTSize <= 0 {
+			continue
 		}
+		var spectrum []float64
+		if spec.Decim <= 1 {
+			if spec.Level.FFTSize == len(survSpectrum) {
+				spectrum = survSpectrum
+			} else {
+				spectrum = rt.spectrumForLevel(survIQ, spec.Level.FFTSize, gpuState, spec.AllowGPU)
+				sanitizeSpectrum(spectrum)
+			}
+		} else {
+			required := spec.Level.FFTSize * spec.Decim
+			if required > len(survIQ) {
+				continue
+			}
+			src := survIQ
+			if len(src) > required {
+				src = src[len(src)-required:]
+			}
+			decimated := rt.decimateSurveillanceIQ(src, spec.Decim)
+			spectrum = rt.spectrumForLevel(decimated, spec.Level.FFTSize, gpuState, false)
+			sanitizeSpectrum(spectrum)
+		}
+		if len(spectrum) == 0 {
+			continue
+		}
+		surveillanceSpectra = append(surveillanceSpectra, pipeline.SurveillanceLevelSpectrum{Level: spec.Level, Spectrum: spectrum})
 	}
 	now := time.Now()
 	finished, detected := rt.det.Process(now, survSpectrum, rt.cfg.CenterHz)
@@ -259,6 +398,8 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 		surveillanceIQ:       survIQ,
 		detailIQ:             detailIQ,
 		surveillanceSpectrum: survSpectrum,
+		surveillanceSpectra:  surveillanceSpectra,
+		surveillancePlan:     plan,
 		detailSpectrum:       detailSpectrum,
 		finished:             finished,
 		detected:             detected,
@@ -275,50 +416,16 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 	policy := pipeline.PolicyFromConfig(rt.cfg)
 	candidates := pipeline.CandidatesFromSignals(art.detected, "surveillance-detector")
 	scheduled := pipeline.ScheduleCandidates(candidates, policy)
-	level := pipeline.AnalysisLevel{
-		Name:       "surveillance",
-		Role:       "surveillance",
-		Truth:      "surveillance",
-		SampleRate: rt.cfg.SampleRate,
-		FFTSize:    rt.cfg.Surveillance.AnalysisFFTSize,
-		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     spanForPolicy(policy, float64(rt.cfg.SampleRate)),
-		Source:     "baseband",
+	plan := art.surveillancePlan
+	if plan.Primary.Name == "" {
+		plan = rt.buildSurveillancePlan(policy)
 	}
-	lowRate := rt.cfg.SampleRate / 2
-	lowFFT := rt.cfg.Surveillance.AnalysisFFTSize / 2
-	if lowRate < 200000 {
-		lowRate = rt.cfg.SampleRate
-	}
-	if lowFFT < 256 {
-		lowFFT = rt.cfg.Surveillance.AnalysisFFTSize
-	}
-	lowLevel := pipeline.AnalysisLevel{
-		Name:       "surveillance-lowres",
-		Role:       "surveillance-lowres",
-		Truth:      "surveillance",
-		SampleRate: lowRate,
-		FFTSize:    lowFFT,
-		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     spanForPolicy(policy, float64(lowRate)),
-		Source:     "downsampled",
-	}
-	displayLevel := pipeline.AnalysisLevel{
-		Name:       "presentation",
-		Role:       "presentation",
-		Truth:      "presentation",
-		SampleRate: rt.cfg.SampleRate,
-		FFTSize:    rt.cfg.Surveillance.DisplayBins,
-		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     spanForPolicy(policy, float64(rt.cfg.SampleRate)),
-		Source:     "display",
-	}
-	levels, context := surveillanceLevels(policy, level, lowLevel, displayLevel)
 	return pipeline.SurveillanceResult{
-		Level:        level,
-		Levels:       levels,
-		DisplayLevel: displayLevel,
-		Context:      context,
+		Level:        plan.Primary,
+		Levels:       plan.Levels,
+		DisplayLevel: plan.Presentation,
+		Context:      plan.Context,
+		Spectra:      art.surveillanceSpectra,
 		Candidates:   candidates,
 		Scheduled:    scheduled,
 		Finished:     art.finished,
@@ -361,26 +468,8 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult, now
 	if _, maxSpan, ok := windowSpanBounds(windows); ok {
 		levelSpan = maxSpan
 	}
-	level := pipeline.AnalysisLevel{
-		Name:       "refinement",
-		Role:       "refinement",
-		Truth:      "refinement",
-		SampleRate: rt.cfg.SampleRate,
-		FFTSize:    detailFFT,
-		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     levelSpan,
-		Source:     "refinement-window",
-	}
-	detailLevel := pipeline.AnalysisLevel{
-		Name:       "detail",
-		Role:       "detail",
-		Truth:      "refinement",
-		SampleRate: rt.cfg.SampleRate,
-		FFTSize:    detailFFT,
-		CenterHz:   rt.cfg.CenterHz,
-		SpanHz:     levelSpan,
-		Source:     "detail-spectrum",
-	}
+	level := analysisLevel("refinement", "refinement", "refinement", rt.cfg.SampleRate, detailFFT, rt.cfg.CenterHz, levelSpan, "refinement-window", 1, rt.cfg.SampleRate)
+	detailLevel := analysisLevel("detail", "detail", "refinement", rt.cfg.SampleRate, detailFFT, rt.cfg.CenterHz, levelSpan, "detail-spectrum", 1, rt.cfg.SampleRate)
 	if len(workItems) > 0 {
 		for i := range workItems {
 			item := &workItems[i]
@@ -644,21 +733,65 @@ func windowSpanBounds(windows []pipeline.RefinementWindow) (float64, float64, bo
 	return minSpan, maxSpan, ok
 }
 
-func surveillanceLevels(policy pipeline.Policy, primary pipeline.AnalysisLevel, secondary pipeline.AnalysisLevel, presentation pipeline.AnalysisLevel) ([]pipeline.AnalysisLevel, pipeline.AnalysisContext) {
-	levels := []pipeline.AnalysisLevel{primary}
-	context := pipeline.AnalysisContext{
-		Surveillance: primary,
-		Presentation: presentation,
+func analysisLevel(name, role, truth string, sampleRate int, fftSize int, centerHz float64, spanHz float64, source string, decimation int, baseRate int) pipeline.AnalysisLevel {
+	level := pipeline.AnalysisLevel{
+		Name:       name,
+		Role:       role,
+		Truth:      truth,
+		SampleRate: sampleRate,
+		FFTSize:    fftSize,
+		CenterHz:   centerHz,
+		SpanHz:     spanHz,
+		Source:     source,
 	}
+	if level.SampleRate > 0 && level.FFTSize > 0 {
+		level.BinHz = float64(level.SampleRate) / float64(level.FFTSize)
+	}
+	if decimation > 0 {
+		level.Decimation = decimation
+	} else if baseRate > 0 && level.SampleRate > 0 && baseRate%level.SampleRate == 0 {
+		level.Decimation = baseRate / level.SampleRate
+	}
+	return level
+}
+
+func (rt *dspRuntime) buildSurveillancePlan(policy pipeline.Policy) surveillancePlan {
+	baseRate := rt.cfg.SampleRate
+	baseFFT := rt.cfg.Surveillance.AnalysisFFTSize
+	if baseFFT <= 0 {
+		baseFFT = rt.cfg.FFTSize
+	}
+	span := spanForPolicy(policy, float64(baseRate))
+	primary := analysisLevel("surveillance", "surveillance", "surveillance", baseRate, baseFFT, rt.cfg.CenterHz, span, "baseband", 1, baseRate)
+	levels := []pipeline.AnalysisLevel{primary}
+	specs := []surveillanceLevelSpec{{Level: primary, Decim: 1, AllowGPU: true}}
+	context := pipeline.AnalysisContext{Surveillance: primary}
+
 	strategy := strings.ToLower(strings.TrimSpace(policy.SurveillanceStrategy))
 	switch strategy {
 	case "multi-res", "multi-resolution", "multi", "multi_res":
-		if secondary.SampleRate != primary.SampleRate || secondary.FFTSize != primary.FFTSize {
-			levels = append(levels, secondary)
-			context.Derived = append(context.Derived, secondary)
+		decim := 2
+		derivedRate := baseRate / decim
+		derivedFFT := baseFFT / decim
+		if derivedRate >= 200000 && derivedFFT >= 256 {
+			derivedSpan := spanForPolicy(policy, float64(derivedRate))
+			derived := analysisLevel("surveillance-lowres", "surveillance-lowres", "surveillance", derivedRate, derivedFFT, rt.cfg.CenterHz, derivedSpan, "decimated", decim, baseRate)
+			levels = append(levels, derived)
+			specs = append(specs, surveillanceLevelSpec{Level: derived, Decim: decim, AllowGPU: false})
+			context.Derived = append(context.Derived, derived)
 		}
 	}
-	return levels, context
+
+	presentation := analysisLevel("presentation", "presentation", "presentation", baseRate, rt.cfg.Surveillance.DisplayBins, rt.cfg.CenterHz, span, "display", 1, baseRate)
+	context.Presentation = presentation
+
+	return surveillancePlan{
+		Primary:      primary,
+		Levels:       levels,
+		Presentation: presentation,
+		Context:      context,
+		Specs:        specs,
+	}
 }
 
 func sameIQBuffer(a []complex64, b []complex64) bool {
