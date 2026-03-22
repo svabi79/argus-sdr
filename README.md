@@ -111,6 +111,11 @@ Phase-2 status (Wave E):
 - fused candidate evidence summaries expose role/kind detail
 - surveillance level summaries include role intent for easier debug
 
+Phase-3 status (Wave 3C):
+- scheduler/arbitration layer for refinement + record/decode admission
+- hold/displacement policy with normalized reason tags
+- budget pressure summaries and decision queue stats (including displaced-by-hold counters)
+
 The long-term target is that you describe *what the system should do* (for example broad-span monitoring intent, preferred signal families, auto-record/decode priorities), while the engine decides *how* to allocate surveillance, refinement and decoding budgets.
 
 **CFAR modes:** `OFF`, `CA`, `OS`, `GOSCA`, `CASO`
