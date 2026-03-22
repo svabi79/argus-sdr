@@ -22,12 +22,15 @@ const (
 )
 
 type PriorityAdmission struct {
-	Tier   string  `json:"tier,omitempty"`
-	Class  string  `json:"class,omitempty"`
-	Score  float64 `json:"score,omitempty"`
-	Cutoff float64 `json:"cutoff,omitempty"`
-	Basis  string  `json:"basis,omitempty"`
-	Reason string  `json:"reason,omitempty"`
+	Tier       string  `json:"tier,omitempty"`
+	TierFloor  string  `json:"tier_floor,omitempty"`
+	Family     string  `json:"family,omitempty"`
+	FamilyRank int     `json:"family_rank,omitempty"`
+	Class      string  `json:"class,omitempty"`
+	Score      float64 `json:"score,omitempty"`
+	Cutoff     float64 `json:"cutoff,omitempty"`
+	Basis      string  `json:"basis,omitempty"`
+	Reason     string  `json:"reason,omitempty"`
 }
 
 func PriorityTierFromRange(score, min, max float64) string {
@@ -110,4 +113,61 @@ func slugToken(input string) string {
 	}
 	parts := strings.Fields(input)
 	return strings.Join(parts, "-")
+}
+
+func signalPriorityMatch(policy Policy, hint string, class string) (string, int) {
+	tag := strings.ToLower(strings.TrimSpace(hint))
+	if tag == "" {
+		tag = strings.ToLower(strings.TrimSpace(class))
+	}
+	if tag == "" || len(policy.SignalPriorities) == 0 {
+		return "", -1
+	}
+	for i, want := range policy.SignalPriorities {
+		w := strings.ToLower(strings.TrimSpace(want))
+		if w == "" {
+			continue
+		}
+		if strings.Contains(tag, w) || strings.Contains(w, tag) {
+			return w, i
+		}
+	}
+	return "", -1
+}
+
+func signalPriorityTierFloor(rank int) string {
+	switch rank {
+	case 0:
+		return PriorityTierHigh
+	case 1:
+		return PriorityTierMedium
+	case 2:
+		return PriorityTierLow
+	default:
+		return ""
+	}
+}
+
+func applyTierFloor(tier string, floor string) string {
+	if floor == "" {
+		return tier
+	}
+	if priorityTierRank(tier) < priorityTierRank(floor) {
+		return floor
+	}
+	return tier
+}
+
+func familyRankForOutput(rank int) int {
+	if rank < 0 {
+		return 0
+	}
+	return rank + 1
+}
+
+func familyDisplaceOrder(rank int) int {
+	if rank < 0 {
+		return 100
+	}
+	return rank
 }

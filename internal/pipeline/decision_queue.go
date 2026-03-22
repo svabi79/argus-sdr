@@ -57,6 +57,9 @@ type queueSelection struct {
 	expired         map[int64]struct{}
 	scores          map[int64]float64
 	tiers           map[int64]string
+	families        map[int64]string
+	familyRanks     map[int64]int
+	tierFloors      map[int64]string
 	minScore        float64
 	maxScore        float64
 	cutoff          float64
@@ -220,6 +223,9 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 		expired:         map[int64]struct{}{},
 		scores:          map[int64]float64{},
 		tiers:           map[int64]string{},
+		families:        map[int64]string{},
+		familyRanks:     map[int64]int{},
+		tierFloors:      map[int64]string{},
 	}
 	if len(queue) == 0 {
 		return selection
@@ -243,6 +249,10 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 			hint = qd.Class
 		}
 		policyBoost := DecisionPriorityBoost(policy, hint, qd.Class, queueName)
+		family, familyRank := signalPriorityMatch(policy, qd.Hint, qd.Class)
+		selection.families[id] = family
+		selection.familyRanks[id] = familyRank
+		selection.tierFloors[id] = signalPriorityTierFloor(familyRank)
 		score := qd.SNRDb + boost + policyBoost
 		selection.scores[id] = score
 		if len(scoredList) == 0 || score < selection.minScore {
@@ -257,7 +267,8 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 		return scoredList[i].score > scoredList[j].score
 	})
 	for id, score := range selection.scores {
-		selection.tiers[id] = PriorityTierFromRange(score, selection.minScore, selection.maxScore)
+		baseTier := PriorityTierFromRange(score, selection.minScore, selection.maxScore)
+		selection.tiers[id] = applyTierFloor(baseTier, selection.tierFloors[id])
 	}
 	limit := max
 	if limit <= 0 || limit > len(scoredList) {
@@ -278,7 +289,7 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 			}
 		}
 	}
-	displaceable := buildDisplaceableHold(selection.held, selection.protected, selection.tiers, selection.scores)
+	displaceable := buildDisplaceableHold(selection.held, selection.protected, selection.tiers, selection.scores, selection.familyRanks)
 	for _, s := range scoredList {
 		if _, ok := selection.selected[s.id]; ok {
 			continue
@@ -334,11 +345,12 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 	return selection
 }
 
-func buildDisplaceableHold(held map[int64]struct{}, protected map[int64]struct{}, tiers map[int64]string, scores map[int64]float64) []int64 {
+func buildDisplaceableHold(held map[int64]struct{}, protected map[int64]struct{}, tiers map[int64]string, scores map[int64]float64, familyRanks map[int64]int) []int64 {
 	type entry struct {
-		id    int64
-		rank  int
-		score float64
+		id          int64
+		rank        int
+		familyOrder int
+		score       float64
 	}
 	candidates := make([]entry, 0, len(held))
 	for id := range held {
@@ -349,10 +361,15 @@ func buildDisplaceableHold(held map[int64]struct{}, protected map[int64]struct{}
 		if scores != nil {
 			score = scores[id]
 		}
+		familyRank := -1
+		if familyRanks != nil {
+			familyRank = familyRanks[id]
+		}
 		candidates = append(candidates, entry{
-			id:    id,
-			rank:  priorityTierRank(tiers[id]),
-			score: score,
+			id:          id,
+			rank:        priorityTierRank(tiers[id]),
+			familyOrder: familyDisplaceOrder(familyRank),
+			score:       score,
 		})
 	}
 	if len(candidates) == 0 {
@@ -360,6 +377,9 @@ func buildDisplaceableHold(held map[int64]struct{}, protected map[int64]struct{}
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].rank == candidates[j].rank {
+			if candidates[i].familyOrder != candidates[j].familyOrder {
+				return candidates[i].familyOrder > candidates[j].familyOrder
+			}
 			return candidates[i].score < candidates[j].score
 		}
 		return candidates[i].rank < candidates[j].rank
@@ -382,6 +402,9 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 		Cutoff: selection.cutoff,
 		Tier:   selection.tiers[id],
 	}
+	admission.TierFloor = selection.tierFloors[id]
+	admission.Family = selection.families[id]
+	admission.FamilyRank = familyRankForOutput(selection.familyRanks[id])
 	if _, ok := selection.selected[id]; ok {
 		if _, held := selection.held[id]; held {
 			admission.Class = AdmissionClassHold

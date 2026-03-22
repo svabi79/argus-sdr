@@ -6,11 +6,14 @@ import (
 )
 
 type ScheduledCandidate struct {
-	Candidate Candidate               `json:"candidate"`
-	Priority  float64                 `json:"priority"`
-	Tier      string                  `json:"tier,omitempty"`
-	Score     *RefinementScore        `json:"score,omitempty"`
-	Breakdown *RefinementScoreDetails `json:"breakdown,omitempty"`
+	Candidate  Candidate               `json:"candidate"`
+	Priority   float64                 `json:"priority"`
+	Tier       string                  `json:"tier,omitempty"`
+	TierFloor  string                  `json:"tier_floor,omitempty"`
+	Family     string                  `json:"family,omitempty"`
+	FamilyRank int                     `json:"family_rank,omitempty"`
+	Score      *RefinementScore        `json:"score,omitempty"`
+	Breakdown  *RefinementScoreDetails `json:"breakdown,omitempty"`
 }
 
 type RefinementScoreModel struct {
@@ -120,6 +123,9 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 	for _, c := range candidates {
 		candidate := c
 		RefreshCandidateEvidenceState(&candidate)
+		family, familyRank := signalPriorityMatch(policy, candidate.Hint, "")
+		familyFloor := signalPriorityTierFloor(familyRank)
+		familyRankOut := familyRankForOutput(familyRank)
 		if !candidateInMonitor(policy, candidate) {
 			plan.DroppedByMonitor++
 			workItems = append(workItems, RefinementWorkItem{
@@ -127,10 +133,13 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 				Status:    RefinementStatusDropped,
 				Reason:    RefinementReasonMonitorGate,
 				Admission: &PriorityAdmission{
-					Tier:   PriorityTierBackground,
-					Class:  AdmissionClassDrop,
-					Basis:  "refinement",
-					Reason: admissionReason(RefinementReasonMonitorGate, policy, holdPolicy),
+					Tier:       PriorityTierBackground,
+					TierFloor:  familyFloor,
+					Family:     family,
+					FamilyRank: familyRankOut,
+					Class:      AdmissionClassDrop,
+					Basis:      "refinement",
+					Reason:     admissionReason(RefinementReasonMonitorGate, policy, holdPolicy),
 				},
 			})
 			continue
@@ -142,10 +151,13 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 				Status:    RefinementStatusDropped,
 				Reason:    RefinementReasonBelowSNR,
 				Admission: &PriorityAdmission{
-					Tier:   PriorityTierBackground,
-					Class:  AdmissionClassDrop,
-					Basis:  "refinement",
-					Reason: admissionReason(RefinementReasonBelowSNR, policy, holdPolicy),
+					Tier:       PriorityTierBackground,
+					TierFloor:  familyFloor,
+					Family:     family,
+					FamilyRank: familyRankOut,
+					Class:      AdmissionClassDrop,
+					Basis:      "refinement",
+					Reason:     admissionReason(RefinementReasonBelowSNR, policy, holdPolicy),
 				},
 			})
 			continue
@@ -180,10 +192,13 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 			Weights: &scoreModel,
 		}
 		scored = append(scored, ScheduledCandidate{
-			Candidate: candidate,
-			Priority:  priority,
-			Score:     score,
-			Breakdown: &score.Breakdown,
+			Candidate:  candidate,
+			Priority:   priority,
+			TierFloor:  familyFloor,
+			Family:     family,
+			FamilyRank: familyRankOut,
+			Score:      score,
+			Breakdown:  &score.Breakdown,
 		})
 		workItems = append(workItems, RefinementWorkItem{
 			Candidate: candidate,
@@ -193,10 +208,13 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 			Status:    RefinementStatusPlanned,
 			Reason:    RefinementReasonPlanned,
 			Admission: &PriorityAdmission{
-				Class:  AdmissionClassPlanned,
-				Score:  priority,
-				Basis:  "refinement",
-				Reason: admissionReason(RefinementReasonPlanned, policy, holdPolicy),
+				Class:      AdmissionClassPlanned,
+				TierFloor:  familyFloor,
+				Family:     family,
+				FamilyRank: familyRankOut,
+				Score:      priority,
+				Basis:      "refinement",
+				Reason:     admissionReason(RefinementReasonPlanned, policy, holdPolicy),
 			},
 		})
 	}
@@ -223,7 +241,8 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 		plan.PriorityMax = maxPriority
 		plan.PriorityAvg = sumPriority / float64(len(scored))
 		for i := range scored {
-			scored[i].Tier = PriorityTierFromRange(scored[i].Priority, minPriority, maxPriority)
+			baseTier := PriorityTierFromRange(scored[i].Priority, minPriority, maxPriority)
+			scored[i].Tier = applyTierFloor(baseTier, scored[i].TierFloor)
 		}
 		for i := range workItems {
 			if workItems[i].Admission == nil {
@@ -232,7 +251,8 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 			if workItems[i].Status != RefinementStatusPlanned {
 				continue
 			}
-			workItems[i].Admission.Tier = PriorityTierFromRange(workItems[i].Priority, minPriority, maxPriority)
+			baseTier := PriorityTierFromRange(workItems[i].Priority, minPriority, maxPriority)
+			workItems[i].Admission.Tier = applyTierFloor(baseTier, workItems[i].Admission.TierFloor)
 		}
 	}
 	plan.Ranked = append(plan.Ranked, scored...)

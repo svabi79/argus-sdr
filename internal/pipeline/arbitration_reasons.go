@@ -17,12 +17,15 @@ const (
 )
 
 const (
-	HoldReasonProfileArchive    = "profile:archive"
-	HoldReasonProfileDigital    = "profile:digital"
-	HoldReasonProfileAggressive = "profile:aggressive"
-	HoldReasonStrategyArchive   = "strategy:archive"
-	HoldReasonStrategyDigital   = "strategy:digital"
-	HoldReasonStrategyMultiRes  = "strategy:multi-resolution"
+	HoldReasonProfileArchive     = "profile:archive"
+	HoldReasonProfileDigital     = "profile:digital"
+	HoldReasonProfileAggressive  = "profile:aggressive"
+	HoldReasonStrategyArchive    = "strategy:archive"
+	HoldReasonStrategyDigital    = "strategy:digital"
+	HoldReasonStrategyMultiRes   = "strategy:multi-resolution"
+	HoldReasonIntentArchive      = "intent:archive"
+	HoldReasonIntentDecode       = "intent:decode"
+	HoldReasonIntentSurveillance = "intent:surveillance"
 )
 
 const (

@@ -61,6 +61,7 @@ func HoldPolicyFromPolicy(policy Policy) HoldPolicy {
 	reasons := make([]string, 0, 2)
 	profile := strings.ToLower(strings.TrimSpace(policy.Profile))
 	strategy := strings.ToLower(strings.TrimSpace(policy.RefinementStrategy))
+	intent := strings.ToLower(strings.TrimSpace(policy.Intent))
 
 	archiveProfile := profileContains(profile, "archive")
 	archiveStrategy := strategyContains(strategy, "archive")
@@ -95,6 +96,24 @@ func HoldPolicyFromPolicy(policy Policy) HoldPolicy {
 	if strategyContains(strings.ToLower(strings.TrimSpace(policy.SurveillanceStrategy)), "multi") {
 		refMult *= 1.1
 		reasons = append(reasons, HoldReasonStrategyMultiRes)
+	}
+	intentArchive := strings.Contains(intent, "archive") || strings.Contains(intent, "triage") || strings.Contains(intent, "record")
+	intentDecode := strings.Contains(intent, "decode") || strings.Contains(intent, "digital") || strings.Contains(intent, "analysis")
+	intentSurveillance := strings.Contains(intent, "surveillance") || strings.Contains(intent, "wideband")
+	if intentArchive {
+		recMult *= 1.25
+		refMult *= 1.1
+		decMult *= 1.05
+		reasons = append(reasons, HoldReasonIntentArchive)
+	}
+	if intentDecode {
+		decMult *= 1.25
+		refMult *= 1.05
+		reasons = append(reasons, HoldReasonIntentDecode)
+	}
+	if intentSurveillance {
+		refMult *= 1.1
+		reasons = append(reasons, HoldReasonIntentSurveillance)
 	}
 
 	return HoldPolicy{
@@ -159,16 +178,25 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 	}
 	tierByID := map[int64]string{}
 	scoreByID := map[int64]float64{}
+	familyByID := map[int64]string{}
+	familyRankByID := map[int64]int{}
+	familyFloorByID := map[int64]string{}
 	for _, cand := range ranked {
-		tierByID[cand.Candidate.ID] = PriorityTierFromRange(cand.Priority, plan.PriorityMin, plan.PriorityMax)
-		scoreByID[cand.Candidate.ID] = cand.Priority
+		id := cand.Candidate.ID
+		family, familyRank := signalPriorityMatch(policy, cand.Candidate.Hint, "")
+		familyByID[id] = family
+		familyRankByID[id] = familyRank
+		familyFloorByID[id] = signalPriorityTierFloor(familyRank)
+		baseTier := PriorityTierFromRange(cand.Priority, plan.PriorityMin, plan.PriorityMax)
+		tierByID[id] = applyTierFloor(baseTier, familyFloorByID[id])
+		scoreByID[id] = cand.Priority
 	}
 	for id := range held {
 		if isProtectedTier(tierByID[id]) {
 			protected[id] = struct{}{}
 		}
 	}
-	displaceable := buildDisplaceableHold(held, protected, tierByID, scoreByID)
+	displaceable := buildDisplaceableHold(held, protected, tierByID, scoreByID, familyRankByID)
 	opportunistic := map[int64]struct{}{}
 	displacedHold := map[int64]struct{}{}
 	for _, cand := range ranked {
@@ -257,6 +285,7 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 			continue
 		}
 		id := item.Candidate.ID
+		familyRankOut := familyRankForOutput(familyRankByID[id])
 		if _, ok := selected[id]; ok {
 			item.Status = RefinementStatusAdmitted
 			item.Reason = RefinementReasonAdmitted
@@ -273,6 +302,9 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 			item.Admission.Score = item.Priority
 			item.Admission.Cutoff = admission.PriorityCutoff
 			item.Admission.Tier = tierByID[id]
+			item.Admission.TierFloor = familyFloorByID[id]
+			item.Admission.Family = familyByID[id]
+			item.Admission.FamilyRank = familyRankOut
 			extras := []string{pressureReasonTag(admission.Pressure), "budget:" + slugToken(plan.BudgetSource)}
 			if _, wasHeld := held[id]; wasHeld {
 				extras = append(extras, "pressure:hold", ReasonTagHoldActive)
@@ -296,6 +328,9 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 			item.Admission.Score = item.Priority
 			item.Admission.Cutoff = admission.PriorityCutoff
 			item.Admission.Tier = tierByID[id]
+			item.Admission.TierFloor = familyFloorByID[id]
+			item.Admission.Family = familyByID[id]
+			item.Admission.FamilyRank = familyRankOut
 			item.Admission.Reason = admissionReason("refinement:displace:hold", policy, holdPolicy, pressureReasonTag(admission.Pressure), "pressure:hold", ReasonTagDisplaceOpportunist, ReasonTagDisplaceTier, ReasonTagHoldDisplaced, "budget:"+slugToken(plan.BudgetSource))
 			continue
 		}
@@ -309,6 +344,9 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 			item.Admission.Score = item.Priority
 			item.Admission.Cutoff = admission.PriorityCutoff
 			item.Admission.Tier = tierByID[id]
+			item.Admission.TierFloor = familyFloorByID[id]
+			item.Admission.Family = familyByID[id]
+			item.Admission.FamilyRank = familyRankOut
 			item.Admission.Reason = admissionReason("refinement:displace:hold", policy, holdPolicy, pressureReasonTag(admission.Pressure), "pressure:hold", ReasonTagHoldActive, "budget:"+slugToken(plan.BudgetSource))
 			continue
 		}
@@ -321,6 +359,9 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 		item.Admission.Score = item.Priority
 		item.Admission.Cutoff = admission.PriorityCutoff
 		item.Admission.Tier = tierByID[id]
+		item.Admission.TierFloor = familyFloorByID[id]
+		item.Admission.Family = familyByID[id]
+		item.Admission.FamilyRank = familyRankOut
 		extras := []string{pressureReasonTag(admission.Pressure), "pressure:budget", "budget:" + slugToken(plan.BudgetSource)}
 		if _, ok := expired[id]; ok {
 			extras = append(extras, ReasonTagHoldExpired)
