@@ -307,23 +307,25 @@ function isListeningSignal(signal) {
 }
 
 function getSignalPrimaryMode(signal) {
-  if (signal?.playback_mode) return signal.playback_mode;
-  if (signal?.demod) return signal.demod;
   if (isListeningSignal(signal) && liveListenInfo?.playback_mode && liveListenInfo.playback_mode !== '-') {
     return liveListenInfo.playback_mode;
   }
+  if (signal?.playback_mode) return signal.playback_mode;
+  if (signal?.demod) return signal.demod;
   if (signal?.class?.mod_type) return signal.class.mod_type;
   return 'carrier';
 }
 
 function getSignalRuntimeSummary(signal) {
   const bits = [];
+  if (isListeningSignal(signal)) {
+    if (liveListenInfo?.stereo_state && liveListenInfo.stereo_state !== '-') bits.push(liveListenInfo.stereo_state);
+    if (liveListenInfo?.demod && liveListenInfo.demod !== getSignalPrimaryMode(signal)) bits.push(liveListenInfo.demod);
+    if (liveListenInfo?.status && !['Idle', '-', 'Live'].includes(liveListenInfo.status)) bits.push(liveListenInfo.status);
+    if (bits.length) return bits.join(' · ');
+  }
   if (signal?.stereo_state) bits.push(signal.stereo_state);
   if (signal?.demod && signal.demod !== getSignalPrimaryMode(signal)) bits.push(signal.demod);
-  if (!bits.length && isListeningSignal(signal)) {
-    if (liveListenInfo?.status && !['Idle', '-'].includes(liveListenInfo.status)) bits.push(liveListenInfo.status);
-    if (liveListenInfo?.stereo_state && liveListenInfo.stereo_state !== '-') bits.push(liveListenInfo.stereo_state);
-  }
   return bits.join(' · ');
 }
 
