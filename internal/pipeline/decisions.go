@@ -7,11 +7,13 @@ import (
 )
 
 type SignalDecision struct {
-	Candidate        Candidate `json:"candidate"`
-	Class            string    `json:"class,omitempty"`
-	ShouldRecord     bool      `json:"should_record"`
-	ShouldAutoDecode bool      `json:"should_auto_decode"`
-	Reason           string    `json:"reason,omitempty"`
+	Candidate        Candidate          `json:"candidate"`
+	Class            string             `json:"class,omitempty"`
+	ShouldRecord     bool               `json:"should_record"`
+	ShouldAutoDecode bool               `json:"should_auto_decode"`
+	Reason           string             `json:"reason,omitempty"`
+	RecordAdmission  *PriorityAdmission `json:"record_admission,omitempty"`
+	DecodeAdmission  *PriorityAdmission `json:"decode_admission,omitempty"`
 }
 
 func DecideSignalAction(policy Policy, candidate Candidate, cls *classifier.Classification) SignalDecision {

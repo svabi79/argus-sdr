@@ -8,6 +8,7 @@ import (
 type ScheduledCandidate struct {
 	Candidate Candidate               `json:"candidate"`
 	Priority  float64                 `json:"priority"`
+	Tier      string                  `json:"tier,omitempty"`
 	Score     *RefinementScore        `json:"score,omitempty"`
 	Breakdown *RefinementScoreDetails `json:"breakdown,omitempty"`
 }
@@ -43,6 +44,7 @@ type RefinementWorkItem struct {
 	Breakdown *RefinementScoreDetails `json:"breakdown,omitempty"`
 	Status    string                  `json:"status,omitempty"`
 	Reason    string                  `json:"reason,omitempty"`
+	Admission *PriorityAdmission      `json:"admission,omitempty"`
 }
 
 type RefinementExecution struct {
@@ -85,6 +87,7 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 	strategy, strategyReason := refinementStrategy(policy)
 	budgetModel := BudgetModelFromPolicy(policy)
 	budget := budgetModel.Refinement.Max
+	holdPolicy := HoldPolicyFromPolicy(policy)
 	plan := RefinementPlan{
 		TotalCandidates:   len(candidates),
 		MinCandidateSNRDb: policy.MinCandidateSNRDb,
@@ -123,6 +126,12 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 				Candidate: candidate,
 				Status:    RefinementStatusDropped,
 				Reason:    RefinementReasonMonitorGate,
+				Admission: &PriorityAdmission{
+					Tier:   PriorityTierBackground,
+					Class:  AdmissionClassDrop,
+					Basis:  "refinement",
+					Reason: admissionReason(RefinementReasonMonitorGate, policy, holdPolicy),
+				},
 			})
 			continue
 		}
@@ -132,6 +141,12 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 				Candidate: candidate,
 				Status:    RefinementStatusDropped,
 				Reason:    RefinementReasonBelowSNR,
+				Admission: &PriorityAdmission{
+					Tier:   PriorityTierBackground,
+					Class:  AdmissionClassDrop,
+					Basis:  "refinement",
+					Reason: admissionReason(RefinementReasonBelowSNR, policy, holdPolicy),
+				},
 			})
 			continue
 		}
@@ -177,6 +192,12 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 			Breakdown: &score.Breakdown,
 			Status:    RefinementStatusPlanned,
 			Reason:    RefinementReasonPlanned,
+			Admission: &PriorityAdmission{
+				Class:  AdmissionClassPlanned,
+				Score:  priority,
+				Basis:  "refinement",
+				Reason: admissionReason(RefinementReasonPlanned, policy, holdPolicy),
+			},
 		})
 	}
 	sort.Slice(scored, func(i, j int) bool {
@@ -201,6 +222,18 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 		plan.PriorityMin = minPriority
 		plan.PriorityMax = maxPriority
 		plan.PriorityAvg = sumPriority / float64(len(scored))
+		for i := range scored {
+			scored[i].Tier = PriorityTierFromRange(scored[i].Priority, minPriority, maxPriority)
+		}
+		for i := range workItems {
+			if workItems[i].Admission == nil {
+				continue
+			}
+			if workItems[i].Status != RefinementStatusPlanned {
+				continue
+			}
+			workItems[i].Admission.Tier = PriorityTierFromRange(workItems[i].Priority, minPriority, maxPriority)
+		}
 	}
 	plan.Ranked = append(plan.Ranked, scored...)
 	plan.WorkItems = workItems

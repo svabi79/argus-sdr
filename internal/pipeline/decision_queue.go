@@ -32,6 +32,15 @@ type queuedDecision struct {
 	LastSeen  time.Time
 }
 
+type queueSelection struct {
+	selected map[int64]struct{}
+	held     map[int64]struct{}
+	scores   map[int64]float64
+	minScore float64
+	maxScore float64
+	cutoff   float64
+}
+
 type decisionQueues struct {
 	record     map[int64]*queuedDecision
 	decode     map[int64]*queuedDecision
@@ -107,8 +116,8 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 	stats := DecisionQueueStats{
 		RecordQueued:   len(dq.record),
 		DecodeQueued:   len(dq.decode),
-		RecordSelected: len(recSelected),
-		DecodeSelected: len(decSelected),
+		RecordSelected: len(recSelected.selected),
+		DecodeSelected: len(decSelected.selected),
 		RecordActive:   len(dq.recordHold),
 		DecodeActive:   len(dq.decodeHold),
 		RecordOldestS:  oldestAge(dq.record, now),
@@ -123,17 +132,19 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 	for i := range decisions {
 		id := decisions[i].Candidate.ID
 		if decisions[i].ShouldRecord {
-			if _, ok := recSelected[id]; !ok {
+			decisions[i].RecordAdmission = buildQueueAdmission("record", id, recSelected, policy, holdPolicy, budget.Record.Source)
+			if _, ok := recSelected.selected[id]; !ok {
 				decisions[i].ShouldRecord = false
-				decisions[i].Reason = DecisionReasonQueueRecord
+				decisions[i].Reason = admissionReason(DecisionReasonQueueRecord, policy, holdPolicy, "pressure:budget", "budget:"+slugToken(budget.Record.Source))
 				stats.RecordDropped++
 			}
 		}
 		if decisions[i].ShouldAutoDecode {
-			if _, ok := decSelected[id]; !ok {
+			decisions[i].DecodeAdmission = buildQueueAdmission("decode", id, decSelected, policy, holdPolicy, budget.Decode.Source)
+			if _, ok := decSelected.selected[id]; !ok {
 				decisions[i].ShouldAutoDecode = false
 				if decisions[i].Reason == "" {
-					decisions[i].Reason = DecisionReasonQueueDecode
+					decisions[i].Reason = admissionReason(DecisionReasonQueueDecode, policy, holdPolicy, "pressure:budget", "budget:"+slugToken(budget.Decode.Source))
 				}
 				stats.DecodeDropped++
 			}
@@ -142,10 +153,14 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 	return stats
 }
 
-func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[int64]time.Time, max int, holdDur time.Duration, now time.Time, policy Policy) map[int64]struct{} {
-	selected := map[int64]struct{}{}
+func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[int64]time.Time, max int, holdDur time.Duration, now time.Time, policy Policy) queueSelection {
+	selection := queueSelection{
+		selected: map[int64]struct{}{},
+		held:     map[int64]struct{}{},
+		scores:   map[int64]float64{},
+	}
 	if len(queue) == 0 {
-		return selected
+		return selection
 	}
 	type scored struct {
 		id    int64
@@ -163,7 +178,15 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 			hint = qd.Class
 		}
 		policyBoost := DecisionPriorityBoost(policy, hint, qd.Class, queueName)
-		scoredList = append(scoredList, scored{id: id, score: qd.SNRDb + boost + policyBoost})
+		score := qd.SNRDb + boost + policyBoost
+		selection.scores[id] = score
+		if len(scoredList) == 0 || score < selection.minScore {
+			selection.minScore = score
+		}
+		if len(scoredList) == 0 || score > selection.maxScore {
+			selection.maxScore = score
+		}
+		scoredList = append(scoredList, scored{id: id, score: score})
 	}
 	sort.Slice(scoredList, func(i, j int) bool {
 		return scoredList[i].score > scoredList[j].score
@@ -180,24 +203,61 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 	}
 	for id := range hold {
 		if _, ok := queue[id]; ok {
-			selected[id] = struct{}{}
+			selection.selected[id] = struct{}{}
+			selection.held[id] = struct{}{}
 		}
 	}
 	for _, s := range scoredList {
-		if len(selected) >= limit {
+		if len(selection.selected) >= limit {
 			break
 		}
-		if _, ok := selected[s.id]; ok {
+		if _, ok := selection.selected[s.id]; ok {
 			continue
 		}
-		selected[s.id] = struct{}{}
+		selection.selected[s.id] = struct{}{}
 	}
 	if holdDur > 0 {
-		for id := range selected {
+		for id := range selection.selected {
 			hold[id] = now.Add(holdDur)
 		}
 	}
-	return selected
+	if len(selection.selected) > 0 {
+		first := true
+		for id := range selection.selected {
+			score := selection.scores[id]
+			if first || score < selection.cutoff {
+				selection.cutoff = score
+				first = false
+			}
+		}
+	}
+	return selection
+}
+
+func buildQueueAdmission(queueName string, id int64, selection queueSelection, policy Policy, holdPolicy HoldPolicy, budgetSource string) *PriorityAdmission {
+	score, ok := selection.scores[id]
+	if !ok {
+		return nil
+	}
+	admission := &PriorityAdmission{
+		Basis:  queueName,
+		Score:  score,
+		Cutoff: selection.cutoff,
+		Tier:   PriorityTierFromRange(score, selection.minScore, selection.maxScore),
+	}
+	if _, ok := selection.selected[id]; ok {
+		if _, held := selection.held[id]; held {
+			admission.Class = AdmissionClassHold
+			admission.Reason = admissionReason("queue:"+queueName+":hold", policy, holdPolicy, "pressure:hold", "budget:"+slugToken(budgetSource))
+		} else {
+			admission.Class = AdmissionClassAdmit
+			admission.Reason = admissionReason("queue:"+queueName+":admit", policy, holdPolicy, "budget:"+slugToken(budgetSource))
+		}
+		return admission
+	}
+	admission.Class = AdmissionClassDefer
+	admission.Reason = admissionReason("queue:"+queueName+":budget", policy, holdPolicy, "pressure:budget", "budget:"+slugToken(budgetSource))
+	return admission
 }
 
 func purgeExpired(hold map[int64]time.Time, now time.Time) {

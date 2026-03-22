@@ -30,6 +30,7 @@ type RefinementAdmission struct {
 	Skipped        int     `json:"skipped"`
 	Displaced      int     `json:"displaced"`
 	PriorityCutoff float64 `json:"priority_cutoff,omitempty"`
+	PriorityTier   string  `json:"priority_tier,omitempty"`
 	Reason         string  `json:"reason,omitempty"`
 }
 
@@ -123,11 +124,13 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 	planned := len(ranked)
 	admission.Planned = planned
 	selected := map[int64]struct{}{}
+	held := map[int64]struct{}{}
 	if hold != nil {
 		purgeHold(hold.Active, now)
 		for id := range hold.Active {
 			if rankedContains(ranked, id) {
 				selected[id] = struct{}{}
+				held[id] = struct{}{}
 			}
 		}
 	}
@@ -185,6 +188,10 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 		}
 	}
 	admission.Displaced = len(displaced)
+	admission.PriorityTier = PriorityTierFromRange(admission.PriorityCutoff, plan.PriorityMin, plan.PriorityMax)
+	if admission.PriorityCutoff > 0 {
+		admission.Reason = admissionReason("admission:budget", policy, holdPolicy, "budget:"+slugToken(plan.BudgetSource))
+	}
 
 	plan.Selected = admitted
 	plan.PriorityCutoff = admission.PriorityCutoff
@@ -198,15 +205,45 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 		if _, ok := selected[id]; ok {
 			item.Status = RefinementStatusAdmitted
 			item.Reason = RefinementReasonAdmitted
+			class := AdmissionClassAdmit
+			reason := "refinement:admit:budget"
+			if _, wasHeld := held[id]; wasHeld {
+				class = AdmissionClassHold
+				reason = "refinement:admit:hold"
+			}
+			if item.Admission == nil {
+				item.Admission = &PriorityAdmission{Basis: "refinement"}
+			}
+			item.Admission.Class = class
+			item.Admission.Score = item.Priority
+			item.Admission.Cutoff = admission.PriorityCutoff
+			item.Admission.Tier = PriorityTierFromRange(item.Priority, plan.PriorityMin, plan.PriorityMax)
+			item.Admission.Reason = admissionReason(reason, policy, holdPolicy, "budget:"+slugToken(plan.BudgetSource))
 			continue
 		}
 		if _, ok := displaced[id]; ok {
 			item.Status = RefinementStatusDisplaced
 			item.Reason = RefinementReasonDisplaced
+			if item.Admission == nil {
+				item.Admission = &PriorityAdmission{Basis: "refinement"}
+			}
+			item.Admission.Class = AdmissionClassDisplace
+			item.Admission.Score = item.Priority
+			item.Admission.Cutoff = admission.PriorityCutoff
+			item.Admission.Tier = PriorityTierFromRange(item.Priority, plan.PriorityMin, plan.PriorityMax)
+			item.Admission.Reason = admissionReason("refinement:displace:hold", policy, holdPolicy, "pressure:hold", "budget:"+slugToken(plan.BudgetSource))
 			continue
 		}
 		item.Status = RefinementStatusSkipped
 		item.Reason = RefinementReasonBudget
+		if item.Admission == nil {
+			item.Admission = &PriorityAdmission{Basis: "refinement"}
+		}
+		item.Admission.Class = AdmissionClassDefer
+		item.Admission.Score = item.Priority
+		item.Admission.Cutoff = admission.PriorityCutoff
+		item.Admission.Tier = PriorityTierFromRange(item.Priority, plan.PriorityMin, plan.PriorityMax)
+		item.Admission.Reason = admissionReason("refinement:skip:budget", policy, holdPolicy, "pressure:budget", "budget:"+slugToken(plan.BudgetSource))
 	}
 	return RefinementAdmissionResult{
 		Plan:      plan,
