@@ -37,6 +37,22 @@ func TestAdmitRefinementPlanNoCandidatesReason(t *testing.T) {
 	}
 }
 
+func TestAdmitRefinementPlanUnlimitedBudget(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 0, MinCandidateSNRDb: 0}
+	cands := []Candidate{
+		{ID: 1, CenterHz: 100, SNRDb: 5},
+		{ID: 2, CenterHz: 200, SNRDb: 6},
+	}
+	plan := BuildRefinementPlan(cands, policy)
+	res := AdmitRefinementPlan(plan, policy, time.Now(), &RefinementHold{Active: map[int64]time.Time{}})
+	if len(res.Plan.Selected) != len(cands) {
+		t.Fatalf("expected all candidates admitted, got %d", len(res.Plan.Selected))
+	}
+	if res.Admission.Skipped != 0 || res.Plan.DroppedByBudget != 0 {
+		t.Fatalf("expected no budget drops, got admission=%+v plan=%+v", res.Admission, res.Plan)
+	}
+}
+
 func containsReason(reasons []string, target string) bool {
 	for _, r := range reasons {
 		if r == target {

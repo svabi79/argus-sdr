@@ -237,6 +237,21 @@ func TestRefinementStrategyUsesProfile(t *testing.T) {
 	}
 }
 
+func TestRefinementStrategyUsesIntentAndSurveillance(t *testing.T) {
+	strategy, reason := refinementStrategy(Policy{Intent: "decode-digital"})
+	if strategy != "digital-hunting" || reason != "intent" {
+		t.Fatalf("expected intent to set digital strategy, got %s (%s)", strategy, reason)
+	}
+	strategy, reason = refinementStrategy(Policy{Intent: "archive-and-triage"})
+	if strategy != "archive-oriented" || reason != "intent" {
+		t.Fatalf("expected intent to set archive strategy, got %s (%s)", strategy, reason)
+	}
+	strategy, reason = refinementStrategy(Policy{SurveillanceStrategy: "multi-resolution"})
+	if strategy != "multi-resolution" || reason != "surveillance-strategy" {
+		t.Fatalf("expected surveillance strategy to set multi-resolution, got %s (%s)", strategy, reason)
+	}
+}
+
 func findWorkItem(items []RefinementWorkItem, id int64) *RefinementWorkItem {
 	for i := range items {
 		if items[i].Candidate.ID == id {

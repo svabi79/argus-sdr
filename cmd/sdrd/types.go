@@ -47,7 +47,6 @@ type DecisionDebug struct {
 type ArbitrationSnapshot struct {
 	Budgets             *pipeline.BudgetModel         `json:"budgets,omitempty"`
 	HoldPolicy          *pipeline.HoldPolicy          `json:"hold_policy,omitempty"`
-	RefinementPlan      *pipeline.RefinementPlan      `json:"refinement_plan,omitempty"`
 	RefinementAdmission *pipeline.RefinementAdmission `json:"refinement_admission,omitempty"`
 	Queue               pipeline.DecisionQueueStats   `json:"queue,omitempty"`
 	DecisionSummary     decisionSummary               `json:"decision_summary,omitempty"`

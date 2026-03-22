@@ -57,3 +57,31 @@ func TestDecisionQueueEnforcesBudgets(t *testing.T) {
 		t.Fatalf("expected mid SNR decision to be budgeted off by record budget")
 	}
 }
+
+func TestDecisionQueueHoldKeepsSelection(t *testing.T) {
+	arbiter := NewArbiter()
+	policy := Policy{DecisionHoldMs: 500}
+	budget := BudgetModel{Record: BudgetQueue{Max: 1}, Decode: BudgetQueue{Max: 1}}
+	now := time.Now()
+
+	decisions := []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 5}, ShouldRecord: true, ShouldAutoDecode: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 15}, ShouldRecord: true, ShouldAutoDecode: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now, policy)
+	if !decisions[1].ShouldRecord || !decisions[1].ShouldAutoDecode {
+		t.Fatalf("expected candidate 2 to be selected initially")
+	}
+
+	decisions = []SignalDecision{
+		{Candidate: Candidate{ID: 1, SNRDb: 25}, ShouldRecord: true, ShouldAutoDecode: true},
+		{Candidate: Candidate{ID: 2, SNRDb: 2}, ShouldRecord: true, ShouldAutoDecode: true},
+	}
+	arbiter.ApplyDecisions(decisions, budget, now.Add(100*time.Millisecond), policy)
+	if !decisions[1].ShouldRecord || !decisions[1].ShouldAutoDecode {
+		t.Fatalf("expected held candidate 2 to remain selected")
+	}
+	if decisions[0].ShouldRecord || decisions[0].ShouldAutoDecode {
+		t.Fatalf("expected candidate 1 to remain queued behind hold")
+	}
+}

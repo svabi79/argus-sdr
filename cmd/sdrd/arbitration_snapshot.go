@@ -6,7 +6,6 @@ func buildArbitrationSnapshot(step pipeline.RefinementStep, arb pipeline.Arbitra
 	return &ArbitrationSnapshot{
 		Budgets:             &arb.Budgets,
 		HoldPolicy:          &arb.HoldPolicy,
-		RefinementPlan:      &step.Input.Plan,
 		RefinementAdmission: &arb.Refinement,
 		Queue:               arb.Queue,
 		DecisionSummary:     summarizeDecisions(step.Result.Decisions),
