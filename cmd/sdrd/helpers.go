@@ -129,14 +129,14 @@ func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleR
 			isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
 			jobOutRate := decimTarget
 			if isWFM {
-				jobOutRate = 500000
+				jobOutRate = wfmStreamOutRate
 			}
 			// Minimum extraction BW: ensure enough bandwidth for demod features
-			// FM broadcast (87.5-108 MHz) needs >=150kHz for stereo pilot + RDS at 57kHz
+			// FM broadcast (87.5-108 MHz) needs >=250kHz for stereo pilot + RDS at 57kHz
 			// Also widen for any signal classified as WFM (in case of re-extraction)
 			if isWFM {
-				if bw < 250000 {
-					bw = 250000
+				if bw < wfmStreamMinBW {
+					bw = wfmStreamMinBW
 				}
 			} else if bw < 20000 {
 				bw = 20000
@@ -162,12 +162,12 @@ func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleR
 		offset := sig.CenterHz - centerHz
 		shifted := dsp.FreqShift(iq, sampleRate, offset)
 		bw := sig.BWHz
-		// FM broadcast (87.5-108 MHz) needs >=150kHz for stereo + RDS
+		// FM broadcast (87.5-108 MHz) needs >=250kHz for stereo + RDS
 		sigMHz := sig.CenterHz / 1e6
 		isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
 		if isWFM {
-			if bw < 250000 {
-				bw = 250000
+			if bw < wfmStreamMinBW {
+				bw = wfmStreamMinBW
 			}
 		} else if bw < 20000 {
 			bw = 20000
@@ -225,6 +225,10 @@ type extractionConfig struct {
 }
 
 const streamOverlapLen = 512 // must be >= FIR tap count with margin
+const (
+	wfmStreamOutRate = 500000
+	wfmStreamMinBW   = 250000
+)
 
 // extractForStreaming performs GPU-accelerated extraction with:
 //   - Per-signal phase-continuous FreqShift (via PhaseStart in ExtractJob)
@@ -289,9 +293,9 @@ func extractForStreaming(
 			(sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
 		jobOutRate := decimTarget
 		if isWFM {
-			jobOutRate = 300000
-			if bw < 150000 {
-				bw = 150000
+			jobOutRate = wfmStreamOutRate
+			if bw < wfmStreamMinBW {
+				bw = wfmStreamMinBW
 			}
 		} else if bw < 20000 {
 			bw = 20000
@@ -325,11 +329,14 @@ func extractForStreaming(
 		results, err := runner.ShiftFilterDecimateBatchWithPhase(gpuIQ, jobs)
 		if err == nil && len(results) == len(signals) {
 			for i, res := range results {
-				outRate := decimTarget
+				outRate := res.Rate
+				if outRate <= 0 {
+					outRate = decimTarget
+				}
 				sigMHz := signals[i].CenterHz / 1e6
 				isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (signals[i].Class != nil && (signals[i].Class.ModType == "WFM" || signals[i].Class.ModType == "WFM_STEREO"))
 				if isWFM {
-					outRate = 500000
+					outRate = wfmStreamOutRate
 				}
 				decim := sampleRate / outRate
 				if decim < 1 {
@@ -393,7 +400,7 @@ func extractForStreaming(
 		isWFM := (sigMHz >= 87.5 && sigMHz <= 108.0) || (sig.Class != nil && (sig.Class.ModType == "WFM" || sig.Class.ModType == "WFM_STEREO"))
 		outRate := decimTarget
 		if isWFM {
-			outRate = 500000
+			outRate = wfmStreamOutRate
 		}
 		decim := sampleRate / outRate
 		if decim < 1 {

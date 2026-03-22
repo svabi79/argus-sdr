@@ -164,13 +164,15 @@ func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {
 
 		// LL-2: Send actual audio info (channels, sample rate from session)
 		info := map[string]any{
-			"type":        "audio_info",
-			"sample_rate": audioInfo.SampleRate,
-			"channels":    audioInfo.Channels,
-			"format":      audioInfo.Format,
-			"demod":       audioInfo.DemodName,
-			"freq":        freq,
-			"mode":        mode,
+			"type":          "audio_info",
+			"sample_rate":   audioInfo.SampleRate,
+			"channels":      audioInfo.Channels,
+			"format":        audioInfo.Format,
+			"demod":         audioInfo.DemodName,
+			"playback_mode": audioInfo.PlaybackMode,
+			"stereo_state":  audioInfo.StereoState,
+			"freq":          freq,
+			"mode":          mode,
 		}
 		if infoBytes, err := json.Marshal(info); err == nil {
 			_ = conn.WriteMessage(websocket.TextMessage, infoBytes)

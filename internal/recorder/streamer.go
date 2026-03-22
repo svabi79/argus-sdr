@@ -25,14 +25,16 @@ import (
 // ---------------------------------------------------------------------------
 
 type streamSession struct {
-	signalID  int64
-	centerHz  float64
-	bwHz      float64
-	snrDb     float64
-	peakDb    float64
-	class     *classifier.Classification
-	startTime time.Time
-	lastFeed  time.Time
+	signalID     int64
+	centerHz     float64
+	bwHz         float64
+	snrDb        float64
+	peakDb       float64
+	class        *classifier.Classification
+	startTime    time.Time
+	lastFeed     time.Time
+	playbackMode string
+	stereoState  string
 
 	// listenOnly sessions have no WAV file and no disk I/O.
 	// They exist solely to feed audio to live-listen subscribers.
@@ -116,10 +118,12 @@ type audioSub struct {
 // AudioInfo describes the audio format of a live-listen subscription.
 // Sent to the WebSocket client as the first message.
 type AudioInfo struct {
-	SampleRate int    `json:"sample_rate"`
-	Channels   int    `json:"channels"`
-	Format     string `json:"format"` // always "s16le"
-	DemodName  string `json:"demod"`
+	SampleRate   int    `json:"sample_rate"`
+	Channels     int    `json:"channels"`
+	Format       string `json:"format"` // always "s16le"
+	DemodName    string `json:"demod"`
+	PlaybackMode string `json:"playback_mode,omitempty"`
+	StereoState  string `json:"stereo_state,omitempty"`
 }
 
 const (
@@ -437,12 +441,7 @@ func (st *Streamer) attachPendingListeners(sess *streamSession) {
 
 			// Send updated audio_info now that we know the real session params.
 			// Prefix with 0x00 tag byte so ws/audio handler sends as TextMessage.
-			infoJSON, _ := json.Marshal(AudioInfo{
-				SampleRate: sess.sampleRate,
-				Channels:   sess.channels,
-				Format:     "s16le",
-				DemodName:  sess.demodName,
-			})
+			infoJSON, _ := json.Marshal(sess.audioInfo())
 			tagged := make([]byte, 1+len(infoJSON))
 			tagged[0] = 0x00 // tag: audio_info
 			copy(tagged[1:], infoJSON)
@@ -520,12 +519,7 @@ func (st *Streamer) SubscribeAudio(freq float64, bw float64, mode string) (int64
 
 	if bestSess != nil && bestDist < 200000 {
 		bestSess.audioSubs = append(bestSess.audioSubs, audioSub{id: subID, ch: ch})
-		info := AudioInfo{
-			SampleRate: bestSess.sampleRate,
-			Channels:   bestSess.channels,
-			Format:     "s16le",
-			DemodName:  bestSess.demodName,
-		}
+		info := bestSess.audioInfo()
 		log.Printf("STREAM: subscriber %d attached to signal %d (%.1fMHz %s)",
 			subID, bestSess.signalID, bestSess.centerHz/1e6, bestSess.demodName)
 		return subID, ch, info, nil
@@ -538,12 +532,7 @@ func (st *Streamer) SubscribeAudio(freq float64, bw float64, mode string) (int64
 		mode: mode,
 		ch:   ch,
 	}
-	info := AudioInfo{
-		SampleRate: streamAudioRate,
-		Channels:   1,
-		Format:     "s16le",
-		DemodName:  "NFM",
-	}
+	info := defaultAudioInfoForMode(mode)
 	log.Printf("STREAM: subscriber %d pending (freq=%.1fMHz)", subID, freq/1e6)
 	log.Printf("LIVEAUDIO MATCH: subscriber=%d pending req=%.3fMHz bw=%.0f mode=%s", subID, freq/1e6, bw, mode)
 	return subID, ch, info, nil
@@ -664,6 +653,7 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	// --- Stateful stereo decode with conservative lock/hysteresis ---
 	channels := 1
 	if isWFMStereo {
+		sess.playbackMode = "WFM_STEREO"
 		channels = 2 // keep transport format stable for live WFM_STEREO sessions
 		stereoAudio, locked := sess.stereoDecodeStateful(audio, actualDemodRate)
 		if locked {
@@ -680,8 +670,10 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 			}
 		}
 		if sess.stereoEnabled && len(stereoAudio) > 0 {
+			sess.stereoState = "locked"
 			audio = stereoAudio
 		} else {
+			sess.stereoState = "mono-fallback"
 			dual := make([]float32, len(audio)*2)
 			for i, s := range audio {
 				dual[i*2] = s
@@ -999,6 +991,8 @@ func (st *Streamer) openRecordingSession(sig *detector.Signal, now time.Time) (*
 		return nil, err
 	}
 
+	playbackMode, stereoState := initialPlaybackState(demodName)
+
 	sess := &streamSession{
 		signalID:     sig.ID,
 		centerHz:     sig.CenterHz,
@@ -1014,6 +1008,8 @@ func (st *Streamer) openRecordingSession(sig *detector.Signal, now time.Time) (*
 		sampleRate:   streamAudioRate,
 		channels:     channels,
 		demodName:    demodName,
+		playbackMode: playbackMode,
+		stereoState:  stereoState,
 		deemphasisUs: st.policy.DeemphasisUs,
 	}
 
@@ -1039,6 +1035,7 @@ func (st *Streamer) openListenSession(sig *detector.Signal, now time.Time) *stre
 			}
 		}
 	}
+	playbackMode, stereoState := initialPlaybackState(demodName)
 
 	sess := &streamSession{
 		signalID:     sig.ID,
@@ -1053,6 +1050,8 @@ func (st *Streamer) openListenSession(sig *detector.Signal, now time.Time) *stre
 		sampleRate:   streamAudioRate,
 		channels:     channels,
 		demodName:    demodName,
+		playbackMode: playbackMode,
+		stereoState:  stereoState,
 		deemphasisUs: st.policy.DeemphasisUs,
 	}
 
@@ -1075,6 +1074,48 @@ func resolveDemod(sig *detector.Signal) (string, int) {
 		channels = d.Channels()
 	}
 	return demodName, channels
+}
+
+func initialPlaybackState(demodName string) (string, string) {
+	playbackMode := demodName
+	stereoState := "mono"
+	if demodName == "WFM_STEREO" {
+		stereoState = "searching"
+	}
+	return playbackMode, stereoState
+}
+
+func (sess *streamSession) audioInfo() AudioInfo {
+	return AudioInfo{
+		SampleRate:   sess.sampleRate,
+		Channels:     sess.channels,
+		Format:       "s16le",
+		DemodName:    sess.demodName,
+		PlaybackMode: sess.playbackMode,
+		StereoState:  sess.stereoState,
+	}
+}
+
+func defaultAudioInfoForMode(mode string) AudioInfo {
+	demodName := "NFM"
+	if requested := normalizeRequestedMode(mode); requested != "" {
+		demodName = requested
+	}
+	channels := 1
+	if demodName == "WFM_STEREO" {
+		channels = 2
+	} else if d := demod.Get(demodName); d != nil {
+		channels = d.Channels()
+	}
+	playbackMode, stereoState := initialPlaybackState(demodName)
+	return AudioInfo{
+		SampleRate:   streamAudioRate,
+		Channels:     channels,
+		Format:       "s16le",
+		DemodName:    demodName,
+		PlaybackMode: playbackMode,
+		StereoState:  stereoState,
+	}
 }
 
 func normalizeRequestedMode(mode string) string {

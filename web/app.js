@@ -124,12 +124,18 @@ const presetButtons = Array.from(document.querySelectorAll('.preset-btn'));
 const liveListenBtn = qs('liveListenBtn');
 const listenSecondsInput = qs('listenSeconds');
 const listenModeSelect = qs('listenMode');
+const listenMetaDemod = qs('listenMetaDemod');
+const listenMetaPlayback = qs('listenMetaPlayback');
+const listenMetaStereo = qs('listenMetaStereo');
+const listenMetaRate = qs('listenMetaRate');
+const listenMetaChannels = qs('listenMetaChannels');
 
 let latest = null;
 let currentConfig = null;
 let liveAudio = null;
 let liveListenWS = null; // WebSocket-based live listen
 let liveListenTarget = null; // { freq, bw, mode }
+let liveListenInfo = null;
 let stats = { buffer_samples: 0, dropped: 0, resets: 0, last_sample_ago_ms: -1 };
 let refinementInfo = {};
 let decisionIndex = new Map();
@@ -165,9 +171,12 @@ class LiveListenWS {
         // audio_info JSON message (initial or updated when session attached)
         try {
           const info = JSON.parse(ev.data);
-          if (info.sample_rate || info.channels) {
-            const newRate = info.sample_rate || 48000;
-            const newCh = info.channels || 1;
+          handleLiveListenAudioInfo(info);
+          const hasRate = Number.isFinite(info.sample_rate) && info.sample_rate > 0;
+          const hasCh = Number.isFinite(info.channels) && info.channels > 0;
+          if (hasRate || hasCh) {
+            const newRate = hasRate ? info.sample_rate : this.sampleRate;
+            const newCh = hasCh ? info.channels : this.channels;
             // If channels or rate changed, reinit AudioContext
             if (newRate !== this.sampleRate || newCh !== this.channels) {
               this.sampleRate = newRate;
@@ -279,6 +288,61 @@ class LiveListenWS {
   }
 }
 
+const liveListenDefaults = {
+  demod: '-',
+  playback_mode: 'Inactive',
+  stereo_state: '-',
+  sample_rate: null,
+  channels: null
+};
+
+function formatListenMetaValue(value, fallback = '-') {
+  if (value === undefined || value === null || value === '') return fallback;
+  return String(value);
+}
+
+function renderLiveListenMeta(info) {
+  if (!listenMetaDemod) return;
+  const demod = formatListenMetaValue(info?.demod);
+  const playback = formatListenMetaValue(info?.playback_mode, 'Inactive');
+  const stereo = formatListenMetaValue(info?.stereo_state);
+  const sampleRate = Number.isFinite(info?.sample_rate) && info.sample_rate > 0
+    ? fmtHz(info.sample_rate)
+    : '-';
+  const channels = Number.isFinite(info?.channels) && info.channels > 0
+    ? String(info.channels)
+    : '-';
+
+  listenMetaDemod.textContent = demod;
+  listenMetaPlayback.textContent = playback;
+  listenMetaStereo.textContent = stereo;
+  listenMetaRate.textContent = sampleRate;
+  listenMetaChannels.textContent = channels;
+}
+
+function resetLiveListenMeta() {
+  liveListenInfo = { ...liveListenDefaults };
+  renderLiveListenMeta(liveListenInfo);
+}
+
+function updateLiveListenMeta(partial) {
+  liveListenInfo = { ...(liveListenInfo || liveListenDefaults), ...partial };
+  renderLiveListenMeta(liveListenInfo);
+}
+
+function handleLiveListenAudioInfo(info) {
+  if (!info || typeof info !== 'object') return;
+  const partial = {};
+  if (info.demod) partial.demod = info.demod;
+  if (info.playback_mode) partial.playback_mode = info.playback_mode;
+  if (info.stereo_state) partial.stereo_state = info.stereo_state;
+  if (Number.isFinite(info.sample_rate)) partial.sample_rate = info.sample_rate;
+  if (Number.isFinite(info.channels)) partial.channels = info.channels;
+  if (Object.keys(partial).length > 0) {
+    updateLiveListenMeta(partial);
+  }
+}
+
 function resolveListenMode(detectedMode) {
   const manual = listenModeSelect?.value || '';
   if (manual) return manual;
@@ -304,6 +368,7 @@ function stopLiveListen() {
   }
   liveListenTarget = null;
   setLiveListenUI(false);
+  resetLiveListenMeta();
 }
 
 function startLiveListen(freq, bw, detectedMode) {
@@ -328,9 +393,19 @@ function startLiveListen(freq, bw, detectedMode) {
     liveListenWS = null;
     liveListenTarget = null;
     setLiveListenUI(false);
+    resetLiveListenMeta();
   });
   liveListenWS.start();
   setLiveListenUI(true);
+
+  const startingInfo = {
+    demod: mode || '-',
+    playback_mode: 'Starting',
+    stereo_state: mode === 'WFM_STEREO' ? 'searching' : 'mono',
+    sample_rate: 48000,
+    channels: mode === 'WFM_STEREO' ? 2 : 1
+  };
+  updateLiveListenMeta(startingInfo);
 }
 
 function matchesListenTarget(signal) {
@@ -2292,6 +2367,7 @@ window.addEventListener('keydown', (ev) => {
 });
 
 loadConfig();
+resetLiveListenMeta();
 loadStats();
 loadGPU();
 loadRefinement();
