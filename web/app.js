@@ -1509,17 +1509,17 @@ function _createSignalItem(s) {
   btn.dataset.bw = s.bw_hz || 0;
   btn.dataset.class = s.class?.mod_type || '';
   btn.dataset.id = s.id || 0;
-  const mod = s.class?.mod_type || '';
   const primaryMode = getSignalPrimaryMode(s);
   const mc = modColor(primaryMode);
-  const rds = s.class?.pll?.rds_station || '';
-  const runtime = getSignalRuntimeSummary(s);
-  const audio = getSignalAudioSummary(s);
   const dec = decisionIndex.get(String(s.id || 0));
   const decText = dec?.reason ? `${dec.reason}` : '';
   const decFlags = dec ? `${dec.record ? 'REC' : ''}${dec.decode ? (dec.record ? '+DEC' : 'DEC') : ''}` : '';
-  const decMeta = decText || decFlags ? `<span class="item-meta" data-field="decision" style="opacity:0.75">${decFlags}${decFlags && decText ? ' · ' : ''}${decText}</span>` : '';
-  btn.innerHTML = `<div class="item-top"><span class="item-title" data-field="freq">${fmtMHz(s.center_hz, 6)}</span><span class="item-badge" data-field="snr" style="color:${snrColor(s.snr_db || 0)}">${(s.snr_db || 0).toFixed(1)} dB</span></div><div class="item-bottom"><span class="signal-primary"><span class="item-meta item-meta--runtime" data-field="mode" style="color:${mc.label}">${primaryMode}</span>${runtime ? `<span class="item-meta item-meta--live" data-field="runtime">${runtime}</span>` : ''}</span><span class="signal-secondary"><span class="item-meta" data-field="bw" style="opacity:0.6">BW ${fmtKHz(s.bw_hz || 0)}</span>${audio ? `<span class="item-meta" data-field="audio">${audio}</span>` : ''}${rds ? `<span class="item-meta" data-field="rds" style="color:#fff;font-weight:700">${rds}</span>` : ''}${decMeta}</span></div>`;
+  const metaBits = [];
+  if (decFlags) metaBits.push(decFlags);
+  if (decText) metaBits.push(decText);
+  if (s.class?.pll?.rds_station) metaBits.push(`RDS ${s.class.pll.rds_station}`);
+  btn.title = metaBits.join(' · ');
+  btn.innerHTML = `<div class="item-top"><span class="item-title" data-field="freq">${fmtMHz(s.center_hz, 6)}</span><span class="item-badge" data-field="snr" style="color:${snrColor(s.snr_db || 0)}">${(s.snr_db || 0).toFixed(1)} dB</span></div><div class="item-bottom"><span class="item-meta item-meta--runtime" data-field="mode" style="color:${mc.label}">${primaryMode}</span></div>`;
   btn.style.borderLeftColor = mc.label;
   btn.style.borderLeftWidth = '3px';
   btn.style.borderLeftStyle = 'solid';
@@ -1530,41 +1530,21 @@ function _createSignalItem(s) {
 function _patchSignalItem(el, s) {
   const freqEl = el.querySelector('[data-field="freq"]');
   const snrEl = el.querySelector('[data-field="snr"]');
-  const bwEl = el.querySelector('[data-field="bw"]');
   const modeEl = el.querySelector('[data-field="mode"]');
-  const runtimeEl = el.querySelector('[data-field="runtime"]');
-  const audioEl = el.querySelector('[data-field="audio"]');
-  const rdsEl = el.querySelector('[data-field="rds"]');
   const mod = s.class?.mod_type || '';
   const primaryMode = getSignalPrimaryMode(s);
   const mc = modColor(primaryMode);
-  const runtime = getSignalRuntimeSummary(s);
-  const audio = getSignalAudioSummary(s);
-  const rds = s.class?.pll?.rds_station || '';
+  const dec = decisionIndex.get(String(s.id || 0));
+  const decText = dec?.reason ? `${dec.reason}` : '';
+  const decFlags = dec ? `${dec.record ? 'REC' : ''}${dec.decode ? (dec.record ? '+DEC' : 'DEC') : ''}` : '';
+  const metaBits = [];
+  if (decFlags) metaBits.push(decFlags);
+  if (decText) metaBits.push(decText);
+  if (s.class?.pll?.rds_station) metaBits.push(`RDS ${s.class.pll.rds_station}`);
+  el.title = metaBits.join(' · ');
   if (freqEl) freqEl.textContent = fmtMHz(s.center_hz, 6);
   if (snrEl) { snrEl.textContent = `${(s.snr_db || 0).toFixed(1)} dB`; snrEl.style.color = snrColor(s.snr_db || 0); }
-  if (bwEl) bwEl.textContent = `BW ${fmtKHz(s.bw_hz || 0)}`;
   if (modeEl) { modeEl.textContent = primaryMode; modeEl.style.color = mc.label; }
-  if (runtimeEl) {
-    runtimeEl.textContent = runtime;
-    runtimeEl.style.display = runtime ? '' : 'none';
-  }
-  if (audioEl) {
-    audioEl.textContent = audio;
-    audioEl.style.display = audio ? '' : 'none';
-  }
-  if (rdsEl) {
-    rdsEl.textContent = rds;
-    rdsEl.style.display = rds ? '' : 'none';
-  } else if (rds && !rdsEl) {
-    const span = document.createElement('span');
-    span.className = 'item-meta';
-    span.dataset.field = 'rds';
-    span.style.color = '#fff';
-    span.style.fontWeight = '700';
-    span.textContent = rds;
-    el.querySelector('.signal-secondary')?.appendChild(span);
-  }
   el.dataset.center = s.center_hz;
   el.dataset.bw = s.bw_hz || 0;
   el.dataset.class = mod;

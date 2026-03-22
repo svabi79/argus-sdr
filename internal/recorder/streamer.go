@@ -669,6 +669,8 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 				sess.stereoEnabled = false
 			}
 		}
+		prevPlayback := sess.playbackMode
+		prevStereo := sess.stereoState
 		if sess.stereoEnabled && len(stereoAudio) > 0 {
 			sess.stereoState = "locked"
 			audio = stereoAudio
@@ -680,6 +682,9 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 				dual[i*2+1] = s
 			}
 			audio = dual
+		}
+		if (prevPlayback != sess.playbackMode || prevStereo != sess.stereoState) && len(sess.audioSubs) > 0 {
+			sendAudioInfo(sess.audioSubs, sess.audioInfo())
 		}
 	}
 
@@ -1093,6 +1098,19 @@ func (sess *streamSession) audioInfo() AudioInfo {
 		DemodName:    sess.demodName,
 		PlaybackMode: sess.playbackMode,
 		StereoState:  sess.stereoState,
+	}
+}
+
+func sendAudioInfo(subs []audioSub, info AudioInfo) {
+	infoJSON, _ := json.Marshal(info)
+	tagged := make([]byte, 1+len(infoJSON))
+	tagged[0] = 0x00 // tag: audio_info
+	copy(tagged[1:], infoJSON)
+	for _, sub := range subs {
+		select {
+		case sub.ch <- tagged:
+		default:
+		}
 	}
 }
 
