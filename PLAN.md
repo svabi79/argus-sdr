@@ -126,7 +126,7 @@ Wichtig:
   - track
   - present
   - record
-- Gemeinsame Arbitration-/Budget-Sicht für refinement/record/decode zentralisieren (Admission + Queue/Hold + Debug-Surface)
+- Gemeinsame Arbitration-/Budget-Sicht für refinement/record/decode zentralisieren (Admission + Queue/Hold + Debug-Surface) — umgesetzt via zentralem Arbiter im Pipeline-Paket + normalisierter Reason-Taxonomie; künftige Phase: tieferer Scheduler/Intent-Budget-Override
 
 ### F. Dokumentierte Betriebsprofile
 - initiale Profile definieren, z. B.:
