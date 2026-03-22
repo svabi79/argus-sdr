@@ -41,6 +41,8 @@ type MonitorWindow struct {
 	Source       string  `json:"source,omitempty"`
 	Priority     float64 `json:"priority,omitempty"`
 	PriorityBias float64 `json:"priority_bias,omitempty"`
+	AutoRecord   bool    `json:"auto_record,omitempty"`
+	AutoDecode   bool    `json:"auto_decode,omitempty"`
 }
 
 // MonitorWindowMatch captures how a candidate overlaps a monitor window.
@@ -56,6 +58,8 @@ type MonitorWindowMatch struct {
 	Coverage   float64 `json:"coverage,omitempty"`
 	DistanceHz float64 `json:"distance_hz,omitempty"`
 	Bias       float64 `json:"bias,omitempty"`
+	AutoRecord bool    `json:"auto_record,omitempty"`
+	AutoDecode bool    `json:"auto_decode,omitempty"`
 }
 
 // MonitorWindowStats summarizes candidate attribution per monitor window.
@@ -69,6 +73,8 @@ type MonitorWindowStats struct {
 	SpanHz       float64 `json:"span_hz,omitempty"`
 	Priority     float64 `json:"priority,omitempty"`
 	PriorityBias float64 `json:"priority_bias,omitempty"`
+	AutoRecord   bool    `json:"auto_record,omitempty"`
+	AutoDecode   bool    `json:"auto_decode,omitempty"`
 	Candidates   int     `json:"candidates,omitempty"`
 	Planned      int     `json:"planned,omitempty"`
 	Dropped      int     `json:"dropped,omitempty"`

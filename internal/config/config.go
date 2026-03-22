@@ -16,12 +16,14 @@ type Band struct {
 }
 
 type MonitorWindow struct {
-	Label    string  `yaml:"label" json:"label"`
-	StartHz  float64 `yaml:"start_hz" json:"start_hz"`
-	EndHz    float64 `yaml:"end_hz" json:"end_hz"`
-	CenterHz float64 `yaml:"center_hz" json:"center_hz"`
-	SpanHz   float64 `yaml:"span_hz" json:"span_hz"`
-	Priority float64 `yaml:"priority" json:"priority"`
+	Label      string  `yaml:"label" json:"label"`
+	StartHz    float64 `yaml:"start_hz" json:"start_hz"`
+	EndHz      float64 `yaml:"end_hz" json:"end_hz"`
+	CenterHz   float64 `yaml:"center_hz" json:"center_hz"`
+	SpanHz     float64 `yaml:"span_hz" json:"span_hz"`
+	Priority   float64 `yaml:"priority" json:"priority"`
+	AutoRecord bool    `yaml:"auto_record" json:"auto_record"`
+	AutoDecode bool    `yaml:"auto_decode" json:"auto_decode"`
 }
 
 type DetectorConfig struct {

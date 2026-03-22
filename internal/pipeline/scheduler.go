@@ -422,6 +422,8 @@ func buildMonitorWindowStats(windows []MonitorWindow) []MonitorWindowStats {
 			SpanHz:       win.SpanHz,
 			Priority:     win.Priority,
 			PriorityBias: win.PriorityBias,
+			AutoRecord:   win.AutoRecord,
+			AutoDecode:   win.AutoDecode,
 		})
 	}
 	return stats

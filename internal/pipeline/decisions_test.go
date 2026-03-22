@@ -31,3 +31,49 @@ func TestDecideSignalActionUsesHintWithoutClass(t *testing.T) {
 		t.Fatalf("expected reason for hint-based decision")
 	}
 }
+
+func TestDecideSignalActionWindowAutoRecord(t *testing.T) {
+	policy := Policy{
+		MonitorWindows: finalizeMonitorWindows([]MonitorWindow{{
+			Label:      "record-zone",
+			StartHz:    100,
+			EndHz:      200,
+			CenterHz:   150,
+			SpanHz:     100,
+			AutoRecord: true,
+		}}),
+	}
+	decision := DecideSignalAction(policy, Candidate{ID: 3, CenterHz: 150}, nil)
+	if !decision.ShouldRecord {
+		t.Fatalf("expected window auto record decision")
+	}
+	if decision.Reason != DecisionReasonRecordWindow {
+		t.Fatalf("expected window record reason, got %q", decision.Reason)
+	}
+	if decision.RecordWindow == nil || decision.RecordWindow.Label != "record-zone" {
+		t.Fatalf("expected record window match to be set")
+	}
+}
+
+func TestDecideSignalActionWindowAutoDecode(t *testing.T) {
+	policy := Policy{
+		MonitorWindows: finalizeMonitorWindows([]MonitorWindow{{
+			Label:      "decode-zone",
+			StartHz:    300,
+			EndHz:      350,
+			CenterHz:   325,
+			SpanHz:     50,
+			AutoDecode: true,
+		}}),
+	}
+	decision := DecideSignalAction(policy, Candidate{ID: 4, CenterHz: 325}, nil)
+	if !decision.ShouldAutoDecode {
+		t.Fatalf("expected window auto decode decision")
+	}
+	if decision.Reason != DecisionReasonDecodeWindow {
+		t.Fatalf("expected window decode reason, got %q", decision.Reason)
+	}
+	if decision.DecodeWindow == nil || decision.DecodeWindow.Label != "decode-zone" {
+		t.Fatalf("expected decode window match to be set")
+	}
+}

@@ -6,14 +6,16 @@ const (
 )
 
 const (
-	DecisionReasonRecordClass = "decision:record:class"
-	DecisionReasonRecordHint  = "decision:record:hint"
-	DecisionReasonDecodeClass = "decision:decode:class"
-	DecisionReasonDecodeHint  = "decision:decode:hint"
-	DecisionReasonHintOnly    = "decision:hint"
-	DecisionReasonQueueRecord = "queue:record:budget"
-	DecisionReasonQueueDecode = "queue:decode:budget"
-	DecisionReasonUnspecified = "decision:unspecified"
+	DecisionReasonRecordClass  = "decision:record:class"
+	DecisionReasonRecordHint   = "decision:record:hint"
+	DecisionReasonRecordWindow = "decision:record:window"
+	DecisionReasonDecodeClass  = "decision:decode:class"
+	DecisionReasonDecodeHint   = "decision:decode:hint"
+	DecisionReasonDecodeWindow = "decision:decode:window"
+	DecisionReasonHintOnly     = "decision:hint"
+	DecisionReasonQueueRecord  = "queue:record:budget"
+	DecisionReasonQueueDecode  = "queue:decode:budget"
+	DecisionReasonUnspecified  = "decision:unspecified"
 )
 
 const (

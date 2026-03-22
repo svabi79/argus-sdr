@@ -105,13 +105,15 @@ func normalizeGoalWindow(raw config.MonitorWindow, fallbackCenter float64) (Moni
 	if raw.StartHz > 0 && raw.EndHz > raw.StartHz {
 		span := raw.EndHz - raw.StartHz
 		return MonitorWindow{
-			Label:    raw.Label,
-			StartHz:  raw.StartHz,
-			EndHz:    raw.EndHz,
-			CenterHz: (raw.StartHz + raw.EndHz) / 2,
-			SpanHz:   span,
-			Source:   "goals:window:start_end",
-			Priority: raw.Priority,
+			Label:      raw.Label,
+			StartHz:    raw.StartHz,
+			EndHz:      raw.EndHz,
+			CenterHz:   (raw.StartHz + raw.EndHz) / 2,
+			SpanHz:     span,
+			Source:     "goals:window:start_end",
+			Priority:   raw.Priority,
+			AutoRecord: raw.AutoRecord,
+			AutoDecode: raw.AutoDecode,
 		}, true
 	}
 	center := raw.CenterHz
@@ -125,13 +127,15 @@ func normalizeGoalWindow(raw config.MonitorWindow, fallbackCenter float64) (Moni
 			source = "goals:window:span_default"
 		}
 		return MonitorWindow{
-			Label:    raw.Label,
-			StartHz:  center - half,
-			EndHz:    center + half,
-			CenterHz: center,
-			SpanHz:   raw.SpanHz,
-			Source:   source,
-			Priority: raw.Priority,
+			Label:      raw.Label,
+			StartHz:    center - half,
+			EndHz:      center + half,
+			CenterHz:   center,
+			SpanHz:     raw.SpanHz,
+			Source:     source,
+			Priority:   raw.Priority,
+			AutoRecord: raw.AutoRecord,
+			AutoDecode: raw.AutoDecode,
 		}, true
 	}
 	return MonitorWindow{}, false
@@ -271,6 +275,8 @@ func MonitorWindowMatchesForCandidate(windows []MonitorWindow, candidate Candida
 			Coverage:   coverage,
 			DistanceHz: distance,
 			Bias:       bias,
+			AutoRecord: win.AutoRecord,
+			AutoDecode: win.AutoDecode,
 		})
 	}
 	if len(matches) == 0 {

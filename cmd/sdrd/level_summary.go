@@ -53,6 +53,8 @@ type CandidateWindowSummary struct {
 	SpanHz       float64 `json:"span_hz,omitempty"`
 	Priority     float64 `json:"priority,omitempty"`
 	PriorityBias float64 `json:"priority_bias,omitempty"`
+	AutoRecord   bool    `json:"auto_record,omitempty"`
+	AutoDecode   bool    `json:"auto_decode,omitempty"`
 	Candidates   int     `json:"candidates"`
 }
 
@@ -235,6 +237,8 @@ func buildCandidateWindowSummary(candidates []pipeline.Candidate, windows []pipe
 			SpanHz:       win.SpanHz,
 			Priority:     win.Priority,
 			PriorityBias: win.PriorityBias,
+			AutoRecord:   win.AutoRecord,
+			AutoDecode:   win.AutoDecode,
 		}
 		index[win.Index] = len(out)
 		out = append(out, entry)

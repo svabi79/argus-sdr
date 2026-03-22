@@ -476,7 +476,7 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 }
 
 func windowTagForDecision(decision SignalDecision) string {
-	if decision.MonitorBias == 0 || decision.MonitorDetail == nil {
+	if decision.MonitorDetail == nil {
 		return ""
 	}
 	label := strings.TrimSpace(decision.MonitorDetail.Label)
