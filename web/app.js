@@ -226,6 +226,7 @@ class LiveListenWS {
     this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({
       sampleRate: this.sampleRate
     });
+    this.audioCtx.resume().catch(() => {});
     this.nextTime = 0;
     this.started = false;
   }
@@ -233,6 +234,9 @@ class LiveListenWS {
   _playChunk(buf) {
     const ctx = this.audioCtx;
     if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
 
     const samples = new Int16Array(buf);
     const nFrames = Math.floor(samples.length / this.channels);
