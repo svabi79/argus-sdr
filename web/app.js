@@ -1534,17 +1534,28 @@ function _patchSignalItem(el, s) {
   const mod = s.class?.mod_type || '';
   const primaryMode = getSignalPrimaryMode(s);
   const mc = modColor(primaryMode);
+  const rds = s.class?.pll?.rds_station || '';
+  const rdsEl = el.querySelector('[data-field="rds"]');
   const dec = decisionIndex.get(String(s.id || 0));
   const decText = dec?.reason ? `${dec.reason}` : '';
   const decFlags = dec ? `${dec.record ? 'REC' : ''}${dec.decode ? (dec.record ? '+DEC' : 'DEC') : ''}` : '';
   const metaBits = [];
   if (decFlags) metaBits.push(decFlags);
   if (decText) metaBits.push(decText);
-  if (s.class?.pll?.rds_station) metaBits.push(`RDS ${s.class.pll.rds_station}`);
   el.title = metaBits.join(' · ');
   if (freqEl) freqEl.textContent = fmtMHz(s.center_hz, 6);
   if (snrEl) { snrEl.textContent = `${(s.snr_db || 0).toFixed(1)} dB`; snrEl.style.color = snrColor(s.snr_db || 0); }
   if (modeEl) { modeEl.textContent = primaryMode; modeEl.style.color = mc.label; }
+  if (rdsEl) {
+    rdsEl.textContent = rds;
+    rdsEl.style.display = rds ? '' : 'none';
+  } else if (rds) {
+    const span = document.createElement('span');
+    span.className = 'item-meta item-meta--rds';
+    span.dataset.field = 'rds';
+    span.textContent = rds;
+    el.querySelector('.item-bottom')?.appendChild(span);
+  }
   el.dataset.center = s.center_hz;
   el.dataset.bw = s.bw_hz || 0;
   el.dataset.class = mod;

@@ -442,6 +442,12 @@ input[type="range"]::-moz-range-thumb {
   color: var(--accent);
   font-weight: 700;
 }
+.item-meta--rds {
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+}
 
 /* Health Grid */
 .health-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
