@@ -97,6 +97,7 @@ type SurveillanceConfig struct {
 type RefinementConfig struct {
 	Enabled           bool    `yaml:"enabled" json:"enabled"`
 	MaxConcurrent     int     `yaml:"max_concurrent" json:"max_concurrent"`
+	DetailFFTSize     int     `yaml:"detail_fft_size" json:"detail_fft_size"`
 	MinCandidateSNRDb float64 `yaml:"min_candidate_snr_db" json:"min_candidate_snr_db"`
 	MinSpanHz         float64 `yaml:"min_span_hz" json:"min_span_hz"`
 	MaxSpanHz         float64 `yaml:"max_span_hz" json:"max_span_hz"`
@@ -178,6 +179,7 @@ func Default() Config {
 		Refinement: RefinementConfig{
 			Enabled:           true,
 			MaxConcurrent:     8,
+			DetailFFTSize:     0,
 			MinCandidateSNRDb: 0,
 			MinSpanHz:         0,
 			MaxSpanHz:         0,
@@ -205,6 +207,7 @@ func Default() Config {
 				Refinement: &RefinementConfig{
 					Enabled:           true,
 					MaxConcurrent:     8,
+					DetailFFTSize:     0,
 					MinCandidateSNRDb: 0,
 					MinSpanHz:         0,
 					MaxSpanHz:         0,
@@ -235,6 +238,7 @@ func Default() Config {
 				Refinement: &RefinementConfig{
 					Enabled:           true,
 					MaxConcurrent:     16,
+					DetailFFTSize:     0,
 					MinCandidateSNRDb: 0,
 					MinSpanHz:         4000,
 					MaxSpanHz:         200000,
@@ -265,6 +269,7 @@ func Default() Config {
 				Refinement: &RefinementConfig{
 					Enabled:           true,
 					MaxConcurrent:     32,
+					DetailFFTSize:     0,
 					MinCandidateSNRDb: 0,
 					MinSpanHz:         6000,
 					MaxSpanHz:         250000,
@@ -295,6 +300,7 @@ func Default() Config {
 				Refinement: &RefinementConfig{
 					Enabled:           true,
 					MaxConcurrent:     12,
+					DetailFFTSize:     0,
 					MinCandidateSNRDb: 0,
 					MinSpanHz:         4000,
 					MaxSpanHz:         200000,
@@ -325,6 +331,7 @@ func Default() Config {
 				Refinement: &RefinementConfig{
 					Enabled:           true,
 					MaxConcurrent:     16,
+					DetailFFTSize:     0,
 					MinCandidateSNRDb: 0,
 					MinSpanHz:         3000,
 					MaxSpanHz:         120000,
@@ -502,6 +509,12 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Refinement.MaxConcurrent <= 0 {
 		cfg.Refinement.MaxConcurrent = 8
+	}
+	if cfg.Refinement.DetailFFTSize <= 0 {
+		cfg.Refinement.DetailFFTSize = cfg.Surveillance.AnalysisFFTSize
+	}
+	if cfg.Refinement.DetailFFTSize&(cfg.Refinement.DetailFFTSize-1) != 0 {
+		cfg.Refinement.DetailFFTSize = cfg.Surveillance.AnalysisFFTSize
 	}
 	if cfg.Refinement.MinSpanHz < 0 {
 		cfg.Refinement.MinSpanHz = 0

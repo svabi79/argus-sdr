@@ -20,10 +20,11 @@ type BudgetModel struct {
 
 func BudgetModelFromPolicy(policy Policy) BudgetModel {
 	recordBias, decodeBias := budgetIntentBias(policy.Intent)
+	refBudget, refSource := refinementBudgetFromPolicy(policy)
 	return BudgetModel{
 		Refinement: BudgetQueue{
-			Max:    policy.MaxRefinementJobs,
-			Source: "resources.max_refinement_jobs",
+			Max:    refBudget,
+			Source: refSource,
 		},
 		Record: BudgetQueue{
 			Max:        policy.MaxRecordingStreams,
@@ -40,6 +41,16 @@ func BudgetModelFromPolicy(policy Policy) BudgetModel {
 		Profile:  policy.Profile,
 		Strategy: policy.RefinementStrategy,
 	}
+}
+
+func refinementBudgetFromPolicy(policy Policy) (int, string) {
+	budget := policy.MaxRefinementJobs
+	source := "resources.max_refinement_jobs"
+	if policy.RefinementMaxConcurrent > 0 && (budget <= 0 || policy.RefinementMaxConcurrent < budget) {
+		budget = policy.RefinementMaxConcurrent
+		source = "refinement.max_concurrent"
+	}
+	return budget, source
 }
 
 func budgetIntentBias(intent string) (float64, float64) {

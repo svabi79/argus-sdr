@@ -32,6 +32,9 @@ type dspRuntime struct {
 	det              *detector.Detector
 	window           []float64
 	plan             *fftutil.CmplxPlan
+	detailWindow     []float64
+	detailPlan       *fftutil.CmplxPlan
+	detailFFT        int
 	dcEnabled        bool
 	iqEnabled        bool
 	useGPU           bool
@@ -58,11 +61,18 @@ type spectrumArtifacts struct {
 }
 
 func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, gpuState *gpuStatus) *dspRuntime {
+	detailFFT := cfg.Refinement.DetailFFTSize
+	if detailFFT <= 0 {
+		detailFFT = cfg.FFTSize
+	}
 	rt := &dspRuntime{
 		cfg:              cfg,
 		det:              det,
 		window:           window,
 		plan:             fftutil.NewCmplxPlan(cfg.FFTSize),
+		detailWindow:     fftutil.Hann(detailFFT),
+		detailPlan:       fftutil.NewCmplxPlan(detailFFT),
+		detailFFT:        detailFFT,
 		dcEnabled:        cfg.DCBlock,
 		iqEnabled:        cfg.IQBalance,
 		useGPU:           cfg.UseGPUFFT,
@@ -88,6 +98,7 @@ func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, 
 func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *recorder.Manager, gpuState *gpuStatus) {
 	prevFFT := rt.cfg.FFTSize
 	prevUseGPU := rt.useGPU
+	prevDetailFFT := rt.detailFFT
 	rt.cfg = upd.cfg
 	if rec != nil {
 		rec.Update(rt.cfg.SampleRate, rt.cfg.FFTSize, recorder.Policy{
@@ -115,6 +126,15 @@ func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *rec
 	if upd.window != nil {
 		rt.window = upd.window
 		rt.plan = fftutil.NewCmplxPlan(rt.cfg.FFTSize)
+	}
+	detailFFT := rt.cfg.Refinement.DetailFFTSize
+	if detailFFT <= 0 {
+		detailFFT = rt.cfg.FFTSize
+	}
+	if detailFFT != prevDetailFFT {
+		rt.detailFFT = detailFFT
+		rt.detailWindow = fftutil.Hann(detailFFT)
+		rt.detailPlan = fftutil.NewCmplxPlan(detailFFT)
 	}
 	rt.dcEnabled = upd.dcBlock
 	rt.iqEnabled = upd.iqBalance
@@ -147,15 +167,19 @@ func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *rec
 }
 
 func (rt *dspRuntime) spectrumFromIQ(iq []complex64, gpuState *gpuStatus) []float64 {
+	return rt.spectrumFromIQWithPlan(iq, rt.window, rt.plan, gpuState, true)
+}
+
+func (rt *dspRuntime) spectrumFromIQWithPlan(iq []complex64, window []float64, plan *fftutil.CmplxPlan, gpuState *gpuStatus, allowGPU bool) []float64 {
 	if len(iq) == 0 {
 		return nil
 	}
-	if rt.useGPU && rt.gpuEngine != nil {
+	if allowGPU && rt.useGPU && rt.gpuEngine != nil {
 		gpuBuf := make([]complex64, len(iq))
-		if len(rt.window) == len(iq) {
+		if len(window) == len(iq) {
 			for i := 0; i < len(iq); i++ {
 				v := iq[i]
-				w := float32(rt.window[i])
+				w := float32(window[i])
 				gpuBuf[i] = complex(real(v)*w, imag(v)*w)
 			}
 		} else {
@@ -167,20 +191,24 @@ func (rt *dspRuntime) spectrumFromIQ(iq []complex64, gpuState *gpuStatus) []floa
 				gpuState.set(false, err)
 			}
 			rt.useGPU = false
-			return fftutil.SpectrumWithPlan(gpuBuf, nil, rt.plan)
+			return fftutil.SpectrumWithPlan(gpuBuf, nil, plan)
 		}
 		return fftutil.SpectrumFromFFT(out)
 	}
-	return fftutil.SpectrumWithPlan(iq, rt.window, rt.plan)
+	return fftutil.SpectrumWithPlan(iq, window, plan)
 }
 
 func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manager, dcBlocker *dsp.DCBlocker, gpuState *gpuStatus) (*spectrumArtifacts, error) {
-	available := rt.cfg.FFTSize
+	required := rt.cfg.FFTSize
+	if rt.detailFFT > required {
+		required = rt.detailFFT
+	}
+	available := required
 	st := srcMgr.Stats()
-	if st.BufferSamples > rt.cfg.FFTSize {
-		available = (st.BufferSamples / rt.cfg.FFTSize) * rt.cfg.FFTSize
-		if available < rt.cfg.FFTSize {
-			available = rt.cfg.FFTSize
+	if st.BufferSamples > required {
+		available = (st.BufferSamples / required) * required
+		if available < required {
+			available = required
 		}
 	}
 	allIQ, err := srcMgr.ReadIQ(available)
@@ -194,11 +222,19 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	if len(allIQ) > rt.cfg.FFTSize {
 		survIQ = allIQ[len(allIQ)-rt.cfg.FFTSize:]
 	}
+	detailIQ := survIQ
+	if rt.detailFFT > 0 && len(allIQ) >= rt.detailFFT {
+		detailIQ = allIQ[len(allIQ)-rt.detailFFT:]
+	}
 	if rt.dcEnabled {
-		dcBlocker.Apply(survIQ)
+		dcBlocker.Apply(allIQ)
 	}
 	if rt.iqEnabled {
 		dsp.IQBalance(survIQ)
+		if !sameIQBuffer(detailIQ, survIQ) {
+			detailIQ = append([]complex64(nil), detailIQ...)
+			dsp.IQBalance(detailIQ)
+		}
 	}
 	survSpectrum := rt.spectrumFromIQ(survIQ, gpuState)
 	for i := range survSpectrum {
@@ -206,10 +242,9 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 			survSpectrum[i] = -200
 		}
 	}
-	detailIQ := survIQ
 	detailSpectrum := survSpectrum
 	if !sameIQBuffer(detailIQ, survIQ) {
-		detailSpectrum = rt.spectrumFromIQ(detailIQ, gpuState)
+		detailSpectrum = rt.spectrumFromIQWithPlan(detailIQ, rt.detailWindow, rt.detailPlan, gpuState, false)
 		for i := range detailSpectrum {
 			if math.IsNaN(detailSpectrum[i]) || math.IsInf(detailSpectrum[i], 0) {
 				detailSpectrum[i] = -200
@@ -318,6 +353,10 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 			workItems[idx].Window = window
 		}
 	}
+	detailFFT := rt.cfg.Refinement.DetailFFTSize
+	if detailFFT <= 0 {
+		detailFFT = rt.cfg.FFTSize
+	}
 	levelSpan := spanForPolicy(policy, float64(rt.cfg.SampleRate))
 	if _, maxSpan, ok := windowSpanBounds(windows); ok {
 		levelSpan = maxSpan
@@ -327,7 +366,7 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 		Role:       "refinement",
 		Truth:      "refinement",
 		SampleRate: rt.cfg.SampleRate,
-		FFTSize:    rt.cfg.FFTSize,
+		FFTSize:    detailFFT,
 		CenterHz:   rt.cfg.CenterHz,
 		SpanHz:     levelSpan,
 		Source:     "refinement-window",
@@ -337,10 +376,26 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 		Role:       "detail",
 		Truth:      "refinement",
 		SampleRate: rt.cfg.SampleRate,
-		FFTSize:    rt.cfg.FFTSize,
+		FFTSize:    detailFFT,
 		CenterHz:   rt.cfg.CenterHz,
 		SpanHz:     levelSpan,
 		Source:     "detail-spectrum",
+	}
+	if len(workItems) > 0 {
+		for i := range workItems {
+			item := &workItems[i]
+			if item.Window.SpanHz <= 0 {
+				continue
+			}
+			item.Execution = &pipeline.RefinementExecution{
+				Stage:      "refine",
+				SampleRate: rt.cfg.SampleRate,
+				FFTSize:    detailFFT,
+				CenterHz:   item.Window.CenterHz,
+				SpanHz:     item.Window.SpanHz,
+				Source:     detailLevel.Source,
+			}
+		}
 	}
 	input := pipeline.RefinementInput{
 		Level:      level,
@@ -354,7 +409,7 @@ func (rt *dspRuntime) buildRefinementInput(surv pipeline.SurveillanceResult) pip
 		Plan:       plan,
 		Windows:    windows,
 		SampleRate: rt.cfg.SampleRate,
-		FFTSize:    rt.cfg.FFTSize,
+		FFTSize:    detailFFT,
 		CenterHz:   rt.cfg.CenterHz,
 		Source:     "surveillance-detector",
 	}

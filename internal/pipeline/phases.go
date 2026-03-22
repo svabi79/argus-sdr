@@ -38,6 +38,7 @@ type RefinementPlan struct {
 	TotalCandidates   int                  `json:"total_candidates"`
 	MinCandidateSNRDb float64              `json:"min_candidate_snr_db"`
 	Budget            int                  `json:"budget"`
+	BudgetSource      string               `json:"budget_source,omitempty"`
 	Strategy          string               `json:"strategy,omitempty"`
 	StrategyReason    string               `json:"strategy_reason,omitempty"`
 	MonitorStartHz    float64              `json:"monitor_start_hz,omitempty"`

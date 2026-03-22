@@ -152,6 +152,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"auto_record_classes":    policy.AutoRecordClasses,
 			"auto_decode_classes":    policy.AutoDecodeClasses,
 			"refinement_jobs":        policy.MaxRefinementJobs,
+			"refinement_detail_fft":  policy.RefinementDetailFFTSize,
 			"refinement_auto_span":   policy.RefinementAutoSpan,
 			"refinement_min_span_hz": policy.RefinementMinSpanHz,
 			"refinement_max_span_hz": policy.RefinementMaxSpanHz,
@@ -163,6 +164,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		w.Header().Set("Content-Type", "application/json")
 		snap := phaseSnap.Snapshot()
 		windowStats := buildWindowStats(snap.refinement.Input.Windows)
+		arbitration := buildArbitrationSnapshot(snap.refinement, snap.queueStats)
 		out := map[string]any{
 			"plan":                snap.refinement.Input.Plan,
 			"windows":             snap.refinement.Input.Windows,
@@ -172,6 +174,7 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 			"context":             snap.refinement.Input.Context,
 			"detail_level":        snap.refinement.Input.Detail,
 			"budgets":             snap.refinement.Input.Budgets,
+			"arbitration":         arbitration,
 			"work_items":          snap.refinement.Input.WorkItems,
 			"candidates":          len(snap.refinement.Input.Candidates),
 			"scheduled":           len(snap.refinement.Input.Scheduled),

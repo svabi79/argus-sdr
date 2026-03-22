@@ -34,11 +34,21 @@ type RefinementScore struct {
 type RefinementWorkItem struct {
 	Candidate Candidate               `json:"candidate"`
 	Window    RefinementWindow        `json:"window,omitempty"`
+	Execution *RefinementExecution    `json:"execution,omitempty"`
 	Priority  float64                 `json:"priority,omitempty"`
 	Score     *RefinementScore        `json:"score,omitempty"`
 	Breakdown *RefinementScoreDetails `json:"breakdown,omitempty"`
 	Status    string                  `json:"status,omitempty"`
 	Reason    string                  `json:"reason,omitempty"`
+}
+
+type RefinementExecution struct {
+	Stage      string  `json:"stage,omitempty"`
+	SampleRate int     `json:"sample_rate,omitempty"`
+	FFTSize    int     `json:"fft_size,omitempty"`
+	CenterHz   float64 `json:"center_hz,omitempty"`
+	SpanHz     float64 `json:"span_hz,omitempty"`
+	Source     string  `json:"source,omitempty"`
 }
 
 const (
@@ -60,12 +70,14 @@ const (
 // Current heuristic is intentionally simple and deterministic; later phases can add
 // richer scoring (novelty, persistence, profile-aware band priorities, decoder value).
 func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
-	budget := refinementBudget(policy)
 	strategy, strategyReason := refinementStrategy(policy)
+	budgetModel := BudgetModelFromPolicy(policy)
+	budget := budgetModel.Refinement.Max
 	plan := RefinementPlan{
 		TotalCandidates:   len(candidates),
 		MinCandidateSNRDb: policy.MinCandidateSNRDb,
 		Budget:            budget,
+		BudgetSource:      budgetModel.Refinement.Source,
 		Strategy:          strategy,
 		StrategyReason:    strategyReason,
 	}
@@ -85,6 +97,7 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 		BandwidthWeight: bwWeight,
 		PeakWeight:      peakWeight,
 	}
+	scoreModel = applyStrategyWeights(strategy, scoreModel)
 	plan.ScoreModel = scoreModel
 	scored := make([]ScheduledCandidate, 0, len(candidates))
 	workItems := make([]RefinementWorkItem, 0, len(candidates))
@@ -107,15 +120,15 @@ func BuildRefinementPlan(candidates []Candidate, policy Policy) RefinementPlan {
 			})
 			continue
 		}
-		snrScore := c.SNRDb * snrWeight
+		snrScore := c.SNRDb * scoreModel.SNRWeight
 		bwScore := 0.0
 		peakScore := 0.0
 		policyBoost := CandidatePriorityBoost(policy, c.Hint)
 		if c.BandwidthHz > 0 {
-			bwScore = minFloat64(c.BandwidthHz/25000.0, 6) * bwWeight
+			bwScore = minFloat64(c.BandwidthHz/25000.0, 6) * scoreModel.BandwidthWeight
 		}
 		if c.PeakDb > 0 {
-			peakScore = (c.PeakDb / 20.0) * peakWeight
+			peakScore = (c.PeakDb / 20.0) * scoreModel.PeakWeight
 		}
 		priority := snrScore + bwScore + peakScore + policyBoost
 		score := &RefinementScore{
@@ -198,14 +211,6 @@ func ScheduleCandidates(candidates []Candidate, policy Policy) []ScheduledCandid
 	return BuildRefinementPlan(candidates, policy).Selected
 }
 
-func refinementBudget(policy Policy) int {
-	budget := policy.MaxRefinementJobs
-	if policy.RefinementMaxConcurrent > 0 && (budget <= 0 || policy.RefinementMaxConcurrent < budget) {
-		budget = policy.RefinementMaxConcurrent
-	}
-	return budget
-}
-
 func refinementStrategy(policy Policy) (string, string) {
 	intent := strings.ToLower(strings.TrimSpace(policy.Intent))
 	switch {
@@ -218,6 +223,28 @@ func refinementStrategy(policy Policy) (string, string) {
 	default:
 		return "single-resolution", "default"
 	}
+}
+
+func applyStrategyWeights(strategy string, model RefinementScoreModel) RefinementScoreModel {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "digital-hunting":
+		model.SNRWeight *= 1.4
+		model.BandwidthWeight *= 0.75
+		model.PeakWeight *= 1.2
+	case "archive-oriented":
+		model.SNRWeight *= 1.1
+		model.BandwidthWeight *= 1.6
+		model.PeakWeight *= 1.05
+	case "multi-resolution", "multi", "multi-res", "multi_res":
+		model.SNRWeight *= 1.15
+		model.BandwidthWeight *= 1.1
+		model.PeakWeight *= 1.15
+	case "single-resolution":
+		model.SNRWeight *= 1.1
+		model.BandwidthWeight *= 1.0
+		model.PeakWeight *= 1.0
+	}
+	return model
 }
 
 func minFloat64(a, b float64) float64 {

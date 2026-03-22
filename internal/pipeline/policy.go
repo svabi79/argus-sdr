@@ -22,6 +22,7 @@ type Policy struct {
 	RefinementEnabled       bool     `json:"refinement_enabled"`
 	MaxRefinementJobs       int      `json:"max_refinement_jobs"`
 	RefinementMaxConcurrent int      `json:"refinement_max_concurrent"`
+	RefinementDetailFFTSize int      `json:"refinement_detail_fft_size"`
 	MinCandidateSNRDb       float64  `json:"min_candidate_snr_db"`
 	RefinementMinSpanHz     float64  `json:"refinement_min_span_hz"`
 	RefinementMaxSpanHz     float64  `json:"refinement_max_span_hz"`
@@ -33,6 +34,10 @@ type Policy struct {
 }
 
 func PolicyFromConfig(cfg config.Config) Policy {
+	detailFFT := cfg.Refinement.DetailFFTSize
+	if detailFFT <= 0 {
+		detailFFT = cfg.Surveillance.AnalysisFFTSize
+	}
 	p := Policy{
 		Mode:                    cfg.Pipeline.Mode,
 		Profile:                 cfg.Pipeline.Profile,
@@ -52,6 +57,7 @@ func PolicyFromConfig(cfg config.Config) Policy {
 		RefinementEnabled:       cfg.Refinement.Enabled,
 		MaxRefinementJobs:       cfg.Resources.MaxRefinementJobs,
 		RefinementMaxConcurrent: cfg.Refinement.MaxConcurrent,
+		RefinementDetailFFTSize: detailFFT,
 		MinCandidateSNRDb:       cfg.Refinement.MinCandidateSNRDb,
 		RefinementMinSpanHz:     cfg.Refinement.MinSpanHz,
 		RefinementMaxSpanHz:     cfg.Refinement.MaxSpanHz,
@@ -203,6 +209,9 @@ func ApplyNamedProfile(cfg *config.Config, name string) {
 	}
 	if cfg.Resources.MaxDecodeJobs <= 0 {
 		cfg.Resources.MaxDecodeJobs = cfg.Resources.MaxRecordingStreams
+	}
+	if cfg.Refinement.DetailFFTSize <= 0 {
+		cfg.Refinement.DetailFFTSize = cfg.Surveillance.AnalysisFFTSize
 	}
 	cfg.FFTSize = cfg.Surveillance.AnalysisFFTSize
 }

@@ -30,6 +30,9 @@ func TestApplyNamedProfile(t *testing.T) {
 	if cfg.Resources.MaxRefinementJobs < 16 {
 		t.Fatalf("refinement jobs too small: %d", cfg.Resources.MaxRefinementJobs)
 	}
+	if cfg.Refinement.DetailFFTSize != cfg.Surveillance.AnalysisFFTSize {
+		t.Fatalf("detail fft not aligned: %d vs %d", cfg.Refinement.DetailFFTSize, cfg.Surveillance.AnalysisFFTSize)
+	}
 }
 
 func TestPolicyFromConfig(t *testing.T) {
@@ -45,6 +48,7 @@ func TestPolicyFromConfig(t *testing.T) {
 	cfg.Surveillance.DisplayBins = 1200
 	cfg.Surveillance.DisplayFPS = 6
 	cfg.Refinement.Enabled = true
+	cfg.Refinement.DetailFFTSize = 4096
 	cfg.Resources.MaxRefinementJobs = 5
 	cfg.Refinement.MinCandidateSNRDb = 2.5
 	cfg.Resources.PreferGPU = true
@@ -61,6 +65,9 @@ func TestPolicyFromConfig(t *testing.T) {
 	}
 	if !p.RefinementEnabled || p.MaxRefinementJobs != 5 || p.MinCandidateSNRDb != 2.5 || !p.PreferGPU {
 		t.Fatalf("unexpected policy details: %+v", p)
+	}
+	if p.RefinementDetailFFTSize != 4096 {
+		t.Fatalf("unexpected refinement detail fft: %+v", p.RefinementDetailFFTSize)
 	}
 	if p.MaxRecordingStreams != 7 {
 		t.Fatalf("unexpected record budget: %+v", p.MaxRecordingStreams)

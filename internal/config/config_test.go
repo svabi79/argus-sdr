@@ -44,6 +44,9 @@ func TestLoadConfig(t *testing.T) {
 	if cfg.Refinement.AutoSpan == nil || !*cfg.Refinement.AutoSpan {
 		t.Fatalf("refinement auto_span default not applied")
 	}
+	if cfg.Refinement.DetailFFTSize != cfg.Surveillance.AnalysisFFTSize {
+		t.Fatalf("refinement detail fft not aligned: %d vs %d", cfg.Refinement.DetailFFTSize, cfg.Surveillance.AnalysisFFTSize)
+	}
 	if cfg.EventPath == "" {
 		t.Fatalf("event path default not applied")
 	}

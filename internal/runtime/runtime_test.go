@@ -36,6 +36,7 @@ func TestApplyConfigUpdate(t *testing.T) {
 	minSpan := 4000.0
 	maxSpan := 200000.0
 	autoSpan := false
+	detailFFT := 1024
 	maxDecode := 12
 	decisionHold := 1500
 	updated, err := mgr.ApplyConfig(ConfigUpdate{
@@ -53,7 +54,7 @@ func TestApplyConfigUpdate(t *testing.T) {
 			AutoDecodeClasses: &autoDecode,
 		},
 		Surveillance: &SurveillanceUpdate{FrameRate: &survFPS, DisplayBins: &displayBins, DisplayFPS: &displayFPS},
-		Refinement:   &RefinementUpdate{MinSpanHz: &minSpan, MaxSpanHz: &maxSpan, AutoSpan: &autoSpan},
+		Refinement:   &RefinementUpdate{MinSpanHz: &minSpan, MaxSpanHz: &maxSpan, AutoSpan: &autoSpan, DetailFFTSize: &detailFFT},
 		Resources:    &ResourcesUpdate{MaxRefinementJobs: &maxRefJobs, MaxDecodeJobs: &maxDecode, DecisionHoldMs: &decisionHold},
 		Detector: &DetectorUpdate{
 			ThresholdDb:    &threshold,
@@ -143,6 +144,9 @@ func TestApplyConfigUpdate(t *testing.T) {
 	if updated.Refinement.MinSpanHz != minSpan || updated.Refinement.MaxSpanHz != maxSpan {
 		t.Fatalf("refinement span not applied: %v / %v", updated.Refinement.MinSpanHz, updated.Refinement.MaxSpanHz)
 	}
+	if updated.Refinement.DetailFFTSize != detailFFT {
+		t.Fatalf("refinement detail fft not applied: %v", updated.Refinement.DetailFFTSize)
+	}
 	if updated.Refinement.AutoSpan == nil || *updated.Refinement.AutoSpan != autoSpan {
 		t.Fatalf("refinement auto span not applied")
 	}
@@ -215,6 +219,17 @@ func TestApplyConfigRejectsInvalid(t *testing.T) {
 		}
 		if mgr.Snapshot().Detector.GapToleranceMs != cfg.Detector.GapToleranceMs {
 			t.Fatalf("gap_tolerance_ms changed on error")
+		}
+	}
+
+	{
+		mgr := New(cfg)
+		badDetail := 123
+		if _, err := mgr.ApplyConfig(ConfigUpdate{Refinement: &RefinementUpdate{DetailFFTSize: &badDetail}}); err == nil {
+			t.Fatalf("expected refinement.detail_fft_size error")
+		}
+		if mgr.Snapshot().Refinement.DetailFFTSize != cfg.Refinement.DetailFFTSize {
+			t.Fatalf("detail fft changed on error")
 		}
 	}
 }

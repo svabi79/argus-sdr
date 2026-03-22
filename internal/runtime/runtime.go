@@ -32,6 +32,7 @@ type SurveillanceUpdate struct {
 type RefinementUpdate struct {
 	Enabled           *bool    `json:"enabled"`
 	MaxConcurrent     *int     `json:"max_concurrent"`
+	DetailFFTSize     *int     `json:"detail_fft_size"`
 	MinCandidateSNRDb *float64 `json:"min_candidate_snr_db"`
 	MinSpanHz         *float64 `json:"min_span_hz"`
 	MaxSpanHz         *float64 `json:"max_span_hz"`
@@ -260,6 +261,16 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 				return m.cfg, errors.New("refinement.max_concurrent must be > 0")
 			}
 			next.Refinement.MaxConcurrent = *update.Refinement.MaxConcurrent
+		}
+		if update.Refinement.DetailFFTSize != nil {
+			v := *update.Refinement.DetailFFTSize
+			if v <= 0 {
+				return m.cfg, errors.New("refinement.detail_fft_size must be > 0")
+			}
+			if v&(v-1) != 0 {
+				return m.cfg, errors.New("refinement.detail_fft_size must be a power of 2")
+			}
+			next.Refinement.DetailFFTSize = v
 		}
 		if update.Refinement.MinCandidateSNRDb != nil {
 			next.Refinement.MinCandidateSNRDb = *update.Refinement.MinCandidateSNRDb

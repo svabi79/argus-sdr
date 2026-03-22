@@ -159,9 +159,8 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					refinementDebug.Windows = windowStats
 				}
 				refinementDebug.Queue = state.queueStats
-				policy := pipeline.PolicyFromConfig(rt.cfg)
-				budget := pipeline.BudgetModelFromPolicy(policy)
-				refinementDebug.Budgets = &budget
+				refinementDebug.Budgets = &state.refinement.Input.Budgets
+				refinementDebug.Arbitration = buildArbitrationSnapshot(state.refinement, state.queueStats)
 				debugInfo.Refinement = refinementDebug
 				debugInfo.Decisions = &DecisionDebug{
 					Summary: summarizeDecisions(state.refinement.Result.Decisions),

@@ -70,6 +70,9 @@ func TestBuildRefinementPlanRespectsMaxConcurrent(t *testing.T) {
 	if plan.Budget != 2 {
 		t.Fatalf("expected budget 2, got %d", plan.Budget)
 	}
+	if plan.BudgetSource != "refinement.max_concurrent" {
+		t.Fatalf("expected budget source refinement.max_concurrent, got %s", plan.BudgetSource)
+	}
 	if len(plan.Selected) != 2 {
 		t.Fatalf("expected 2 selected, got %d", len(plan.Selected))
 	}
@@ -156,6 +159,21 @@ func TestBuildRefinementPlanPriorityStats(t *testing.T) {
 	}
 	if plan.Selected[0].Score == nil || plan.Selected[0].Score.Total == 0 {
 		t.Fatalf("expected score on selected candidate")
+	}
+}
+
+func TestBuildRefinementPlanStrategyBias(t *testing.T) {
+	policy := Policy{MaxRefinementJobs: 1, MinCandidateSNRDb: 0, Intent: "archive-and-triage"}
+	cands := []Candidate{
+		{ID: 1, CenterHz: 100, SNRDb: 12, BandwidthHz: 5000, PeakDb: 1},
+		{ID: 2, CenterHz: 200, SNRDb: 11, BandwidthHz: 100000, PeakDb: 1},
+	}
+	plan := BuildRefinementPlan(cands, policy)
+	if len(plan.Selected) != 1 {
+		t.Fatalf("expected 1 selected, got %d", len(plan.Selected))
+	}
+	if plan.Selected[0].Candidate.ID != 2 {
+		t.Fatalf("expected archive-oriented strategy to favor wider candidate, got %+v", plan.Selected[0])
 	}
 }
 
