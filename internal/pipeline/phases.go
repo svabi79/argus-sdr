@@ -50,3 +50,8 @@ type RefinementResult struct {
 	Decisions  []SignalDecision  `json:"decisions,omitempty"`
 	Candidates []Candidate       `json:"candidates,omitempty"`
 }
+
+type RefinementStep struct {
+	Input  RefinementInput  `json:"input"`
+	Result RefinementResult `json:"result"`
+}

@@ -15,6 +15,7 @@ type Policy struct {
 	SurveillanceFPS         int      `json:"surveillance_fps"`
 	DisplayBins             int      `json:"display_bins"`
 	DisplayFPS              int      `json:"display_fps"`
+	SurveillanceStrategy    string   `json:"surveillance_strategy"`
 	RefinementEnabled       bool     `json:"refinement_enabled"`
 	MaxRefinementJobs       int      `json:"max_refinement_jobs"`
 	RefinementMaxConcurrent int      `json:"refinement_max_concurrent"`
@@ -41,6 +42,7 @@ func PolicyFromConfig(cfg config.Config) Policy {
 		SurveillanceFPS:         cfg.Surveillance.FrameRate,
 		DisplayBins:             cfg.Surveillance.DisplayBins,
 		DisplayFPS:              cfg.Surveillance.DisplayFPS,
+		SurveillanceStrategy:    cfg.Surveillance.Strategy,
 		RefinementEnabled:       cfg.Refinement.Enabled,
 		MaxRefinementJobs:       cfg.Resources.MaxRefinementJobs,
 		RefinementMaxConcurrent: cfg.Refinement.MaxConcurrent,

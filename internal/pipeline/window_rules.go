@@ -28,3 +28,30 @@ func AutoSpanForHint(hint string) (float64, string) {
 		return 0, ""
 	}
 }
+
+// RefinementWindowForCandidate applies policy-aware span rules to a candidate.
+func RefinementWindowForCandidate(policy Policy, candidate Candidate) RefinementWindow {
+	span := candidate.BandwidthHz
+	windowSource := "candidate"
+	if policy.RefinementAutoSpan && (span <= 0 || span < 2000 || span > 400000) {
+		autoSpan, autoSource := AutoSpanForHint(candidate.Hint)
+		if autoSpan > 0 {
+			span = autoSpan
+			windowSource = autoSource
+		}
+	}
+	if policy.RefinementMinSpanHz > 0 && span < policy.RefinementMinSpanHz {
+		span = policy.RefinementMinSpanHz
+	}
+	if policy.RefinementMaxSpanHz > 0 && span > policy.RefinementMaxSpanHz {
+		span = policy.RefinementMaxSpanHz
+	}
+	if span <= 0 {
+		span = 12000
+	}
+	return RefinementWindow{
+		CenterHz: candidate.CenterHz,
+		SpanHz:   span,
+		Source:   windowSource,
+	}
+}
