@@ -43,6 +43,18 @@ type CandidateEvidenceStateSummary struct {
 	PrimaryOnly         int `json:"primary_only"`
 }
 
+type CandidateWindowSummary struct {
+	Index        int     `json:"index"`
+	Label        string  `json:"label,omitempty"`
+	Source       string  `json:"source,omitempty"`
+	StartHz      float64 `json:"start_hz,omitempty"`
+	EndHz        float64 `json:"end_hz,omitempty"`
+	CenterHz     float64 `json:"center_hz,omitempty"`
+	SpanHz       float64 `json:"span_hz,omitempty"`
+	PriorityBias float64 `json:"priority_bias,omitempty"`
+	Candidates   int     `json:"candidates"`
+}
+
 func buildSurveillanceLevelSummaries(set pipeline.SurveillanceLevelSet, spectra []pipeline.SurveillanceLevelSpectrum) map[string]SurveillanceLevelSummary {
 	if set.Primary.Name == "" && len(set.Derived) == 0 && len(set.Support) == 0 && set.Presentation.Name == "" && len(set.All) == 0 {
 		return nil
@@ -203,6 +215,50 @@ func buildCandidateEvidenceStateSummary(candidates []pipeline.Candidate) *Candid
 		return nil
 	}
 	return &summary
+}
+
+func buildCandidateWindowSummary(candidates []pipeline.Candidate, windows []pipeline.MonitorWindow) []CandidateWindowSummary {
+	if len(windows) == 0 {
+		return nil
+	}
+	out := make([]CandidateWindowSummary, 0, len(windows))
+	index := make(map[int]int, len(windows))
+	for _, win := range windows {
+		entry := CandidateWindowSummary{
+			Index:        win.Index,
+			Label:        win.Label,
+			Source:       win.Source,
+			StartHz:      win.StartHz,
+			EndHz:        win.EndHz,
+			CenterHz:     win.CenterHz,
+			SpanHz:       win.SpanHz,
+			PriorityBias: win.PriorityBias,
+		}
+		index[win.Index] = len(out)
+		out = append(out, entry)
+	}
+	totalCandidates := 0
+	for _, cand := range candidates {
+		matches := cand.MonitorMatches
+		if len(matches) == 0 {
+			matches = pipeline.MonitorWindowMatchesForCandidate(windows, cand)
+		}
+		for _, match := range matches {
+			idx, ok := index[match.Index]
+			if !ok {
+				continue
+			}
+			out[idx].Candidates++
+			totalCandidates++
+		}
+	}
+	if totalCandidates == 0 {
+		return nil
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Index < out[j].Index
+	})
+	return out
 }
 
 func evidenceKind(level pipeline.AnalysisLevel) string {

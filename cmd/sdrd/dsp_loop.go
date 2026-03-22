@@ -136,6 +136,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				candidateSources := buildCandidateSourceSummary(state.surveillance.Candidates)
 				candidateEvidence := buildCandidateEvidenceSummary(state.surveillance.Candidates)
 				candidateEvidenceStates := buildCandidateEvidenceStateSummary(state.surveillance.Candidates)
+				candidateWindows := buildCandidateWindowSummary(state.surveillance.Candidates, plan.MonitorWindows)
 				if len(candidateSources) > 0 {
 					debugInfo.CandidateSources = candidateSources
 				}
@@ -144,6 +145,12 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 				if candidateEvidenceStates != nil {
 					debugInfo.CandidateEvidenceStates = candidateEvidenceStates
+				}
+				if len(candidateWindows) > 0 {
+					debugInfo.CandidateWindows = candidateWindows
+				}
+				if len(plan.MonitorWindowStats) > 0 {
+					debugInfo.MonitorWindowStats = plan.MonitorWindowStats
 				}
 				if hasPlan {
 					debugInfo.RefinementPlan = &plan
@@ -159,6 +166,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 				if hasWindows {
 					refinementDebug.Windows = windowStats
+				}
+				if len(plan.MonitorWindowStats) > 0 {
+					refinementDebug.MonitorWindowStats = plan.MonitorWindowStats
 				}
 				refinementDebug.Arbitration = buildArbitrationSnapshot(state.refinement, state.arbitration)
 				debugInfo.Refinement = refinementDebug

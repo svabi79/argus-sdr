@@ -20,6 +20,8 @@ type SpectrumDebug struct {
 	CandidateSources        map[string]int                 `json:"candidate_sources,omitempty"`
 	CandidateEvidence       []CandidateEvidenceSummary     `json:"candidate_evidence,omitempty"`
 	CandidateEvidenceStates *CandidateEvidenceStateSummary `json:"candidate_evidence_states,omitempty"`
+	CandidateWindows        []CandidateWindowSummary       `json:"candidate_windows,omitempty"`
+	MonitorWindowStats      []pipeline.MonitorWindowStats  `json:"monitor_window_stats,omitempty"`
 	RefinementPlan          *pipeline.RefinementPlan       `json:"refinement_plan,omitempty"`
 	Windows                 *RefinementWindowStats         `json:"refinement_windows,omitempty"`
 	Refinement              *RefinementDebug               `json:"refinement,omitempty"`
@@ -35,11 +37,12 @@ type RefinementWindowStats struct {
 }
 
 type RefinementDebug struct {
-	Plan        *pipeline.RefinementPlan      `json:"plan,omitempty"`
-	Request     *pipeline.RefinementRequest   `json:"request,omitempty"`
-	WorkItems   []pipeline.RefinementWorkItem `json:"work_items,omitempty"`
-	Windows     *RefinementWindowStats        `json:"windows,omitempty"`
-	Arbitration *ArbitrationSnapshot          `json:"arbitration,omitempty"`
+	Plan               *pipeline.RefinementPlan      `json:"plan,omitempty"`
+	Request            *pipeline.RefinementRequest   `json:"request,omitempty"`
+	WorkItems          []pipeline.RefinementWorkItem `json:"work_items,omitempty"`
+	Windows            *RefinementWindowStats        `json:"windows,omitempty"`
+	MonitorWindowStats []pipeline.MonitorWindowStats `json:"monitor_window_stats,omitempty"`
+	Arbitration        *ArbitrationSnapshot          `json:"arbitration,omitempty"`
 }
 
 type DecisionDebug struct {
