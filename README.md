@@ -13,6 +13,7 @@ Go-based SDR analysis engine and live spectrum/waterfall UI, evolved from the or
 - WFM stereo + RDS baseband
 - Mock mode for testing without hardware
 - Phase-1 architecture foundation complete: explicit pipeline/surveillance/refinement/resources config model plus candidate/refinement/admission scaffolding
+- Phase-2 (in progress): derived detection governance, multi-resolution support levels, fused candidate evidence summaries
 
 ---
 
@@ -68,6 +69,7 @@ Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 - `surveillance.strategy` -- `single-resolution` or `multi-resolution`
 - `surveillance.display_bins` -- preferred presentation density for clients/UI
 - `surveillance.display_fps` -- preferred presentation cadence for clients/UI
+- `surveillance.derived_detection` -- `auto`, `on`, or `off` (governs derived detection vs support-only levels)
 - `refinement.enabled` -- enables explicit candidate refinement stage
 - `refinement.max_concurrent` -- refinement budget hint
 - `refinement.detail_fft_size` -- FFT size for refinement/detail path (defaults to surveillance analysis FFT)
@@ -103,6 +105,11 @@ Refinement plans now rank candidates, while a shared arbitration step admits ref
 Hold policy reasons are surfaced as `profile:*` / `strategy:*` tokens in `hold_source`.
 
 Phase-1 scope stops at consistent policy surfaces, ranking/admission scaffolding, and debug visibility. Phase 2+ adds a true multi-resolution surveillance engine and scheduler/intent overrides that can re-balance budgets automatically.
+
+Phase-2 status (Wave E):
+- derived detection policy now reports detection vs support-only vs disabled
+- fused candidate evidence summaries expose role/kind detail
+- surveillance level summaries include role intent for easier debug
 
 The long-term target is that you describe *what the system should do* (for example broad-span monitoring intent, preferred signal families, auto-record/decode priorities), while the engine decides *how* to allocate surveillance, refinement and decoding budgets.
 

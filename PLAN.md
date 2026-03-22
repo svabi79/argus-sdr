@@ -154,6 +154,11 @@ Wichtig:
 - GPU-seitige Reduction/Decimation
 - UI-Detailfenster an Refinement koppeln
 
+Phase-2 Status (Wave E):
+- Derived-detection Governance: detection vs support-only klarer (Policy + Debug)
+- Fused candidate evidence summaries mit Rollen/Kindern und Support-Only Hinweis
+- Surveillance-Level Summaries berichten Rollen/Kind (Primary/Derived/Support/Presentation)
+
 ### Phase 3
 - Scheduler/Priority/Budget-Engine
 - Kandidatenpriorisierung
