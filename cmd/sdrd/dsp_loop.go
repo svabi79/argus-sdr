@@ -71,7 +71,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					streamSignals = stableSignals
 				}
 				if rec != nil && len(art.allIQ) > 0 {
-					log.Printf("LIVEAUDIO DSP: detailIQ=%d displaySignals=%d streamSignals=%d stableSignals=%d allIQ=%d", len(art.detailIQ), len(displaySignals), len(streamSignals), len(stableSignals), len(art.allIQ))
+					if rt.cfg.Recorder.DebugLiveAudio {
+						log.Printf("LIVEAUDIO DSP: detailIQ=%d displaySignals=%d streamSignals=%d stableSignals=%d allIQ=%d", len(art.detailIQ), len(displaySignals), len(streamSignals), len(stableSignals), len(art.allIQ))
+					}
 					aqCfg := extractionConfig{firTaps: rt.cfg.Recorder.ExtractionTaps, bwMult: rt.cfg.Recorder.ExtractionBwMult}
 					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, streamSignals, rt.streamPhaseState, rt.streamOverlap, aqCfg)
 					items := make([]recorder.StreamFeedItem, 0, len(streamSignals))
@@ -84,7 +86,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						if j < len(streamSnips) {
 							snipLen = len(streamSnips[j])
 						}
-						log.Printf("LIVEAUDIO DSP: streamSignal idx=%d id=%d center=%.3fMHz bw=%.0f class=%s snip=%d", j, ds.ID, ds.CenterHz/1e6, ds.BWHz, className, snipLen)
+						if rt.cfg.Recorder.DebugLiveAudio {
+							log.Printf("LIVEAUDIO DSP: streamSignal idx=%d id=%d center=%.3fMHz bw=%.0f class=%s snip=%d", j, ds.ID, ds.CenterHz/1e6, ds.BWHz, className, snipLen)
+						}
 						if ds.ID == 0 || ds.Class == nil {
 							continue
 						}
@@ -97,7 +101,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						}
 						items = append(items, recorder.StreamFeedItem{Signal: ds, Snippet: streamSnips[j], SnipRate: snipRate})
 					}
-					log.Printf("LIVEAUDIO DSP: feedItems=%d", len(items))
+					if rt.cfg.Recorder.DebugLiveAudio {
+						log.Printf("LIVEAUDIO DSP: feedItems=%d", len(items))
+					}
 					if len(items) > 0 {
 						rec.FeedSnippets(items)
 					}

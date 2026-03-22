@@ -251,9 +251,12 @@ func (st *Streamer) FeedSnippets(items []streamFeedItem) {
 	recEnabled := st.policy.Enabled && (st.policy.RecordAudio || st.policy.RecordIQ)
 	hasListeners := st.hasListenersLocked()
 	pending := len(st.pendingListens)
+	debugLiveAudio := st.policy.DebugLiveAudio
 	st.mu.Unlock()
 
-	log.Printf("LIVEAUDIO STREAM: feedSnippets items=%d recEnabled=%v hasListeners=%v pending=%d", len(items), recEnabled, hasListeners, pending)
+	if debugLiveAudio {
+		log.Printf("LIVEAUDIO STREAM: feedSnippets items=%d recEnabled=%v hasListeners=%v pending=%d", len(items), recEnabled, hasListeners, pending)
+	}
 	if (!recEnabled && !hasListeners) || len(items) == 0 {
 		return
 	}
@@ -300,7 +303,9 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 			className = string(sig.Class.ModType)
 			demodName, _ = resolveDemod(sig)
 		}
-		log.Printf("LIVEAUDIO STREAM: signal id=%d center=%.3fMHz bw=%.0f snr=%.1f class=%s demod=%s needsRecord=%v needsListen=%v", sig.ID, sig.CenterHz/1e6, sig.BWHz, sig.SNRDb, className, demodName, needsRecording, needsListen)
+		if st.policy.DebugLiveAudio {
+			log.Printf("LIVEAUDIO STREAM: signal id=%d center=%.3fMHz bw=%.0f snr=%.1f class=%s demod=%s needsRecord=%v needsListen=%v", sig.ID, sig.CenterHz/1e6, sig.BWHz, sig.SNRDb, className, demodName, needsRecording, needsListen)
+		}
 
 		if !needsRecording && !needsListen {
 			continue

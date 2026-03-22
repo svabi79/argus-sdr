@@ -22,13 +22,13 @@ pipeline:
     monitor_span_hz: 20000000
     monitor_windows:
       - name: fm-focus
-        start_hz: 99.5e6
-        end_hz: 104.5e6
+        start_hz: 87.5e6
+        end_hz: 108.0e6
         priority: 1.25
         zone: focus
       - name: fm-rds
-        start_hz: 100.0e6
-        end_hz: 103.5e6
+        start_hz: 87.5e6
+        end_hz: 108.0e6
         priority: 1.35
         zone: decode
     signal_priorities: ["wfm", "rds", "broadcast"]
@@ -240,6 +240,7 @@ recorder:
   deemphasis_us: 50
   extraction_fir_taps: 101
   extraction_bw_mult: 1.35
+  debug_live_audio: false
 decoder:
   ft8_cmd: C:/WSJT/wsjtx-2.7.0-rc6/bin/jt9.exe -8 {audio}
   wspr_cmd: C:/WSJT/wsjtx-2.7.0-rc6/bin/wsprd.exe {audio}

@@ -72,6 +72,7 @@ type RecorderConfig struct {
 	DeemphasisUs     float64 `yaml:"deemphasis_us" json:"deemphasis_us"`             // De-emphasis time constant in µs. 50=Europe, 75=US/Japan, 0=disabled. Default: 50
 	ExtractionTaps   int     `yaml:"extraction_fir_taps" json:"extraction_fir_taps"` // FIR tap count for extraction filter. Default: 101, max 301
 	ExtractionBwMult float64 `yaml:"extraction_bw_mult" json:"extraction_bw_mult"`   // BW multiplier for extraction. Default: 1.2 (20% wider than detected)
+	DebugLiveAudio   bool    `yaml:"debug_live_audio" json:"debug_live_audio"`
 }
 
 type DecoderConfig struct {
