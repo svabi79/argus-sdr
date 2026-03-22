@@ -26,14 +26,7 @@
         </div>
       </div>
 
-      <nav class="topbar-center">
-        <div class="mode-strip" role="tablist" aria-label="Modes">
-          <button class="mode-btn active" data-mode="live" type="button"><span class="mode-dot"></span>Live</button>
-          <button class="mode-btn" data-mode="hunt" type="button">Hunt</button>
-          <button class="mode-btn" data-mode="review" type="button">Review</button>
-          <button class="mode-btn" data-mode="lab" type="button">Lab</button>
-        </div>
-      </nav>
+      <div class="topbar-center"></div>
 
       <div class="topbar-right">
         <div class="ws-badge" id="wsBadge">Connecting</div>
@@ -290,12 +283,18 @@
             </div>
             <button class="act-btn" id="liveListenBtn" type="button">Live Listen</button>
             <div class="listen-meta" id="listenMeta">
-              <div class="listen-meta__title">Live listen status</div>
-              <div class="listen-meta__row"><span>Demod</span><span id="listenMetaDemod">-</span></div>
-              <div class="listen-meta__row"><span>Playback</span><span id="listenMetaPlayback">-</span></div>
-              <div class="listen-meta__row"><span>Stereo</span><span id="listenMetaStereo">-</span></div>
-              <div class="listen-meta__row"><span>Sample rate</span><span id="listenMetaRate">-</span></div>
-              <div class="listen-meta__row"><span>Channels</span><span id="listenMetaChannels">-</span></div>
+              <div class="listen-meta__head">
+                <div class="listen-meta__title">Live listen</div>
+                <div class="listen-meta__badge" id="listenMetaStatus">Idle</div>
+              </div>
+              <div class="listen-meta__primary">
+                <span class="listen-meta__mode" id="listenMetaPlayback">-</span>
+                <span class="listen-meta__stereo" id="listenMetaStereo">-</span>
+              </div>
+              <div class="listen-meta__secondary">
+                <span id="listenMetaDemod">Demod -</span>
+                <span id="listenMetaAudio">Audio -</span>
+              </div>
             </div>
           </section>
 
