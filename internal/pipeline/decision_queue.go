@@ -112,6 +112,10 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 
 	recSelected := selectQueued("record", dq.record, dq.recordHold, budget.Record.Max, recordHold, now, policy)
 	decSelected := selectQueued("decode", dq.decode, dq.decodeHold, budget.Decode.Max, decodeHold, now, policy)
+	recPressure := buildQueuePressure(budget.Record, len(dq.record), len(recSelected.selected), len(dq.recordHold))
+	decPressure := buildQueuePressure(budget.Decode, len(dq.decode), len(decSelected.selected), len(dq.decodeHold))
+	recPressureTag := pressureReasonTag(recPressure)
+	decPressureTag := pressureReasonTag(decPressure)
 
 	stats := DecisionQueueStats{
 		RecordQueued:   len(dq.record),
@@ -132,19 +136,19 @@ func (dq *decisionQueues) Apply(decisions []SignalDecision, budget BudgetModel, 
 	for i := range decisions {
 		id := decisions[i].Candidate.ID
 		if decisions[i].ShouldRecord {
-			decisions[i].RecordAdmission = buildQueueAdmission("record", id, recSelected, policy, holdPolicy, budget.Record.Source)
+			decisions[i].RecordAdmission = buildQueueAdmission("record", id, recSelected, policy, holdPolicy, budget.Record.Source, recPressureTag)
 			if _, ok := recSelected.selected[id]; !ok {
 				decisions[i].ShouldRecord = false
-				decisions[i].Reason = admissionReason(DecisionReasonQueueRecord, policy, holdPolicy, "pressure:budget", "budget:"+slugToken(budget.Record.Source))
+				decisions[i].Reason = admissionReason(DecisionReasonQueueRecord, policy, holdPolicy, recPressureTag, "pressure:budget", "budget:"+slugToken(budget.Record.Source))
 				stats.RecordDropped++
 			}
 		}
 		if decisions[i].ShouldAutoDecode {
-			decisions[i].DecodeAdmission = buildQueueAdmission("decode", id, decSelected, policy, holdPolicy, budget.Decode.Source)
+			decisions[i].DecodeAdmission = buildQueueAdmission("decode", id, decSelected, policy, holdPolicy, budget.Decode.Source, decPressureTag)
 			if _, ok := decSelected.selected[id]; !ok {
 				decisions[i].ShouldAutoDecode = false
 				if decisions[i].Reason == "" {
-					decisions[i].Reason = admissionReason(DecisionReasonQueueDecode, policy, holdPolicy, "pressure:budget", "budget:"+slugToken(budget.Decode.Source))
+					decisions[i].Reason = admissionReason(DecisionReasonQueueDecode, policy, holdPolicy, decPressureTag, "pressure:budget", "budget:"+slugToken(budget.Decode.Source))
 				}
 				stats.DecodeDropped++
 			}
@@ -234,7 +238,7 @@ func selectQueued(queueName string, queue map[int64]*queuedDecision, hold map[in
 	return selection
 }
 
-func buildQueueAdmission(queueName string, id int64, selection queueSelection, policy Policy, holdPolicy HoldPolicy, budgetSource string) *PriorityAdmission {
+func buildQueueAdmission(queueName string, id int64, selection queueSelection, policy Policy, holdPolicy HoldPolicy, budgetSource string, pressureTag string) *PriorityAdmission {
 	score, ok := selection.scores[id]
 	if !ok {
 		return nil
@@ -248,15 +252,15 @@ func buildQueueAdmission(queueName string, id int64, selection queueSelection, p
 	if _, ok := selection.selected[id]; ok {
 		if _, held := selection.held[id]; held {
 			admission.Class = AdmissionClassHold
-			admission.Reason = admissionReason("queue:"+queueName+":hold", policy, holdPolicy, "pressure:hold", "budget:"+slugToken(budgetSource))
+			admission.Reason = admissionReason("queue:"+queueName+":hold", policy, holdPolicy, pressureTag, "pressure:hold", "budget:"+slugToken(budgetSource))
 		} else {
 			admission.Class = AdmissionClassAdmit
-			admission.Reason = admissionReason("queue:"+queueName+":admit", policy, holdPolicy, "budget:"+slugToken(budgetSource))
+			admission.Reason = admissionReason("queue:"+queueName+":admit", policy, holdPolicy, pressureTag, "budget:"+slugToken(budgetSource))
 		}
 		return admission
 	}
 	admission.Class = AdmissionClassDefer
-	admission.Reason = admissionReason("queue:"+queueName+":budget", policy, holdPolicy, "pressure:budget", "budget:"+slugToken(budgetSource))
+	admission.Reason = admissionReason("queue:"+queueName+":budget", policy, holdPolicy, pressureTag, "pressure:budget", "budget:"+slugToken(budgetSource))
 	return admission
 }
 

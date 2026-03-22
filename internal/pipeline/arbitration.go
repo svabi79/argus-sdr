@@ -21,17 +21,18 @@ type RefinementHold struct {
 }
 
 type RefinementAdmission struct {
-	Budget         int     `json:"budget"`
-	BudgetSource   string  `json:"budget_source,omitempty"`
-	HoldMs         int     `json:"hold_ms"`
-	HoldSource     string  `json:"hold_source,omitempty"`
-	Planned        int     `json:"planned"`
-	Admitted       int     `json:"admitted"`
-	Skipped        int     `json:"skipped"`
-	Displaced      int     `json:"displaced"`
-	PriorityCutoff float64 `json:"priority_cutoff,omitempty"`
-	PriorityTier   string  `json:"priority_tier,omitempty"`
-	Reason         string  `json:"reason,omitempty"`
+	Budget         int            `json:"budget"`
+	BudgetSource   string         `json:"budget_source,omitempty"`
+	HoldMs         int            `json:"hold_ms"`
+	HoldSource     string         `json:"hold_source,omitempty"`
+	Planned        int            `json:"planned"`
+	Admitted       int            `json:"admitted"`
+	Skipped        int            `json:"skipped"`
+	Displaced      int            `json:"displaced"`
+	PriorityCutoff float64        `json:"priority_cutoff,omitempty"`
+	PriorityTier   string         `json:"priority_tier,omitempty"`
+	Reason         string         `json:"reason,omitempty"`
+	Pressure       BudgetPressure `json:"pressure,omitempty"`
 }
 
 type RefinementAdmissionResult struct {
@@ -115,6 +116,7 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 	}
 
 	holdPolicy := HoldPolicyFromPolicy(policy)
+	budgetModel := BudgetModelFromPolicy(policy)
 	admission.HoldMs = holdPolicy.RefinementMs
 	admission.HoldSource = "resources.decision_hold_ms"
 	if len(holdPolicy.Reasons) > 0 {
@@ -189,8 +191,9 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 	}
 	admission.Displaced = len(displaced)
 	admission.PriorityTier = PriorityTierFromRange(admission.PriorityCutoff, plan.PriorityMin, plan.PriorityMax)
+	admission.Pressure = buildRefinementPressure(budgetModel, admission)
 	if admission.PriorityCutoff > 0 {
-		admission.Reason = admissionReason("admission:budget", policy, holdPolicy, "budget:"+slugToken(plan.BudgetSource))
+		admission.Reason = admissionReason("admission:budget", policy, holdPolicy, pressureReasonTag(admission.Pressure), "budget:"+slugToken(plan.BudgetSource))
 	}
 
 	plan.Selected = admitted
@@ -218,7 +221,7 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 			item.Admission.Score = item.Priority
 			item.Admission.Cutoff = admission.PriorityCutoff
 			item.Admission.Tier = PriorityTierFromRange(item.Priority, plan.PriorityMin, plan.PriorityMax)
-			item.Admission.Reason = admissionReason(reason, policy, holdPolicy, "budget:"+slugToken(plan.BudgetSource))
+			item.Admission.Reason = admissionReason(reason, policy, holdPolicy, pressureReasonTag(admission.Pressure), "budget:"+slugToken(plan.BudgetSource))
 			continue
 		}
 		if _, ok := displaced[id]; ok {
@@ -231,7 +234,7 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 			item.Admission.Score = item.Priority
 			item.Admission.Cutoff = admission.PriorityCutoff
 			item.Admission.Tier = PriorityTierFromRange(item.Priority, plan.PriorityMin, plan.PriorityMax)
-			item.Admission.Reason = admissionReason("refinement:displace:hold", policy, holdPolicy, "pressure:hold", "budget:"+slugToken(plan.BudgetSource))
+			item.Admission.Reason = admissionReason("refinement:displace:hold", policy, holdPolicy, pressureReasonTag(admission.Pressure), "pressure:hold", "budget:"+slugToken(plan.BudgetSource))
 			continue
 		}
 		item.Status = RefinementStatusSkipped
@@ -243,7 +246,7 @@ func AdmitRefinementPlan(plan RefinementPlan, policy Policy, now time.Time, hold
 		item.Admission.Score = item.Priority
 		item.Admission.Cutoff = admission.PriorityCutoff
 		item.Admission.Tier = PriorityTierFromRange(item.Priority, plan.PriorityMin, plan.PriorityMax)
-		item.Admission.Reason = admissionReason("refinement:skip:budget", policy, holdPolicy, "pressure:budget", "budget:"+slugToken(plan.BudgetSource))
+		item.Admission.Reason = admissionReason("refinement:skip:budget", policy, holdPolicy, pressureReasonTag(admission.Pressure), "pressure:budget", "budget:"+slugToken(plan.BudgetSource))
 	}
 	return RefinementAdmissionResult{
 		Plan:      plan,
