@@ -28,9 +28,17 @@ type AnalysisContext struct {
 	Derived      []AnalysisLevel `json:"derived,omitempty"`
 }
 
+type SurveillanceLevelSet struct {
+	Primary      AnalysisLevel   `json:"primary"`
+	Derived      []AnalysisLevel `json:"derived,omitempty"`
+	Presentation AnalysisLevel   `json:"presentation,omitempty"`
+	All          []AnalysisLevel `json:"all,omitempty"`
+}
+
 type SurveillanceResult struct {
 	Level        AnalysisLevel               `json:"level"`
 	Levels       []AnalysisLevel             `json:"levels,omitempty"`
+	LevelSet     SurveillanceLevelSet        `json:"level_set,omitempty"`
 	Candidates   []Candidate                 `json:"candidates"`
 	Scheduled    []ScheduledCandidate        `json:"scheduled,omitempty"`
 	Finished     []detector.Event            `json:"finished"`

@@ -8,16 +8,24 @@ import (
 // Candidate is the coarse output of the surveillance detector.
 // It intentionally stays lightweight and cheap to produce.
 type Candidate struct {
-	ID          int64   `json:"id"`
-	CenterHz    float64 `json:"center_hz"`
-	BandwidthHz float64 `json:"bandwidth_hz"`
-	PeakDb      float64 `json:"peak_db"`
-	SNRDb       float64 `json:"snr_db"`
-	FirstBin    int     `json:"first_bin"`
-	LastBin     int     `json:"last_bin"`
-	NoiseDb     float64 `json:"noise_db,omitempty"`
-	Source      string  `json:"source,omitempty"`
-	Hint        string  `json:"hint,omitempty"`
+	ID          int64           `json:"id"`
+	CenterHz    float64         `json:"center_hz"`
+	BandwidthHz float64         `json:"bandwidth_hz"`
+	PeakDb      float64         `json:"peak_db"`
+	SNRDb       float64         `json:"snr_db"`
+	FirstBin    int             `json:"first_bin"`
+	LastBin     int             `json:"last_bin"`
+	NoiseDb     float64         `json:"noise_db,omitempty"`
+	Source      string          `json:"source,omitempty"`
+	Hint        string          `json:"hint,omitempty"`
+	Evidence    []LevelEvidence `json:"evidence,omitempty"`
+}
+
+// LevelEvidence captures which analysis level produced a candidate.
+// This is intentionally lightweight for later multi-level fusion.
+type LevelEvidence struct {
+	Level      AnalysisLevel `json:"level"`
+	Provenance string        `json:"provenance,omitempty"`
 }
 
 // RefinementWindow describes the local analysis span that refinement should use.
@@ -56,6 +64,18 @@ func CandidatesFromSignals(signals []detector.Signal, source string) []Candidate
 			Source:      source,
 			Hint:        hint,
 		})
+	}
+	return out
+}
+
+func CandidatesFromSignalsWithLevel(signals []detector.Signal, source string, level AnalysisLevel) []Candidate {
+	out := CandidatesFromSignals(signals, source)
+	if level.Name == "" && level.FFTSize == 0 && level.SampleRate == 0 {
+		return out
+	}
+	evidence := LevelEvidence{Level: level, Provenance: source}
+	for i := range out {
+		out[i].Evidence = append(out[i].Evidence, evidence)
 	}
 	return out
 }

@@ -74,6 +74,7 @@ type surveillanceLevelSpec struct {
 type surveillancePlan struct {
 	Primary      pipeline.AnalysisLevel
 	Levels       []pipeline.AnalysisLevel
+	LevelSet     pipeline.SurveillanceLevelSet
 	Presentation pipeline.AnalysisLevel
 	Context      pipeline.AnalysisContext
 	Specs        []surveillanceLevelSpec
@@ -414,15 +415,16 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 		return pipeline.SurveillanceResult{}
 	}
 	policy := pipeline.PolicyFromConfig(rt.cfg)
-	candidates := pipeline.CandidatesFromSignals(art.detected, "surveillance-detector")
-	scheduled := pipeline.ScheduleCandidates(candidates, policy)
 	plan := art.surveillancePlan
 	if plan.Primary.Name == "" {
 		plan = rt.buildSurveillancePlan(policy)
 	}
+	candidates := pipeline.CandidatesFromSignalsWithLevel(art.detected, "surveillance-detector", plan.Primary)
+	scheduled := pipeline.ScheduleCandidates(candidates, policy)
 	return pipeline.SurveillanceResult{
 		Level:        plan.Primary,
 		Levels:       plan.Levels,
+		LevelSet:     plan.LevelSet,
 		DisplayLevel: plan.Presentation,
 		Context:      plan.Context,
 		Spectra:      art.surveillanceSpectra,
@@ -766,6 +768,7 @@ func (rt *dspRuntime) buildSurveillancePlan(policy pipeline.Policy) surveillance
 	levels := []pipeline.AnalysisLevel{primary}
 	specs := []surveillanceLevelSpec{{Level: primary, Decim: 1, AllowGPU: true}}
 	context := pipeline.AnalysisContext{Surveillance: primary}
+	derivedLevels := make([]pipeline.AnalysisLevel, 0, 2)
 
 	strategy := strings.ToLower(strings.TrimSpace(policy.SurveillanceStrategy))
 	switch strategy {
@@ -779,15 +782,29 @@ func (rt *dspRuntime) buildSurveillancePlan(policy pipeline.Policy) surveillance
 			levels = append(levels, derived)
 			specs = append(specs, surveillanceLevelSpec{Level: derived, Decim: decim, AllowGPU: false})
 			context.Derived = append(context.Derived, derived)
+			derivedLevels = append(derivedLevels, derived)
 		}
 	}
 
 	presentation := analysisLevel("presentation", "presentation", "presentation", baseRate, rt.cfg.Surveillance.DisplayBins, rt.cfg.CenterHz, span, "display", 1, baseRate)
 	context.Presentation = presentation
+	levelSet := pipeline.SurveillanceLevelSet{
+		Primary:      primary,
+		Derived:      append([]pipeline.AnalysisLevel(nil), derivedLevels...),
+		Presentation: presentation,
+	}
+	allLevels := make([]pipeline.AnalysisLevel, 0, 1+len(derivedLevels)+1)
+	allLevels = append(allLevels, primary)
+	allLevels = append(allLevels, derivedLevels...)
+	if presentation.Name != "" {
+		allLevels = append(allLevels, presentation)
+	}
+	levelSet.All = allLevels
 
 	return surveillancePlan{
 		Primary:      primary,
 		Levels:       levels,
+		LevelSet:     levelSet,
 		Presentation: presentation,
 		Context:      context,
 		Specs:        specs,
