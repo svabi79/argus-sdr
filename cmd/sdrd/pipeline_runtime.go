@@ -355,6 +355,20 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	if rec != nil {
 		rec.Ingest(time.Now(), allIQ)
 	}
+	// Cap allIQ for downstream extraction to prevent buffer bloat.
+	// Without this cap, buffer accumulation during processing stalls causes
+	// increasingly large reads → longer extraction → more accumulation
+	// (positive feedback loop). For audio streaming this creates >150ms
+	// feed gaps that produce audible clicks.
+	// The ring buffer (Ingest above) gets the full data; only extraction is capped.
+	maxStreamSamples := rt.cfg.SampleRate / rt.cfg.FrameRate * 2
+	if maxStreamSamples < required {
+		maxStreamSamples = required
+	}
+	maxStreamSamples = (maxStreamSamples / required) * required
+	if len(allIQ) > maxStreamSamples {
+		allIQ = allIQ[len(allIQ)-maxStreamSamples:]
+	}
 	logging.Debug("capture", "iq_len", "len", len(allIQ), "surv_fft", rt.cfg.FFTSize, "detail_fft", rt.detailFFT)
 	survIQ := allIQ
 	if len(allIQ) > rt.cfg.FFTSize {

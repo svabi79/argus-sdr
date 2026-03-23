@@ -101,6 +101,7 @@ type streamSession struct {
 	preDemodDecim  int     // cached decimation factor
 	preDemodRate   int     // cached snipRate this FIR was built for
 	preDemodCutoff float64 // cached cutoff
+	preDemodDecimPhase int // stateful decimation phase (index offset into next frame)
 
 	// AQ-2: De-emphasis config (µs, 0 = disabled)
 	deemphasisUs float64
@@ -737,10 +738,11 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 			sess.preDemodRate = snipRate
 			sess.preDemodCutoff = cutoff
 			sess.preDemodDecim = decim1
+			sess.preDemodDecimPhase = 0 // reset decimation phase on FIR reinit
 		}
 
 		filtered := sess.preDemodFIR.ProcessInto(fullSnip, sess.growIQ(len(fullSnip)))
-		dec = dsp.Decimate(filtered, decim1)
+		dec = dsp.DecimateStateful(filtered, decim1, &sess.preDemodDecimPhase)
 	} else {
 		dec = fullSnip
 	}
@@ -1009,6 +1011,7 @@ type dspStateSnapshot struct {
 	preDemodDecim       int
 	preDemodRate        int
 	preDemodCutoff      float64
+	preDemodDecimPhase  int
 }
 
 func (sess *streamSession) captureDSPState() dspStateSnapshot {
@@ -1040,6 +1043,7 @@ func (sess *streamSession) captureDSPState() dspStateSnapshot {
 		preDemodDecim:       sess.preDemodDecim,
 		preDemodRate:        sess.preDemodRate,
 		preDemodCutoff:      sess.preDemodCutoff,
+		preDemodDecimPhase:  sess.preDemodDecimPhase,
 	}
 }
 
@@ -1071,6 +1075,7 @@ func (sess *streamSession) restoreDSPState(s dspStateSnapshot) {
 	sess.preDemodDecim = s.preDemodDecim
 	sess.preDemodRate = s.preDemodRate
 	sess.preDemodCutoff = s.preDemodCutoff
+	sess.preDemodDecimPhase = s.preDemodDecimPhase
 }
 
 // ---------------------------------------------------------------------------

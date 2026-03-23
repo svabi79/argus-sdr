@@ -61,8 +61,11 @@ func NewResampler(inRate, outRate, tapsPerPhase int) *Resampler {
 		protoLen++ // ensure odd length for symmetric filter
 	}
 
-	// Normalized cutoff: passband edge relative to upsampled rate
-	fc := 0.45 / float64(max(l, m)) // 0.45 instead of 0.5 for transition margin
+	// Normalized cutoff: passband edge relative to upsampled rate.
+	// 0.90 passes up to ~95% of output Nyquist (≈22.8kHz at 48kHz out),
+	// providing full 15kHz FM stereo bandwidth. The Kaiser window (β=6)
+	// gives ≈-60dB sidelobe suppression for clean anti-alias rejection.
+	fc := 0.90 / float64(max(l, m))
 	proto := windowedSinc(protoLen, fc, float64(l))
 
 	// Decompose prototype into L polyphase arms
