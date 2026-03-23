@@ -758,39 +758,38 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	if decim1 < 1 {
 		decim1 = 1
 	}
+	// WFM override: force decim1=2 (256kHz) instead of round(512k/192k)=3 (170kHz).
+	// At decim1=3, Nyquist is 85kHz which clips FM broadcast ±75kHz deviation.
+	// At decim1=2, Nyquist is 128kHz → full FM deviation + stereo pilot + guard band.
+	// Bonus: 256000→48000 resampler ratio is L=3/M=16 (96 taps, 1kB) instead of
+	// the pathological L=24000/M=85333 (768k taps, 6MB) from 170666→48000.
+	if isWFM && decim1 > 2 && snipRate/2 >= 200000 {
+		decim1 = 2
+	}
 	actualDemodRate := snipRate / decim1
 	logging.Debug("demod", "rates", "snipRate", snipRate, "decim1", decim1, "actual", actualDemodRate)
 
 	var dec []complex64
 	if decim1 > 1 {
-		// For WFM: skip the pre-demod anti-alias FIR entirely.
-		// FM broadcast has ±75kHz deviation. The old cutoff at
-		// actualDemodRate/2*0.8 = 68kHz was BELOW the FM deviation,
-		// clipping the modulation and causing amplitude dips that
-		// the FM discriminator turned into audible clicks (4-5/sec).
-		// The extraction stage already bandlimited to ±125kHz (BW/2 * bwMult),
-		// which is sufficient anti-alias protection for the 512k→170k decimation.
-		//
-		// For NFM/other: use a cutoff that preserves the full signal bandwidth.
+		// FIR cutoff: for WFM, use 90kHz (above ±75kHz FM deviation + guard).
+		// For NFM/other: use standard Nyquist*0.8 cutoff.
+		cutoff := float64(actualDemodRate) / 2.0 * 0.8
 		if isWFM {
-			// WFM: decimate without FIR — extraction filter is sufficient
-			dec = dsp.DecimateStateful(fullSnip, decim1, &sess.preDemodDecimPhase)
-		} else {
-			cutoff := float64(actualDemodRate) / 2.0 * 0.8
-
-			// Lazy-init or reinit stateful FIR if parameters changed
-			if sess.preDemodFIR == nil || sess.preDemodRate != snipRate || sess.preDemodCutoff != cutoff {
-				taps := dsp.LowpassFIR(cutoff, snipRate, 101)
-				sess.preDemodFIR = dsp.NewStatefulFIRComplex(taps)
-				sess.preDemodRate = snipRate
-				sess.preDemodCutoff = cutoff
-				sess.preDemodDecim = decim1
-				sess.preDemodDecimPhase = 0
-			}
-
-			filtered := sess.preDemodFIR.ProcessInto(fullSnip, sess.growIQ(len(fullSnip)))
-			dec = dsp.DecimateStateful(filtered, decim1, &sess.preDemodDecimPhase)
+			cutoff = 90000
 		}
+
+		// Lazy-init or reinit stateful FIR if parameters changed
+		if sess.preDemodFIR == nil || sess.preDemodRate != snipRate || sess.preDemodCutoff != cutoff {
+			taps := dsp.LowpassFIR(cutoff, snipRate, 101)
+			sess.preDemodFIR = dsp.NewStatefulFIRComplex(taps)
+			sess.preDemodRate = snipRate
+			sess.preDemodCutoff = cutoff
+			sess.preDemodDecim = decim1
+			sess.preDemodDecimPhase = 0
+		}
+
+		filtered := sess.preDemodFIR.ProcessInto(fullSnip, sess.growIQ(len(fullSnip)))
+		dec = dsp.DecimateStateful(filtered, decim1, &sess.preDemodDecimPhase)
 	} else {
 		dec = fullSnip
 	}
