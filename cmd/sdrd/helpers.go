@@ -11,6 +11,7 @@ import (
 	"sdr-wideband-suite/internal/demod/gpudemod"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
+	"sdr-wideband-suite/internal/logging"
 )
 
 func mustParseDuration(raw string, fallback time.Duration) time.Duration {
@@ -260,6 +261,7 @@ func extractForStreaming(
 	// Prepend overlap from previous frame so FIR kernel has real halo data
 	var gpuIQ []complex64
 	overlapLen := len(overlap.tail)
+	logging.Debug("extract", "overlap", "len", overlapLen, "needed", overlapNeeded, "allIQ", len(allIQ))
 	if overlapLen > 0 {
 		gpuIQ = make([]complex64, overlapLen+len(allIQ))
 		copy(gpuIQ, overlap.tail)
@@ -343,6 +345,9 @@ func extractForStreaming(
 					decim = 1
 				}
 				trimSamples := overlapLen / decim
+				if i == 0 {
+					logging.Debug("extract", "gpu_result", "rate", res.Rate, "outRate", outRate, "decim", decim, "trim", trimSamples)
+				}
 				// Update phase state — advance only by NEW data length, not overlap
 				phaseInc := -2.0 * math.Pi * jobs[i].OffsetHz / float64(sampleRate)
 				phaseState[signals[i].ID].phase += phaseInc * float64(len(allIQ))
@@ -411,6 +416,9 @@ func extractForStreaming(
 
 		// Trim overlap
 		trimSamples := overlapLen / decim
+		if i == 0 {
+			logging.Debug("extract", "cpu_result", "outRate", outRate, "decim", decim, "trim", trimSamples)
+		}
 		if trimSamples > 0 && trimSamples < len(decimated) {
 			decimated = decimated[trimSamples:]
 		}

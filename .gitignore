@@ -9,7 +9,12 @@
 
 # runtime data
 data/
+logs/
 config.autosave.yaml
+
+# local scripts/prompts
+codex_prompt.txt
+run_codex.ps1
 
 # local prompts
 prompt*.txt

@@ -17,6 +17,7 @@ import (
 	"sdr-wideband-suite/internal/detector"
 	fftutil "sdr-wideband-suite/internal/fft"
 	"sdr-wideband-suite/internal/fft/gpufft"
+	"sdr-wideband-suite/internal/logging"
 	"sdr-wideband-suite/internal/mock"
 	"sdr-wideband-suite/internal/recorder"
 	"sdr-wideband-suite/internal/runtime"
@@ -43,6 +44,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	if err := logging.Init(logging.Config(cfg.Logging)); err != nil {
+		log.Fatalf("logging init: %v", err)
+	}
+	defer logging.Close()
 
 	cfgManager := runtime.New(cfg)
 	gpuState := &gpuStatus{Available: gpufft.Available()}

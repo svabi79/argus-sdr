@@ -53,6 +53,18 @@ type DetectorConfig struct {
 	CFAREnabled *bool `yaml:"cfar_enabled,omitempty" json:"cfar_enabled,omitempty"`
 }
 
+type LogConfig struct {
+	Level       string   `yaml:"level" json:"level"`
+	Categories  []string `yaml:"categories" json:"categories"`
+	RateLimitMs int      `yaml:"rate_limit_ms" json:"rate_limit_ms"`
+	Stdout      bool     `yaml:"stdout" json:"stdout"`
+	StdoutColor bool     `yaml:"stdout_color" json:"stdout_color"`
+	File        string   `yaml:"file" json:"file"`
+	FileLevel   string   `yaml:"file_level" json:"file_level"`
+	TimeFormat  string   `yaml:"time_format" json:"time_format"`
+	DisableTime bool     `yaml:"disable_time" json:"disable_time"`
+}
+
 type RecorderConfig struct {
 	Enabled     bool     `yaml:"enabled" json:"enabled"`
 	MinSNRDb    float64  `yaml:"min_snr_db" json:"min_snr_db"`
@@ -157,6 +169,7 @@ type Config struct {
 	Detector       DetectorConfig     `yaml:"detector" json:"detector"`
 	Recorder       RecorderConfig     `yaml:"recorder" json:"recorder"`
 	Decoder        DecoderConfig      `yaml:"decoder" json:"decoder"`
+	Logging        LogConfig          `yaml:"logging" json:"logging"`
 	WebAddr        string             `yaml:"web_addr" json:"web_addr"`
 	EventPath      string             `yaml:"event_path" json:"event_path"`
 	FrameRate      int                `yaml:"frame_rate" json:"frame_rate"`
@@ -408,7 +421,18 @@ func Default() Config {
 			ExtractionBwMult: 1.2,
 		},
 		Decoder:        DecoderConfig{},
-		WebAddr:        ":8080",
+		Logging: LogConfig{
+			Level:       "informal",
+			Categories:  []string{},
+			RateLimitMs: 500,
+			Stdout:      true,
+			StdoutColor: true,
+			File:        "logs/trace.log",
+			FileLevel:   "",
+			TimeFormat:  "15:04:05",
+			DisableTime: false,
+		},
+		WebAddr: ":8080",
 		EventPath:      "data/events.jsonl",
 		FrameRate:      15,
 		WaterfallLines: 200,
@@ -516,6 +540,15 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Surveillance.Strategy == "" {
 		cfg.Surveillance.Strategy = "single-resolution"
+	}
+	if cfg.Logging.Level == "" {
+		cfg.Logging.Level = "informal"
+	}
+	if cfg.Logging.RateLimitMs <= 0 {
+		cfg.Logging.RateLimitMs = 500
+	}
+	if cfg.Logging.File == "" {
+		cfg.Logging.File = "logs/trace.log"
 	}
 	if cfg.Surveillance.DerivedDetection == "" {
 		cfg.Surveillance.DerivedDetection = "auto"

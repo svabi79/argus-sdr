@@ -18,6 +18,7 @@ import (
 	"sdr-wideband-suite/internal/demod"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
+	"sdr-wideband-suite/internal/logging"
 )
 
 // ---------------------------------------------------------------------------
@@ -162,6 +163,9 @@ type Streamer struct {
 	feedCh   chan streamFeedMsg
 	done     chan struct{}
 
+	droppedFeed uint64
+	droppedPCM  uint64
+
 	// pendingListens are subscribers waiting for a matching session.
 	pendingListens map[int64]*pendingListen
 }
@@ -264,6 +268,8 @@ func (st *Streamer) FeedSnippets(items []streamFeedItem) {
 	select {
 	case st.feedCh <- streamFeedMsg{items: items}:
 	default:
+		st.droppedFeed++
+		logging.Warn("drop", "feed_drop", "count", st.droppedFeed)
 	}
 }
 
@@ -646,6 +652,7 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		decim1 = 1
 	}
 	actualDemodRate := snipRate / decim1
+	logging.Debug("demod", "rates", "snipRate", snipRate, "decim1", decim1, "actual", actualDemodRate)
 
 	var dec []complex64
 	if decim1 > 1 {
@@ -725,12 +732,14 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	if actualDemodRate != streamAudioRate {
 		if channels > 1 {
 			if sess.stereoResampler == nil || sess.stereoResamplerRate != actualDemodRate {
+				logging.Info("resample", "reset", "mode", "stereo", "rate", actualDemodRate)
 				sess.stereoResampler = dsp.NewStereoResampler(actualDemodRate, streamAudioRate, resamplerTaps)
 				sess.stereoResamplerRate = actualDemodRate
 			}
 			audio = sess.stereoResampler.Process(audio)
 		} else {
 			if sess.monoResampler == nil || sess.monoResamplerRate != actualDemodRate {
+				logging.Info("resample", "reset", "mode", "mono", "rate", actualDemodRate)
 				sess.monoResampler = dsp.NewResampler(actualDemodRate, streamAudioRate, resamplerTaps)
 				sess.monoResamplerRate = actualDemodRate
 			}
@@ -1278,6 +1287,8 @@ func (st *Streamer) fanoutPCM(sess *streamSession, pcm []byte, pcmLen int) {
 		select {
 		case sub.ch <- tagged:
 		default:
+			st.droppedPCM++
+			logging.Warn("drop", "pcm_drop", "count", st.droppedPCM)
 		}
 		alive = append(alive, sub)
 	}

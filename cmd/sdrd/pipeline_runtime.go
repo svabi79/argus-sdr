@@ -13,6 +13,7 @@ import (
 	"sdr-wideband-suite/internal/demod"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
+	"sdr-wideband-suite/internal/logging"
 	fftutil "sdr-wideband-suite/internal/fft"
 	"sdr-wideband-suite/internal/fft/gpufft"
 	"sdr-wideband-suite/internal/pipeline"
@@ -346,6 +347,7 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 			available = required
 		}
 	}
+	logging.Debug("capture", "read_iq", "required", required, "available", available, "buf", st.BufferSamples, "reset", st.Resets, "drop", st.Dropped)
 	allIQ, err := srcMgr.ReadIQ(available)
 	if err != nil {
 		return nil, err
@@ -353,6 +355,7 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	if rec != nil {
 		rec.Ingest(time.Now(), allIQ)
 	}
+	logging.Debug("capture", "iq_len", "len", len(allIQ), "surv_fft", rt.cfg.FFTSize, "detail_fft", rt.detailFFT)
 	survIQ := allIQ
 	if len(allIQ) > rt.cfg.FFTSize {
 		survIQ = allIQ[len(allIQ)-rt.cfg.FFTSize:]

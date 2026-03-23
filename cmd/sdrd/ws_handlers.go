@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"sdr-wideband-suite/internal/logging"
 	"sdr-wideband-suite/internal/recorder"
 )
 
@@ -161,6 +162,7 @@ func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {
 		}()
 
 		log.Printf("ws/audio: client connected freq=%.1fMHz mode=%s", freq/1e6, mode)
+		logging.Info("ws", "audio_connect", "freq_mhz", freq/1e6, "mode", mode)
 
 		// LL-2: Send actual audio info (channels, sample rate from session)
 		info := map[string]any{
@@ -215,6 +217,7 @@ func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {
 				}
 				if err := conn.WriteMessage(msgType, payload); err != nil {
 					log.Printf("ws/audio: write error: %v", err)
+					logging.Warn("ws", "audio_write_error", "err", err.Error())
 					return
 				}
 			case <-ping.C:
@@ -224,6 +227,7 @@ func registerWSHandlers(mux *http.ServeMux, h *hub, recMgr *recorder.Manager) {
 				}
 			case <-done:
 				log.Printf("ws/audio: client disconnected freq=%.1fMHz", freq/1e6)
+				logging.Info("ws", "audio_disconnect", "freq_mhz", freq/1e6)
 				return
 			}
 		}

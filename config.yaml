@@ -248,6 +248,16 @@ decoder:
   dstar_cmd: tools/dsd-neo/bin/dsd-neo.exe -fd -i {audio} -s {sr} -o null
   fsk_cmd: tools/fsk/fsk_decoder --iq {iq} --sample-rate {sr}
   psk_cmd: tools/psk/psk_decoder --iq {iq} --sample-rate {sr}
+logging:
+  level: debug
+  categories: [capture, extract, demod, resample, drop, ws]
+  rate_limit_ms: 500
+  stdout: true
+  stdout_color: true
+  file: logs/trace.log
+  file_level: debug
+  time_format: "15:04:05"
+  disable_time: false
 web_addr: :8080
 event_path: data/events.jsonl
 frame_rate: 12
