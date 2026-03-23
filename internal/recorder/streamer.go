@@ -763,20 +763,34 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 
 	var dec []complex64
 	if decim1 > 1 {
-		cutoff := float64(actualDemodRate) / 2.0 * 0.8
+		// For WFM: skip the pre-demod anti-alias FIR entirely.
+		// FM broadcast has ±75kHz deviation. The old cutoff at
+		// actualDemodRate/2*0.8 = 68kHz was BELOW the FM deviation,
+		// clipping the modulation and causing amplitude dips that
+		// the FM discriminator turned into audible clicks (4-5/sec).
+		// The extraction stage already bandlimited to ±125kHz (BW/2 * bwMult),
+		// which is sufficient anti-alias protection for the 512k→170k decimation.
+		//
+		// For NFM/other: use a cutoff that preserves the full signal bandwidth.
+		if isWFM {
+			// WFM: decimate without FIR — extraction filter is sufficient
+			dec = dsp.DecimateStateful(fullSnip, decim1, &sess.preDemodDecimPhase)
+		} else {
+			cutoff := float64(actualDemodRate) / 2.0 * 0.8
 
-		// Lazy-init or reinit stateful FIR if parameters changed
-		if sess.preDemodFIR == nil || sess.preDemodRate != snipRate || sess.preDemodCutoff != cutoff {
-			taps := dsp.LowpassFIR(cutoff, snipRate, 101)
-			sess.preDemodFIR = dsp.NewStatefulFIRComplex(taps)
-			sess.preDemodRate = snipRate
-			sess.preDemodCutoff = cutoff
-			sess.preDemodDecim = decim1
-			sess.preDemodDecimPhase = 0 // reset decimation phase on FIR reinit
+			// Lazy-init or reinit stateful FIR if parameters changed
+			if sess.preDemodFIR == nil || sess.preDemodRate != snipRate || sess.preDemodCutoff != cutoff {
+				taps := dsp.LowpassFIR(cutoff, snipRate, 101)
+				sess.preDemodFIR = dsp.NewStatefulFIRComplex(taps)
+				sess.preDemodRate = snipRate
+				sess.preDemodCutoff = cutoff
+				sess.preDemodDecim = decim1
+				sess.preDemodDecimPhase = 0
+			}
+
+			filtered := sess.preDemodFIR.ProcessInto(fullSnip, sess.growIQ(len(fullSnip)))
+			dec = dsp.DecimateStateful(filtered, decim1, &sess.preDemodDecimPhase)
 		}
-
-		filtered := sess.preDemodFIR.ProcessInto(fullSnip, sess.growIQ(len(fullSnip)))
-		dec = dsp.DecimateStateful(filtered, decim1, &sess.preDemodDecimPhase)
 	} else {
 		dec = fullSnip
 	}
