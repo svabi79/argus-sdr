@@ -36,6 +36,7 @@ type streamSession struct {
 	lastFeed     time.Time
 	playbackMode string
 	stereoState  string
+	lastAudioTs  time.Time
 
 	// listenOnly sessions have no WAV file and no disk I/O.
 	// They exist solely to feed audio to live-listen subscribers.
@@ -388,6 +389,16 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 				} else {
 					sess.wavSamples += int64(n / 2)
 				}
+			}
+			// Gap logging for live-audio sessions
+			if len(sess.audioSubs) > 0 {
+				if !sess.lastAudioTs.IsZero() {
+					gap := time.Since(sess.lastAudioTs)
+					if gap > 150*time.Millisecond {
+						logging.Warn("gap", "audio_gap", "signal", sess.signalID, "gap_ms", gap.Milliseconds())
+					}
+				}
+				sess.lastAudioTs = time.Now()
 			}
 			st.fanoutPCM(sess, pcm, pcmLen)
 		}
