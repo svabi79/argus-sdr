@@ -155,7 +155,8 @@ type streamFeedItem struct {
 }
 
 type streamFeedMsg struct {
-	items []streamFeedItem
+	traceID uint64
+	items   []streamFeedItem
 }
 
 type Streamer struct {
@@ -257,7 +258,7 @@ func (st *Streamer) hasListenersLocked() bool {
 //
 // IMPORTANT: The caller (Manager.FeedSnippets) already copies the snippet
 // data, so items can be passed directly without another copy.
-func (st *Streamer) FeedSnippets(items []streamFeedItem) {
+func (st *Streamer) FeedSnippets(items []streamFeedItem, traceID uint64) {
 	st.mu.Lock()
 	recEnabled := st.policy.Enabled && (st.policy.RecordAudio || st.policy.RecordIQ)
 	hasListeners := st.hasListenersLocked()
@@ -281,7 +282,7 @@ func (st *Streamer) FeedSnippets(items []streamFeedItem) {
 	}
 
 	select {
-	case st.feedCh <- streamFeedMsg{items: items}:
+	case st.feedCh <- streamFeedMsg{traceID: traceID, items: items}:
 	default:
 		st.droppedFeed++
 		logging.Warn("drop", "feed_drop", "count", st.droppedFeed)
@@ -297,11 +298,13 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 	if !st.lastProcTS.IsZero() {
 		gap := now.Sub(st.lastProcTS)
 		if gap > 150*time.Millisecond {
-			logging.Warn("gap", "process_gap", "gap_ms", gap.Milliseconds())
+			logging.Warn("gap", "process_gap", "gap_ms", gap.Milliseconds(), "trace", msg.traceID)
 		}
 	}
 	st.lastProcTS = now
 	defer st.mu.Unlock()
+
+	logging.Debug("trace", "process_feed", "trace", msg.traceID, "items", len(msg.items))
 
 	if !recEnabled && !hasListeners {
 		return
@@ -390,7 +393,12 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 		}
 
 		// Demod with persistent state
+		logging.Debug("trace", "demod_start", "trace", msg.traceID, "signal", sess.signalID, "snip_len", len(item.snippet), "snip_rate", item.snipRate)
 		audio, audioRate := sess.processSnippet(item.snippet, item.snipRate)
+		logging.Debug("trace", "demod_done", "trace", msg.traceID, "signal", sess.signalID, "audio_len", len(audio), "audio_rate", audioRate)
+		if len(audio) == 0 {
+			logging.Warn("gap", "audio_empty", "signal", sess.signalID, "snip_len", len(item.snippet), "snip_rate", item.snipRate)
+		}
 		if len(audio) > 0 {
 			if sess.wavSamples == 0 && audioRate > 0 {
 				sess.sampleRate = audioRate

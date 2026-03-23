@@ -32,6 +32,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 	enc := json.NewEncoder(eventFile)
 	dcBlocker := dsp.NewDCBlocker(0.995)
 	state := &phaseState{}
+	var frameID uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -44,6 +45,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			dcBlocker.Reset()
 			ticker.Reset(rt.cfg.FrameInterval())
 		case <-ticker.C:
+			frameID++
 			art, err := rt.captureSpectrum(srcMgr, rec, dcBlocker, gpuState)
 			if err != nil {
 				log.Printf("read IQ: %v", err)
@@ -58,6 +60,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				log.Printf("received IQ samples")
 				rt.gotSamples = true
 			}
+			logging.Debug("trace", "capture_done", "trace", frameID, "allIQ", len(art.allIQ), "detailIQ", len(art.detailIQ))
 			state.surveillance = rt.buildSurveillanceResult(art)
 			state.refinement = rt.runRefinement(art, state.surveillance, extractMgr, rec)
 			finished := state.surveillance.Finished
@@ -77,6 +80,23 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					}
 					aqCfg := extractionConfig{firTaps: rt.cfg.Recorder.ExtractionTaps, bwMult: rt.cfg.Recorder.ExtractionBwMult}
 					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, streamSignals, rt.streamPhaseState, rt.streamOverlap, aqCfg)
+					nonEmpty := 0
+					minLen := 0
+					maxLen := 0
+					for i := range streamSnips {
+						l := len(streamSnips[i])
+						if l == 0 {
+							continue
+						}
+						nonEmpty++
+						if minLen == 0 || l < minLen {
+							minLen = l
+						}
+						if l > maxLen {
+							maxLen = l
+						}
+					}
+					logging.Debug("trace", "extract_stats", "trace", frameID, "signals", len(streamSignals), "nonempty", nonEmpty, "minLen", minLen, "maxLen", maxLen)
 					items := make([]recorder.StreamFeedItem, 0, len(streamSignals))
 					for j, ds := range streamSignals {
 						className := "<nil>"
@@ -107,9 +127,10 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						log.Printf("LIVEAUDIO DSP: feedItems=%d", len(items))
 					}
 					if len(items) > 0 {
-						rec.FeedSnippets(items)
+						rec.FeedSnippets(items, frameID)
+						logging.Debug("trace", "feed", "trace", frameID, "items", len(items), "signals", len(streamSignals), "allIQ", len(art.allIQ))
 					} else {
-						logging.Warn("gap", "feed_empty", "signals", len(streamSignals))
+						logging.Warn("gap", "feed_empty", "signals", len(streamSignals), "trace", frameID)
 					}
 				}
 				rt.maintenance(displaySignals, rec)

@@ -310,7 +310,7 @@ func (m *Manager) SliceRecent(seconds float64) ([]complex64, int, float64) {
 // FeedSnippets is called once per DSP frame with pre-extracted IQ snippets
 // (GPU-accelerated FreqShift+FIR+Decimate). The Streamer handles demod with
 // persistent state (overlap-save, stereo decode, de-emphasis) asynchronously.
-func (m *Manager) FeedSnippets(items []StreamFeedItem) {
+func (m *Manager) FeedSnippets(items []StreamFeedItem, traceID uint64) {
 	if m == nil || m.streamer == nil || len(items) == 0 {
 		return
 	}
@@ -339,7 +339,7 @@ func (m *Manager) FeedSnippets(items []StreamFeedItem) {
 			snipRate: item.SnipRate,
 		}
 	}
-	m.streamer.FeedSnippets(internal)
+	m.streamer.FeedSnippets(internal, traceID)
 }
 
 // StreamFeedItem is the public type for passing extracted snippets from DSP loop.
