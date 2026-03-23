@@ -647,6 +647,7 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		fullSnip[0] = sess.overlapIQ[0]
 		copy(fullSnip[1:], snippet)
 		trimSamples = 1
+		logging.Debug("discrim", "overlap_applied", "signal", sess.signalID, "snip", len(snippet))
 	} else {
 		fullSnip = snippet
 	}
@@ -697,6 +698,7 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 			audioTrim = 1 // at minimum trim 1 audio sample
 		}
 		if audioTrim > 0 && audioTrim < len(audio) {
+			logging.Debug("discrim", "audio_trim", "signal", sess.signalID, "trim", audioTrim, "decim1", decim1, "audio_len", len(audio))
 			audio = audio[audioTrim:]
 		}
 	}
