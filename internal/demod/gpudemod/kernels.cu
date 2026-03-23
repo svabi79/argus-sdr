@@ -12,6 +12,8 @@ extern "C" __global__ void gpud_freq_shift_kernel(
     if (idx >= n) return;
 
     double phase = phase_start + phase_inc * (double)idx;
+    const double TWO_PI = 6.283185307179586;
+    phase = phase - rint(phase / TWO_PI) * TWO_PI;
     float si, co;
     sincosf((float)phase, &si, &co);
 
@@ -161,6 +163,8 @@ extern "C" __global__ void gpud_ssb_product_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n) return;
     double phase = phase_start + phase_inc * (double)idx;
+    const double TWO_PI = 6.283185307179586;
+    phase = phase - rint(phase / TWO_PI) * TWO_PI;
     float si, co;
     sincosf((float)phase, &si, &co);
     float2 v = in[idx];
