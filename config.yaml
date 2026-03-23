@@ -250,7 +250,7 @@ decoder:
   psk_cmd: tools/psk/psk_decoder --iq {iq} --sample-rate {sr}
 logging:
   level: debug
-  categories: [capture, extract, demod, resample, drop, ws]
+  categories: [capture, extract, demod, resample, drop, ws, boundary]
   rate_limit_ms: 500
   stdout: true
   stdout_color: true

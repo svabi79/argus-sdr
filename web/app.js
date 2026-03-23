@@ -143,6 +143,18 @@ let decisionIndex = new Map();
 // ---------------------------------------------------------------------------
 // LiveListenWS — WebSocket-based gapless audio streaming via /ws/audio
 // ---------------------------------------------------------------------------
+// v2: Ring-buffer based playback with smooth underrun handling.
+//
+// Architecture:
+//   WebSocket → PCM chunks → ring buffer → AudioWorklet/ScriptProcessor → speakers
+//
+// Key improvements over v1:
+//   - 250ms ring buffer absorbs feed_gap jitter (150-220ms observed)
+//   - On underrun: fade to silence instead of hard resync (no click)
+//   - On overrun: skip oldest data instead of hard drop
+//   - Continuous pull-based playback (worklet pulls from ring) instead of
+//     push-based scheduling (BufferSource per chunk)
+// ---------------------------------------------------------------------------
 class LiveListenWS {
   constructor(freq, bw, mode) {
     this.freq = freq;
@@ -153,10 +165,19 @@ class LiveListenWS {
     this.sampleRate = 48000;
     this.channels = 1;
     this.playing = false;
-    this.queue = [];         // buffered PCM chunks
-    this.nextTime = 0;       // next scheduled playback time
-    this.started = false;
     this._onStop = null;
+
+    // Ring buffer (interleaved float32 samples)
+    this._ringBuf = null;
+    this._ringSize = 0;
+    this._ringWrite = 0;   // write cursor (producer: WebSocket)
+    this._ringRead = 0;    // read cursor (consumer: audio callback)
+    this._scriptNode = null;
+    this._fadeGain = 1.0;   // smooth fade on underrun
+    this._started = false;
+    this._totalWritten = 0;
+    this._totalRead = 0;
+    this._underruns = 0;
   }
 
   start() {
@@ -168,7 +189,6 @@ class LiveListenWS {
 
     this.ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
-        // audio_info JSON message (initial or updated when session attached)
         try {
           const info = JSON.parse(ev.data);
           handleLiveListenAudioInfo(info);
@@ -177,16 +197,10 @@ class LiveListenWS {
           if (hasRate || hasCh) {
             const newRate = hasRate ? info.sample_rate : this.sampleRate;
             const newCh = hasCh ? info.channels : this.channels;
-            // If channels or rate changed, reinit AudioContext
             if (newRate !== this.sampleRate || newCh !== this.channels) {
               this.sampleRate = newRate;
               this.channels = newCh;
-              if (this.audioCtx) {
-                this.audioCtx.close().catch(() => {});
-                this.audioCtx = null;
-              }
-              this.started = false;
-              this.nextTime = 0;
+              this._teardownAudio();
             }
             this._initAudio();
           }
@@ -195,7 +209,7 @@ class LiveListenWS {
       }
       // Binary PCM data (s16le)
       if (!this.audioCtx || !this.playing) return;
-      this._playChunk(ev.data);
+      this._pushPCM(ev.data);
     };
 
     this.ws.onclose = () => {
@@ -207,7 +221,6 @@ class LiveListenWS {
       if (this._onStop) this._onStop();
     };
 
-    // If no audio_info arrives within 500ms, init with defaults
     setTimeout(() => {
       if (!this.audioCtx && this.playing) this._initAudio();
     }, 500);
@@ -219,16 +232,28 @@ class LiveListenWS {
       this.ws.close();
       this.ws = null;
     }
+    this._teardownAudio();
+  }
+
+  onStop(fn) { this._onStop = fn; }
+
+  // --- Internal: Audio setup ---
+
+  _teardownAudio() {
+    if (this._scriptNode) {
+      this._scriptNode.disconnect();
+      this._scriptNode = null;
+    }
     if (this.audioCtx) {
       this.audioCtx.close().catch(() => {});
       this.audioCtx = null;
     }
-    this.queue = [];
-    this.nextTime = 0;
-    this.started = false;
+    this._ringBuf = null;
+    this._ringWrite = 0;
+    this._ringRead = 0;
+    this._fadeGain = 1.0;
+    this._started = false;
   }
-
-  onStop(fn) { this._onStop = fn; }
 
   _initAudio() {
     if (this.audioCtx) return;
@@ -236,55 +261,161 @@ class LiveListenWS {
       sampleRate: this.sampleRate
     });
     this.audioCtx.resume().catch(() => {});
-    this.nextTime = 0;
-    this.started = false;
+
+    // Ring buffer: 500ms capacity (handles jitter up to ~400ms)
+    const ringDurationSec = 0.5;
+    this._ringSize = Math.ceil(this.sampleRate * this.channels * ringDurationSec);
+    this._ringBuf = new Float32Array(this._ringSize);
+    this._ringWrite = 0;
+    this._ringRead = 0;
+    this._fadeGain = 1.0;
+    this._started = false;
+    this._totalWritten = 0;
+    this._totalRead = 0;
+
+    // Use ScriptProcessorNode (deprecated but universally supported).
+    // Buffer size 2048 at 48kHz = 42.7ms callback interval — responsive enough.
+    const bufSize = 2048;
+    this._scriptNode = this.audioCtx.createScriptProcessor(bufSize, 0, this.channels);
+    this._scriptNode.onaudioprocess = (e) => this._audioCallback(e);
+    this._scriptNode.connect(this.audioCtx.destination);
   }
 
-  _playChunk(buf) {
-    const ctx = this.audioCtx;
-    if (!ctx) return;
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
+  // --- Internal: Producer (WebSocket → ring buffer) ---
+
+  _pushPCM(buf) {
+    if (!this._ringBuf) return;
 
     const samples = new Int16Array(buf);
-    const nFrames = Math.floor(samples.length / this.channels);
-    if (nFrames === 0) return;
+    const nSamples = samples.length; // interleaved: nFrames * channels
+    if (nSamples === 0) return;
 
-    const audioBuffer = ctx.createBuffer(this.channels, nFrames, this.sampleRate);
-    for (let ch = 0; ch < this.channels; ch++) {
-      const channelData = audioBuffer.getChannelData(ch);
-      for (let i = 0; i < nFrames; i++) {
-        channelData[i] = samples[i * this.channels + ch] / 32768;
+    const ring = this._ringBuf;
+    const size = this._ringSize;
+    let w = this._ringWrite;
+
+    // Check available space
+    const used = (w - this._ringRead + size) % size;
+    const free = size - used - 1; // -1 to distinguish full from empty
+
+    if (nSamples > free) {
+      // Overrun: advance read cursor to make room (discard oldest audio).
+      // This keeps latency bounded instead of growing unbounded.
+      const deficit = nSamples - free;
+      this._ringRead = (this._ringRead + deficit) % size;
+    }
+
+    // Write samples into ring
+    for (let i = 0; i < nSamples; i++) {
+      ring[w] = samples[i] / 32768;
+      w = (w + 1) % size;
+    }
+    this._ringWrite = w;
+    this._totalWritten += nSamples;
+
+    // Start playback after buffering ~200ms (enough to absorb one feed_gap)
+    if (!this._started) {
+      const buffered = (this._ringWrite - this._ringRead + size) % size;
+      const target = Math.ceil(this.sampleRate * this.channels * 0.2);
+      if (buffered >= target) {
+        this._started = true;
+      }
+    }
+  }
+
+  // --- Internal: Consumer (ring buffer → speakers) ---
+
+  _audioCallback(e) {
+    const ring = this._ringBuf;
+    const size = this._ringSize;
+    const ch = this.channels;
+    const outLen = e.outputBuffer.length; // frames per channel
+
+    if (!ring || !this._started) {
+      // Not ready yet — output silence
+      for (let c = 0; c < e.outputBuffer.numberOfChannels; c++) {
+        e.outputBuffer.getChannelData(c).fill(0);
+      }
+      return;
+    }
+
+    // How many interleaved samples do we need?
+    const need = outLen * ch;
+    const available = (this._ringWrite - this._ringRead + size) % size;
+
+    if (available < need) {
+      // Underrun — not enough data. Output what we have, fade to silence.
+      this._underruns++;
+      const have = available;
+      const haveFrames = Math.floor(have / ch);
+
+      // Get channel buffers
+      const outs = [];
+      for (let c = 0; c < e.outputBuffer.numberOfChannels; c++) {
+        outs.push(e.outputBuffer.getChannelData(c));
+      }
+
+      let r = this._ringRead;
+
+      // Play available samples with fade-out over last 64 samples
+      const fadeLen = Math.min(64, haveFrames);
+      const fadeStart = haveFrames - fadeLen;
+
+      for (let i = 0; i < haveFrames; i++) {
+        // Fade envelope: full volume, then linear fade to 0
+        let env = this._fadeGain;
+        if (i >= fadeStart) {
+          env *= 1.0 - (i - fadeStart) / fadeLen;
+        }
+        for (let c = 0; c < ch; c++) {
+          if (c < outs.length) {
+            outs[c][i] = ring[r] * env;
+          }
+          r = (r + 1) % size;
+        }
+      }
+      this._ringRead = r;
+
+      // Fill rest with silence
+      for (let i = haveFrames; i < outLen; i++) {
+        for (let c = 0; c < outs.length; c++) {
+          outs[c][i] = 0;
+        }
+      }
+
+      this._fadeGain = 0; // next chunk starts silent
+      this._totalRead += have;
+      return;
+    }
+
+    // Normal path — enough data available
+    const outs = [];
+    for (let c = 0; c < e.outputBuffer.numberOfChannels; c++) {
+      outs.push(e.outputBuffer.getChannelData(c));
+    }
+
+    let r = this._ringRead;
+
+    // If recovering from underrun, fade in over first 64 samples
+    const fadeInLen = (this._fadeGain < 1.0) ? Math.min(64, outLen) : 0;
+
+    for (let i = 0; i < outLen; i++) {
+      let env = 1.0;
+      if (i < fadeInLen) {
+        // Linear fade-in from current _fadeGain to 1.0
+        env = this._fadeGain + (1.0 - this._fadeGain) * (i / fadeInLen);
+      }
+      for (let c = 0; c < ch; c++) {
+        if (c < outs.length) {
+          outs[c][i] = ring[r] * env;
+        }
+        r = (r + 1) % size;
       }
     }
 
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(ctx.destination);
-
-    // Schedule gapless playback with drift correction.
-    // We target a small jitter buffer (~100ms ahead of real time).
-    // If nextTime falls behind currentTime, we resync with a small
-    // buffer to avoid audible gaps.
-    const now = ctx.currentTime;
-    const targetLatency = 0.1; // 100ms jitter buffer
-
-    if (!this.started || this.nextTime < now) {
-      // First chunk or buffer underrun — resync
-      this.nextTime = now + targetLatency;
-      this.started = true;
-    }
-
-    // If we've drifted too far ahead (>500ms of buffered audio),
-    // drop this chunk to reduce latency. This prevents the buffer
-    // from growing unbounded when the server sends faster than realtime.
-    if (this.nextTime > now + 0.5) {
-      return; // drop — too much buffered
-    }
-
-    source.start(this.nextTime);
-    this.nextTime += audioBuffer.duration;
+    this._ringRead = r;
+    this._fadeGain = 1.0;
+    this._totalRead += need;
   }
 }
 
