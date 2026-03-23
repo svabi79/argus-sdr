@@ -344,13 +344,15 @@ func extractForStreaming(
 				if decim < 1 {
 					decim = 1
 				}
-				trimSamples := overlapLen / decim
+				trimSamples := (overlapLen + decim - 1) / decim
 				if i == 0 {
 					logging.Debug("extract", "gpu_result", "rate", res.Rate, "outRate", outRate, "decim", decim, "trim", trimSamples)
 				}
 				// Update phase state — advance only by NEW data length, not overlap
 				phaseInc := -2.0 * math.Pi * jobs[i].OffsetHz / float64(sampleRate)
 				phaseState[signals[i].ID].phase += phaseInc * float64(len(allIQ))
+				// Normalize to [-π, π) to prevent float64 drift over long runs
+				phaseState[signals[i].ID].phase = math.Remainder(phaseState[signals[i].ID].phase, 2*math.Pi)
 
 				// Trim overlap from output
 				iq := res.IQ
@@ -387,6 +389,7 @@ func extractForStreaming(
 		}
 		// Advance phase by NEW data length only
 		ps.phase += inc * float64(len(allIQ))
+		ps.phase = math.Remainder(ps.phase, 2*math.Pi)
 
 		cutoff := bw / 2
 		if cutoff < 200 {
@@ -414,8 +417,10 @@ func extractForStreaming(
 		decimated := dsp.Decimate(filtered, decim)
 		rates[i] = sampleRate / decim
 
-		// Trim overlap
-		trimSamples := overlapLen / decim
+		// Trim overlap — use ceil to ensure ALL overlap samples are removed.
+		// Floor trim (overlapLen/decim) leaves a remainder for non-divisible
+		// factors (e.g. 512/20=25 trims only 500 of 512 samples → 12 leak).
+		trimSamples := (overlapLen + decim - 1) / decim
 		if i == 0 {
 			logging.Debug("extract", "cpu_result", "outRate", outRate, "decim", decim, "trim", trimSamples)
 		}

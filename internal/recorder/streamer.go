@@ -39,6 +39,7 @@ type streamSession struct {
 	lastAudioTs  time.Time
 	lastAudioL   float32
 	lastAudioR   float32
+	prevAudioL   float64 // second-to-last L sample for boundary transient detection
 	lastAudioSet bool
 
 	// listenOnly sessions have no WAV file and no disk I/O.
@@ -419,7 +420,7 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 					sess.wavSamples += int64(n / 2)
 				}
 			}
-			// Gap logging for live-audio sessions + boundary delta check
+			// Gap logging for live-audio sessions + transient click detector
 			if len(sess.audioSubs) > 0 {
 				if !sess.lastAudioTs.IsZero() {
 					gap := time.Since(sess.lastAudioTs)
@@ -427,34 +428,67 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 						logging.Warn("gap", "audio_gap", "signal", sess.signalID, "gap_ms", gap.Milliseconds())
 					}
 				}
-				// boundary delta (compare previous last sample with current first sample)
+				// Transient click detector: finds short impulses (1-3 samples)
+				// that deviate sharply from the local signal trend.
+				// A click looks like: ...smooth... SPIKE ...smooth...
+				// Normal FM audio has large deltas too, but they follow
+				// a continuous curve. A click has high |d2/dt2| (acceleration).
+				//
+				// Method: second-derivative detector. For each sample triplet
+				// (a, b, c), compute |2b - a - c| which is the discrete
+				// second derivative magnitude. High values = transient spike.
+				// Threshold: 0.15 (tuned to reject normal FM content <15kHz).
 				if logging.EnabledCategory("boundary") && len(audio) > 0 {
-					if sess.lastAudioSet {
-						if sess.channels > 1 && len(audio) >= 2 {
-							dL := float64(audio[0] - sess.lastAudioL)
-							dR := float64(audio[1] - sess.lastAudioR)
-							if dL < 0 { dL = -dL }
-							if dR < 0 { dR = -dR }
-							if dL > 0.2 || dR > 0.2 {
-								logging.Warn("boundary", "audio_step", "signal", sess.signalID, "dL", dL, "dR", dR)
-							}
-						} else {
-							d := float64(audio[0] - sess.lastAudioL)
-							if d < 0 { d = -d }
-							if d > 0.2 {
-								logging.Warn("boundary", "audio_step", "signal", sess.signalID, "dL", d)
-							}
+					stride := sess.channels
+					if stride < 1 {
+						stride = 1
+					}
+					nFrames := len(audio) / stride
+
+					// Boundary transient: use last 2 samples of prev frame + first sample of this frame
+					if sess.lastAudioSet && nFrames >= 1 {
+						// second derivative across boundary: |2*last - prevLast - first|
+						first := float64(audio[0])
+						d2 := math.Abs(2*float64(sess.lastAudioL) - sess.prevAudioL - first)
+						if d2 > 0.15 {
+							logging.Warn("boundary", "boundary_click", "signal", sess.signalID, "d2", d2)
 						}
 					}
-					// store last sample
-					if sess.channels > 1 {
-						lastIdx := (len(audio)-2)
-						if lastIdx < 0 { lastIdx = 0 }
-						sess.lastAudioL = audio[lastIdx]
-						sess.lastAudioR = audio[lastIdx+1]
-					} else {
-						sess.lastAudioL = audio[len(audio)-1]
-						sess.lastAudioR = 0
+
+					// Intra-frame transient scan (L channel only for performance)
+					nClicks := 0
+					maxD2 := float64(0)
+					maxD2Pos := 0
+					for k := 1; k < nFrames-1; k++ {
+						a := float64(audio[(k-1)*stride])
+						b := float64(audio[k*stride])
+						c := float64(audio[(k+1)*stride])
+						d2 := math.Abs(2*b - a - c)
+						if d2 > maxD2 {
+							maxD2 = d2
+							maxD2Pos = k
+						}
+						if d2 > 0.15 {
+							nClicks++
+						}
+					}
+					if nClicks > 0 {
+						logging.Warn("boundary", "intra_click", "signal", sess.signalID, "clicks", nClicks, "maxD2", maxD2, "pos", maxD2Pos, "len", nFrames)
+					}
+
+					// Store last two samples for next frame's boundary check
+					if nFrames >= 2 {
+						sess.prevAudioL = float64(audio[(nFrames-2)*stride])
+						sess.lastAudioL = audio[(nFrames-1)*stride]
+						if stride > 1 {
+							sess.lastAudioR = audio[(nFrames-1)*stride+1]
+						}
+					} else if nFrames == 1 {
+						sess.prevAudioL = float64(sess.lastAudioL)
+						sess.lastAudioL = audio[0]
+						if stride > 1 && len(audio) >= 2 {
+							sess.lastAudioR = audio[1]
+						}
 					}
 					sess.lastAudioSet = true
 				}
