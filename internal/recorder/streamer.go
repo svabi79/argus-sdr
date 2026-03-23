@@ -170,6 +170,9 @@ type Streamer struct {
 	droppedFeed uint64
 	droppedPCM  uint64
 
+	lastFeedTS time.Time
+	lastProcTS time.Time
+
 	// pendingListens are subscribers waiting for a matching session.
 	pendingListens map[int64]*pendingListen
 }
@@ -260,6 +263,14 @@ func (st *Streamer) FeedSnippets(items []streamFeedItem) {
 	hasListeners := st.hasListenersLocked()
 	pending := len(st.pendingListens)
 	debugLiveAudio := st.policy.DebugLiveAudio
+	now := time.Now()
+	if !st.lastFeedTS.IsZero() {
+		gap := now.Sub(st.lastFeedTS)
+		if gap > 150*time.Millisecond {
+			logging.Warn("gap", "feed_gap", "gap_ms", gap.Milliseconds())
+		}
+	}
+	st.lastFeedTS = now
 	st.mu.Unlock()
 
 	if debugLiveAudio {
@@ -280,16 +291,22 @@ func (st *Streamer) FeedSnippets(items []streamFeedItem) {
 // processFeed runs in the worker goroutine.
 func (st *Streamer) processFeed(msg streamFeedMsg) {
 	st.mu.Lock()
-	defer st.mu.Unlock()
-
 	recEnabled := st.policy.Enabled && (st.policy.RecordAudio || st.policy.RecordIQ)
 	hasListeners := st.hasListenersLocked()
+	now := time.Now()
+	if !st.lastProcTS.IsZero() {
+		gap := now.Sub(st.lastProcTS)
+		if gap > 150*time.Millisecond {
+			logging.Warn("gap", "process_gap", "gap_ms", gap.Milliseconds())
+		}
+	}
+	st.lastProcTS = now
+	defer st.mu.Unlock()
 
 	if !recEnabled && !hasListeners {
 		return
 	}
 
-	now := time.Now()
 	seen := make(map[int64]bool, len(msg.items))
 
 	for i := range msg.items {

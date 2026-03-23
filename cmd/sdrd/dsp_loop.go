@@ -13,6 +13,7 @@ import (
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
+	"sdr-wideband-suite/internal/logging"
 	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/recorder"
 )
@@ -93,6 +94,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 							continue
 						}
 						if j >= len(streamSnips) || len(streamSnips[j]) == 0 {
+							logging.Warn("gap", "snippet_empty", "signal", ds.ID)
 							continue
 						}
 						snipRate := rt.cfg.SampleRate
@@ -106,6 +108,8 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					}
 					if len(items) > 0 {
 						rec.FeedSnippets(items)
+					} else {
+						logging.Warn("gap", "feed_empty", "signals", len(streamSignals))
 					}
 				}
 				rt.maintenance(displaySignals, rec)
