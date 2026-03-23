@@ -37,6 +37,9 @@ type streamSession struct {
 	playbackMode string
 	stereoState  string
 	lastAudioTs  time.Time
+	lastAudioL   float32
+	lastAudioR   float32
+	lastAudioSet bool
 
 	// listenOnly sessions have no WAV file and no disk I/O.
 	// They exist solely to feed audio to live-listen subscribers.
@@ -390,13 +393,44 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 					sess.wavSamples += int64(n / 2)
 				}
 			}
-			// Gap logging for live-audio sessions
+			// Gap logging for live-audio sessions + boundary delta check
 			if len(sess.audioSubs) > 0 {
 				if !sess.lastAudioTs.IsZero() {
 					gap := time.Since(sess.lastAudioTs)
 					if gap > 150*time.Millisecond {
 						logging.Warn("gap", "audio_gap", "signal", sess.signalID, "gap_ms", gap.Milliseconds())
 					}
+				}
+				// boundary delta (compare previous last sample with current first sample)
+				if logging.EnabledCategory("boundary") && len(audio) > 0 {
+					if sess.lastAudioSet {
+						if sess.channels > 1 && len(audio) >= 2 {
+							dL := float64(audio[0] - sess.lastAudioL)
+							dR := float64(audio[1] - sess.lastAudioR)
+							if dL < 0 { dL = -dL }
+							if dR < 0 { dR = -dR }
+							if dL > 0.2 || dR > 0.2 {
+								logging.Warn("boundary", "audio_step", "signal", sess.signalID, "dL", dL, "dR", dR)
+							}
+						} else {
+							d := float64(audio[0] - sess.lastAudioL)
+							if d < 0 { d = -d }
+							if d > 0.2 {
+								logging.Warn("boundary", "audio_step", "signal", sess.signalID, "dL", d)
+							}
+						}
+					}
+					// store last sample
+					if sess.channels > 1 {
+						lastIdx := (len(audio)-2)
+						if lastIdx < 0 { lastIdx = 0 }
+						sess.lastAudioL = audio[lastIdx]
+						sess.lastAudioR = audio[lastIdx+1]
+					} else {
+						sess.lastAudioL = audio[len(audio)-1]
+						sess.lastAudioR = 0
+					}
+					sess.lastAudioSet = true
 				}
 				sess.lastAudioTs = time.Now()
 			}
@@ -642,6 +676,7 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	// All FIR filtering is now stateful, so no additional overlap is needed.
 	var fullSnip []complex64
 	trimSamples := 0
+	_ = trimSamples
 	if len(sess.overlapIQ) == 1 {
 		fullSnip = make([]complex64, 1+len(snippet))
 		fullSnip[0] = sess.overlapIQ[0]
@@ -692,16 +727,7 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	}
 
 	// --- Trim the 1-sample FM discriminator overlap ---
-	if trimSamples > 0 {
-		audioTrim := trimSamples / decim1
-		if audioTrim < 1 {
-			audioTrim = 1 // at minimum trim 1 audio sample
-		}
-		if audioTrim > 0 && audioTrim < len(audio) {
-			logging.Debug("discrim", "audio_trim", "signal", sess.signalID, "trim", audioTrim, "decim1", decim1, "audio_len", len(audio))
-			audio = audio[audioTrim:]
-		}
-	}
+	// TEMP: skip audio trim to test if per-block trimming causes ticks
 
 	// --- Stateful stereo decode with conservative lock/hysteresis ---
 	channels := 1
