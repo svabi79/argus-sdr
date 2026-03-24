@@ -116,11 +116,12 @@ type streamSession struct {
 
 	// Stateful pre-demod anti-alias FIR (eliminates cold-start transients
 	// and avoids per-frame FIR recomputation)
-	preDemodFIR    *dsp.StatefulFIRComplex
-	preDemodDecim  int     // cached decimation factor
-	preDemodRate   int     // cached snipRate this FIR was built for
-	preDemodCutoff float64 // cached cutoff
-	preDemodDecimPhase int // stateful decimation phase (index offset into next frame)
+	preDemodFIR       *dsp.StatefulFIRComplex
+	preDemodDecimator *dsp.StatefulDecimatingFIRComplex
+	preDemodDecim     int     // cached decimation factor
+	preDemodRate      int     // cached snipRate this FIR was built for
+	preDemodCutoff    float64 // cached cutoff
+	preDemodDecimPhase int    // retained for backward compatibility in snapshots/debug
 
 	// AQ-2: De-emphasis config (µs, 0 = disabled)
 	deemphasisUs float64
@@ -890,9 +891,10 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		}
 
 		// Lazy-init or reinit stateful FIR if parameters changed
-		if sess.preDemodFIR == nil || sess.preDemodRate != snipRate || sess.preDemodCutoff != cutoff {
+		if sess.preDemodDecimator == nil || sess.preDemodRate != snipRate || sess.preDemodCutoff != cutoff || sess.preDemodDecim != decim1 {
 			taps := dsp.LowpassFIR(cutoff, snipRate, 101)
 			sess.preDemodFIR = dsp.NewStatefulFIRComplex(taps)
+			sess.preDemodDecimator = dsp.NewStatefulDecimatingFIRComplex(taps, decim1)
 			sess.preDemodRate = snipRate
 			sess.preDemodCutoff = cutoff
 			sess.preDemodDecim = decim1
@@ -901,7 +903,7 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 
 		decimPhaseBefore := sess.preDemodDecimPhase
 		filtered := sess.preDemodFIR.ProcessInto(fullSnip, sess.growIQ(len(fullSnip)))
-		dec = dsp.DecimateStateful(filtered, decim1, &sess.preDemodDecimPhase)
+		dec = sess.preDemodDecimator.Process(fullSnip)
 		logging.Debug("boundary", "snippet_path", "signal", sess.signalID, "overlap_applied", overlapApplied, "snip_len", len(snippet), "full_len", len(fullSnip), "filtered_len", len(filtered), "dec_len", len(dec), "decim1", decim1, "phase_before", decimPhaseBefore, "phase_after", sess.preDemodDecimPhase)
 	} else {
 		logging.Debug("boundary", "snippet_path", "signal", sess.signalID, "overlap_applied", overlapApplied, "snip_len", len(snippet), "full_len", len(fullSnip), "filtered_len", len(fullSnip), "dec_len", len(fullSnip), "decim1", decim1, "phase_before", 0, "phase_after", 0)
@@ -1322,6 +1324,7 @@ type dspStateSnapshot struct {
 	pilotLPFHi          *dsp.StatefulFIRReal
 	pilotLPFLo          *dsp.StatefulFIRReal
 	preDemodFIR         *dsp.StatefulFIRComplex
+	preDemodDecimator   *dsp.StatefulDecimatingFIRComplex
 	preDemodDecim       int
 	preDemodRate        int
 	preDemodCutoff      float64
@@ -1354,6 +1357,7 @@ func (sess *streamSession) captureDSPState() dspStateSnapshot {
 		pilotLPFHi:          sess.pilotLPFHi,
 		pilotLPFLo:          sess.pilotLPFLo,
 		preDemodFIR:         sess.preDemodFIR,
+		preDemodDecimator:   sess.preDemodDecimator,
 		preDemodDecim:       sess.preDemodDecim,
 		preDemodRate:        sess.preDemodRate,
 		preDemodCutoff:      sess.preDemodCutoff,
@@ -1386,6 +1390,7 @@ func (sess *streamSession) restoreDSPState(s dspStateSnapshot) {
 	sess.pilotLPFHi = s.pilotLPFHi
 	sess.pilotLPFLo = s.pilotLPFLo
 	sess.preDemodFIR = s.preDemodFIR
+	sess.preDemodDecimator = s.preDemodDecimator
 	sess.preDemodDecim = s.preDemodDecim
 	sess.preDemodRate = s.preDemodRate
 	sess.preDemodCutoff = s.preDemodCutoff
@@ -1767,6 +1772,7 @@ func (st *Streamer) ResetStreams() {
 	defer st.mu.Unlock()
 	for _, sess := range st.sessions {
 		sess.preDemodFIR = nil
+		sess.preDemodDecimator = nil
 		sess.preDemodDecimPhase = 0
 		sess.stereoResampler = nil
 		sess.monoResampler = nil
