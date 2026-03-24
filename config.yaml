@@ -248,10 +248,13 @@ decoder:
   dstar_cmd: tools/dsd-neo/bin/dsd-neo.exe -fd -i {audio} -s {sr} -o null
   fsk_cmd: tools/fsk/fsk_decoder --iq {iq} --sample-rate {sr}
   psk_cmd: tools/psk/psk_decoder --iq {iq} --sample-rate {sr}
+debug:
+  audio_dump_enabled: false
+  cpu_monitoring: false
 logging:
   level: debug
-  categories: [capture, extract, demod, resample, drop, ws, boundary]
-  rate_limit_ms: 500
+  categories: [gap, prefir, boundary]
+  rate_limit_ms: 100
   stdout: true
   stdout_color: true
   file: logs/trace.log

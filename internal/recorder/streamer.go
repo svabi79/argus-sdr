@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,13 @@ type streamSession struct {
 	playbackMode string
 	stereoState  string
 	lastAudioTs  time.Time
+
+	debugDumpStart time.Time
+	debugDumpUntil time.Time
+	debugDumpBase  string
+
+	demodDump []float32
+	finalDump []float32
 	lastAudioL   float32
 	lastAudioR   float32
 	prevAudioL   float64 // second-to-last L sample for boundary transient detection
@@ -155,6 +163,54 @@ const (
 	streamAudioRate = 48000
 	resamplerTaps   = 32 // taps per polyphase arm — good quality
 )
+
+var debugDumpDelay = func() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("SDR_DEBUG_DUMP_DELAY_SECONDS"))
+	if raw == "" {
+		return 5 * time.Second
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return 5 * time.Second
+	}
+	return time.Duration(v) * time.Second
+}()
+
+var debugDumpDuration = func() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("SDR_DEBUG_DUMP_DURATION_SECONDS"))
+	if raw == "" {
+		return 15 * time.Second
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		return 15 * time.Second
+	}
+	return time.Duration(v) * time.Second
+}()
+
+var audioDumpEnabled = func() bool {
+	raw := strings.TrimSpace(os.Getenv("SDR_DEBUG_AUDIO_DUMP_ENABLED"))
+	if raw == "" {
+		return false
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false
+	}
+	return v
+}()
+
+var decHeadTrimSamples = func() int {
+	raw := strings.TrimSpace(os.Getenv("SDR_DEC_HEAD_TRIM"))
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
+}()
 
 // ---------------------------------------------------------------------------
 // Streamer — manages all active streaming sessions
@@ -588,8 +644,19 @@ func (st *Streamer) attachPendingListeners(sess *streamSession) {
 			default:
 			}
 
+			if audioDumpEnabled {
+				now := time.Now()
+				sess.debugDumpStart = now.Add(debugDumpDelay)
+				sess.debugDumpUntil = sess.debugDumpStart.Add(debugDumpDuration)
+				sess.debugDumpBase = filepath.Join("debug", fmt.Sprintf("signal-%d-window-%s", sess.signalID, now.Format("20060102-150405")))
+				sess.demodDump = nil
+				sess.finalDump = nil
+			}
 			log.Printf("STREAM: attached pending listener %d to signal %d (%.1fMHz %s ch=%d)",
 				subID, sess.signalID, sess.centerHz/1e6, sess.demodName, sess.channels)
+			if audioDumpEnabled {
+				log.Printf("STREAM: debug dump armed signal=%d start=%s until=%s", sess.signalID, sess.debugDumpStart.Format(time.RFC3339), sess.debugDumpUntil.Format(time.RFC3339))
+			}
 		}
 	}
 }
@@ -673,9 +740,20 @@ func (st *Streamer) SubscribeAudio(freq float64, bw float64, mode string) (int64
 
 	if bestSess != nil && bestDist < 200000 {
 		bestSess.audioSubs = append(bestSess.audioSubs, audioSub{id: subID, ch: ch})
+		if audioDumpEnabled {
+			now := time.Now()
+			bestSess.debugDumpStart = now.Add(debugDumpDelay)
+			bestSess.debugDumpUntil = bestSess.debugDumpStart.Add(debugDumpDuration)
+			bestSess.debugDumpBase = filepath.Join("debug", fmt.Sprintf("signal-%d-window-%s", bestSess.signalID, now.Format("20060102-150405")))
+			bestSess.demodDump = nil
+			bestSess.finalDump = nil
+		}
 		info := bestSess.audioInfo()
 		log.Printf("STREAM: subscriber %d attached to signal %d (%.1fMHz %s)",
 			subID, bestSess.signalID, bestSess.centerHz/1e6, bestSess.demodName)
+		if audioDumpEnabled {
+			log.Printf("STREAM: debug dump armed signal=%d start=%s until=%s", bestSess.signalID, bestSess.debugDumpStart.Format(time.RFC3339), bestSess.debugDumpUntil.Format(time.RFC3339))
+		}
 		return subID, ch, info, nil
 	}
 
@@ -749,6 +827,42 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	overlapApplied := false
 	prevTailValid := false
 
+	if logging.EnabledCategory("prefir") && len(fullSnip) > 0 {
+		probeN := 64
+		if len(fullSnip) < probeN {
+			probeN = len(fullSnip)
+		}
+		minPreMag := math.MaxFloat64
+		minPreIdx := 0
+		maxPreStep := 0.0
+		maxPreStepIdx := 0
+		for i := 0; i < probeN; i++ {
+			v := fullSnip[i]
+			mag := math.Hypot(float64(real(v)), float64(imag(v)))
+			if mag < minPreMag {
+				minPreMag = mag
+				minPreIdx = i
+			}
+			if i > 0 {
+				p := fullSnip[i-1]
+				num := float64(real(p))*float64(imag(v)) - float64(imag(p))*float64(real(v))
+				den := float64(real(p))*float64(real(v)) + float64(imag(p))*float64(imag(v))
+				step := math.Abs(math.Atan2(num, den))
+				if step > maxPreStep {
+					maxPreStep = step
+					maxPreStepIdx = i - 1
+				}
+			}
+		}
+		logging.Debug("prefir", "pre_fir_head_probe", "signal", sess.signalID, "probe_len", probeN, "min_mag", minPreMag, "min_idx", minPreIdx, "max_step", maxPreStep, "max_step_idx", maxPreStepIdx, "snip_len", len(fullSnip))
+		if minPreMag < 0.18 {
+			logging.Warn("prefir", "pre_fir_head_dip", "signal", sess.signalID, "probe_len", probeN, "min_mag", minPreMag, "min_idx", minPreIdx, "max_step", maxPreStep, "max_step_idx", maxPreStepIdx)
+		}
+		if maxPreStep > 1.5 {
+			logging.Warn("prefir", "pre_fir_head_step", "signal", sess.signalID, "probe_len", probeN, "max_step", maxPreStep, "max_step_idx", maxPreStepIdx, "min_mag", minPreMag, "min_idx", minPreIdx)
+		}
+	}
+
 	// --- Stateful anti-alias FIR + decimation to demod rate ---
 	demodRate := d.OutputSampleRate()
 	decim1 := int(math.Round(float64(snipRate) / float64(demodRate)))
@@ -792,6 +906,11 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	} else {
 		logging.Debug("boundary", "snippet_path", "signal", sess.signalID, "overlap_applied", overlapApplied, "snip_len", len(snippet), "full_len", len(fullSnip), "filtered_len", len(fullSnip), "dec_len", len(fullSnip), "decim1", decim1, "phase_before", 0, "phase_after", 0)
 		dec = fullSnip
+	}
+
+	if decHeadTrimSamples > 0 && decHeadTrimSamples < len(dec) {
+		logging.Warn("boundary", "dec_head_trim_applied", "signal", sess.signalID, "trim", decHeadTrimSamples, "before_len", len(dec))
+		dec = dec[decHeadTrimSamples:]
 	}
 
 	if logging.EnabledCategory("boundary") && len(dec) > 0 {
@@ -849,6 +968,40 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 			}
 		}
 
+		probeN := 64
+		if len(dec) < probeN {
+			probeN = len(dec)
+		}
+		minHeadMag := math.MaxFloat64
+		minHeadIdx := 0
+		maxHeadStep := 0.0
+		maxHeadStepIdx := 0
+		for i := 0; i < probeN; i++ {
+			v := dec[i]
+			mag := math.Hypot(float64(real(v)), float64(imag(v)))
+			if mag < minHeadMag {
+				minHeadMag = mag
+				minHeadIdx = i
+			}
+			if i > 0 {
+				p := dec[i-1]
+				num := float64(real(p))*float64(imag(v)) - float64(imag(p))*float64(real(v))
+				den := float64(real(p))*float64(real(v)) + float64(imag(p))*float64(imag(v))
+				step := math.Abs(math.Atan2(num, den))
+				if step > maxHeadStep {
+					maxHeadStep = step
+					maxHeadStepIdx = i - 1
+				}
+			}
+		}
+		logging.Debug("boundary", "dec_iq_head_probe", "signal", sess.signalID, "probe_len", probeN, "min_mag", minHeadMag, "min_idx", minHeadIdx, "max_step", maxHeadStep, "max_step_idx", maxHeadStepIdx)
+		if minHeadMag < 0.18 {
+			logging.Warn("boundary", "dec_iq_head_dip", "signal", sess.signalID, "probe_len", probeN, "min_mag", minHeadMag, "min_idx", minHeadIdx, "max_step", maxHeadStep, "max_step_idx", maxHeadStepIdx)
+		}
+		if maxHeadStep > 1.5 {
+			logging.Warn("boundary", "dec_iq_head_step", "signal", sess.signalID, "probe_len", probeN, "max_step", maxHeadStep, "max_step_idx", maxHeadStepIdx, "min_mag", minHeadMag, "min_idx", minHeadIdx)
+		}
+
 		if len(dec) >= 2 {
 			sess.prevDecIQ = dec[len(dec)-2]
 			sess.lastDecIQ = dec[len(dec)-1]
@@ -889,6 +1042,15 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		}
 	}
 	logging.Debug("boundary", "audio_path", "signal", sess.signalID, "demod", demodName, "actual_rate", actualDemodRate, "audio_len", len(audio), "channels", d.Channels(), "overlap_applied", overlapApplied, "prev_tail_valid", prevTailValid)
+
+	shouldDump := !sess.debugDumpStart.IsZero() && !sess.debugDumpUntil.IsZero()
+	if shouldDump {
+		now := time.Now()
+		shouldDump = !now.Before(sess.debugDumpStart) && now.Before(sess.debugDumpUntil)
+	}
+	if shouldDump {
+		sess.demodDump = append(sess.demodDump, audio...)
+	}
 
 	// --- Stateful stereo decode with conservative lock/hysteresis ---
 	channels := 1
@@ -975,6 +1137,24 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		for i := range audio {
 			audio[i] *= 0.35
 		}
+	}
+
+	if shouldDump {
+		sess.finalDump = append(sess.finalDump, audio...)
+	} else if !sess.debugDumpUntil.IsZero() && time.Now().After(sess.debugDumpUntil) && sess.debugDumpBase != "" {
+		_ = os.MkdirAll(filepath.Dir(sess.debugDumpBase), 0o755)
+		if len(sess.demodDump) > 0 {
+			_ = writeWAVFile(sess.debugDumpBase+"-demod.wav", sess.demodDump, actualDemodRate, d.Channels())
+		}
+		if len(sess.finalDump) > 0 {
+			_ = writeWAVFile(sess.debugDumpBase+"-final.wav", sess.finalDump, streamAudioRate, channels)
+		}
+		logging.Warn("boundary", "debug_audio_dump_window", "signal", sess.signalID, "base", sess.debugDumpBase)
+		sess.debugDumpBase = ""
+		sess.demodDump = nil
+		sess.finalDump = nil
+		sess.debugDumpStart = time.Time{}
+		sess.debugDumpUntil = time.Time{}
 	}
 
 	return audio, streamAudioRate
@@ -1519,6 +1699,15 @@ var ErrNoSession = errors.New("no active or pending session for this frequency")
 // ---------------------------------------------------------------------------
 // WAV header helpers
 // ---------------------------------------------------------------------------
+
+func writeWAVFile(path string, audio []float32, sampleRate int, channels int) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return writeWAVTo(f, audio, sampleRate, channels)
+}
 
 func writeStreamWAVHeader(f *os.File, sampleRate int, channels int) error {
 	if channels <= 0 {

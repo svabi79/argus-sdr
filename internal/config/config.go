@@ -96,6 +96,11 @@ type DecoderConfig struct {
 	PSKCmd   string `yaml:"psk_cmd" json:"psk_cmd"`
 }
 
+type DebugConfig struct {
+	AudioDumpEnabled bool `yaml:"audio_dump_enabled" json:"audio_dump_enabled"`
+	CPUMonitoring    bool `yaml:"cpu_monitoring" json:"cpu_monitoring"`
+}
+
 type PipelineGoalConfig struct {
 	Intent            string          `yaml:"intent" json:"intent"`
 	MonitorStartHz    float64         `yaml:"monitor_start_hz" json:"monitor_start_hz"`
@@ -169,6 +174,7 @@ type Config struct {
 	Detector       DetectorConfig     `yaml:"detector" json:"detector"`
 	Recorder       RecorderConfig     `yaml:"recorder" json:"recorder"`
 	Decoder        DecoderConfig      `yaml:"decoder" json:"decoder"`
+	Debug          DebugConfig        `yaml:"debug" json:"debug"`
 	Logging        LogConfig          `yaml:"logging" json:"logging"`
 	WebAddr        string             `yaml:"web_addr" json:"web_addr"`
 	EventPath      string             `yaml:"event_path" json:"event_path"`
@@ -421,6 +427,10 @@ func Default() Config {
 			ExtractionBwMult: 1.2,
 		},
 		Decoder:        DecoderConfig{},
+		Debug: DebugConfig{
+			AudioDumpEnabled: false,
+			CPUMonitoring:    false,
+		},
 		Logging: LogConfig{
 			Level:       "informal",
 			Categories:  []string{},
