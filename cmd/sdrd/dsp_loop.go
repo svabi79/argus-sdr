@@ -75,6 +75,14 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					streamSignals = stableSignals
 				}
 				if rec != nil && len(art.allIQ) > 0 {
+					if art.streamDropped {
+						rt.streamOverlap = &streamIQOverlap{}
+						for k := range rt.streamPhaseState {
+							rt.streamPhaseState[k].phase = 0
+						}
+						rec.ResetStreams()
+						logging.Warn("gap", "iq_dropped", "msg", "buffer bloat caused extraction drop; overlap reset")
+					}
 					if rt.cfg.Recorder.DebugLiveAudio {
 						log.Printf("LIVEAUDIO DSP: detailIQ=%d displaySignals=%d streamSignals=%d stableSignals=%d allIQ=%d", len(art.detailIQ), len(displaySignals), len(streamSignals), len(stableSignals), len(art.allIQ))
 					}

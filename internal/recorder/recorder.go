@@ -357,6 +357,13 @@ func (m *Manager) StreamerRef() *Streamer {
 	return m.streamer
 }
 
+func (m *Manager) ResetStreams() {
+	if m == nil || m.streamer == nil {
+		return
+	}
+	m.streamer.ResetStreams()
+}
+
 func (m *Manager) RuntimeInfoBySignalID() map[int64]RuntimeSignalInfo {
 	if m == nil || m.streamer == nil {
 		return nil

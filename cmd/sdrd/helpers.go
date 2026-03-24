@@ -3,8 +3,10 @@ package main
 import (
 	"log"
 	"math"
+	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"sdr-wideband-suite/internal/config"
@@ -231,6 +233,18 @@ const (
 	wfmStreamMinBW   = 250000
 )
 
+var forceCPUStreamExtract = func() bool {
+	raw := strings.TrimSpace(os.Getenv("SDR_FORCE_CPU_STREAM_EXTRACT"))
+	if raw == "" {
+		return false
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false
+	}
+	return v
+}()
+
 // extractForStreaming performs GPU-accelerated extraction with:
 //   - Per-signal phase-continuous FreqShift (via PhaseStart in ExtractJob)
 //   - IQ overlap prepended to allIQ so FIR kernel has real data in halo
@@ -325,8 +339,13 @@ func extractForStreaming(
 		}
 	}
 
-	// Try GPU BatchRunner with phase
-	runner := extractMgr.get(len(gpuIQ), sampleRate)
+	// Try GPU BatchRunner with phase unless CPU-only debug is forced.
+	var runner *gpudemod.BatchRunner
+	if forceCPUStreamExtract {
+		logging.Warn("boundary", "force_cpu_stream_extract", "allIQ_len", len(allIQ), "gpuIQ_len", len(gpuIQ), "signals", len(signals))
+	} else {
+		runner = extractMgr.get(len(gpuIQ), sampleRate)
+	}
 	if runner != nil {
 		results, err := runner.ShiftFilterDecimateBatchWithPhase(gpuIQ, jobs)
 		if err == nil && len(results) == len(signals) {
@@ -356,8 +375,12 @@ func extractForStreaming(
 
 				// Trim overlap from output
 				iq := res.IQ
+				rawLen := len(iq)
 				if trimSamples > 0 && trimSamples < len(iq) {
 					iq = iq[trimSamples:]
+				}
+				if i == 0 {
+					logging.Debug("boundary", "extract_trim", "path", "gpu", "raw_len", rawLen, "trim", trimSamples, "out_len", len(iq), "overlap_len", overlapLen, "allIQ_len", len(allIQ), "gpuIQ_len", len(gpuIQ), "outRate", outRate, "signal", signals[i].ID)
 				}
 				out[i] = iq
 				rates[i] = res.Rate
@@ -424,8 +447,12 @@ func extractForStreaming(
 		if i == 0 {
 			logging.Debug("extract", "cpu_result", "outRate", outRate, "decim", decim, "trim", trimSamples)
 		}
+		rawLen := len(decimated)
 		if trimSamples > 0 && trimSamples < len(decimated) {
 			decimated = decimated[trimSamples:]
+		}
+		if i == 0 {
+			logging.Debug("boundary", "extract_trim", "path", "cpu", "raw_len", rawLen, "trim", trimSamples, "out_len", len(decimated), "overlap_len", overlapLen, "allIQ_len", len(allIQ), "gpuIQ_len", len(gpuIQ), "outRate", outRate, "signal", signals[i].ID)
 		}
 		out[i] = decimated
 	}

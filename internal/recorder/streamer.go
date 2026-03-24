@@ -60,6 +60,8 @@ type streamSession struct {
 	// --- Persistent DSP state for click-free streaming ---
 
 	// Overlap-save: tail of previous extracted IQ snippet.
+	// Currently unused for live demod after removing the extra discriminator
+	// overlap prepend, but kept in DSP snapshot state for compatibility.
 	overlapIQ []complex64
 
 	// De-emphasis IIR state (persists across frames)
@@ -731,26 +733,13 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		return nil, 0
 	}
 
-	// --- FM discriminator overlap: prepend 1 sample from previous frame ---
-	// The FM discriminator needs iq[i-1] to compute the first output.
-	// All FIR filtering is now stateful, so no additional overlap is needed.
-	var fullSnip []complex64
-	trimSamples := 0
-	_ = trimSamples
-	if len(sess.overlapIQ) == 1 {
-		fullSnip = make([]complex64, 1+len(snippet))
-		fullSnip[0] = sess.overlapIQ[0]
-		copy(fullSnip[1:], snippet)
-		trimSamples = 1
-		logging.Debug("discrim", "overlap_applied", "signal", sess.signalID, "snip", len(snippet))
-	} else {
-		fullSnip = snippet
-	}
-
-	// Save last sample for next frame's FM discriminator
-	if len(snippet) > 0 {
-		sess.overlapIQ = []complex64{snippet[len(snippet)-1]}
-	}
+	// The extra 1-sample discriminator overlap prepend was removed after it was
+	// shown to shift the downstream decimation phase and create heavy click
+	// artifacts in steady-state streaming/recording. The upstream extraction path
+	// and the stateful FIR/decimation stages already provide continuity.
+	fullSnip := snippet
+	overlapApplied := false
+	prevTailValid := false
 
 	// --- Stateful anti-alias FIR + decimation to demod rate ---
 	demodRate := d.OutputSampleRate()
@@ -788,20 +777,21 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 			sess.preDemodDecimPhase = 0
 		}
 
+		decimPhaseBefore := sess.preDemodDecimPhase
 		filtered := sess.preDemodFIR.ProcessInto(fullSnip, sess.growIQ(len(fullSnip)))
 		dec = dsp.DecimateStateful(filtered, decim1, &sess.preDemodDecimPhase)
+		logging.Debug("boundary", "snippet_path", "signal", sess.signalID, "overlap_applied", overlapApplied, "snip_len", len(snippet), "full_len", len(fullSnip), "filtered_len", len(filtered), "dec_len", len(dec), "decim1", decim1, "phase_before", decimPhaseBefore, "phase_after", sess.preDemodDecimPhase)
 	} else {
+		logging.Debug("boundary", "snippet_path", "signal", sess.signalID, "overlap_applied", overlapApplied, "snip_len", len(snippet), "full_len", len(fullSnip), "filtered_len", len(fullSnip), "dec_len", len(fullSnip), "decim1", decim1, "phase_before", 0, "phase_after", 0)
 		dec = fullSnip
 	}
 
-	// --- FM Demod ---
+	// --- FM/AM/etc Demod ---
 	audio := d.Demod(dec, actualDemodRate)
 	if len(audio) == 0 {
 		return nil, 0
 	}
-
-	// --- Trim the 1-sample FM discriminator overlap ---
-	// TEMP: skip audio trim to test if per-block trimming causes ticks
+	logging.Debug("boundary", "audio_path", "signal", sess.signalID, "demod", demodName, "actual_rate", actualDemodRate, "audio_len", len(audio), "channels", d.Channels(), "overlap_applied", overlapApplied, "prev_tail_valid", prevTailValid)
 
 	// --- Stateful stereo decode with conservative lock/hysteresis ---
 	channels := 1
@@ -1482,4 +1472,17 @@ func fixStreamWAVHeader(f *os.File, totalSamples int64, sampleRate int, channels
 		return
 	}
 	_, _ = f.Write(buf[:])
+}
+
+// ResetStreams forces all active streaming sessions to discard their FIR states and decimation phases.
+// This is used when the upstream DSP drops samples, creating a hard break in phase continuity.
+func (st *Streamer) ResetStreams() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for _, sess := range st.sessions {
+		sess.preDemodFIR = nil
+		sess.preDemodDecimPhase = 0
+		sess.stereoResampler = nil
+		sess.monoResampler = nil
+	}
 }

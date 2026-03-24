@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +30,18 @@ type rdsState struct {
 	busy       int32
 	mu         sync.Mutex
 }
+
+var forceFixedStreamReadSamples = func() int {
+	raw := strings.TrimSpace(os.Getenv("SDR_FORCE_FIXED_STREAM_READ_SAMPLES"))
+	if raw == "" {
+		return 0
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		return 0
+	}
+	return v
+}()
 
 type dspRuntime struct {
 	cfg              config.Config
@@ -56,6 +70,7 @@ type dspRuntime struct {
 
 type spectrumArtifacts struct {
 	allIQ                []complex64
+	streamDropped        bool
 	surveillanceIQ       []complex64
 	detailIQ             []complex64
 	surveillanceSpectrum []float64
@@ -341,7 +356,17 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	}
 	available := required
 	st := srcMgr.Stats()
-	if st.BufferSamples > required {
+	if forceFixedStreamReadSamples > 0 {
+		available = forceFixedStreamReadSamples
+		if available < required {
+			available = required
+		}
+		available = (available / required) * required
+		if available < required {
+			available = required
+		}
+		logging.Warn("boundary", "fixed_stream_read_samples", "configured", forceFixedStreamReadSamples, "effective", available, "required", required)
+	} else if st.BufferSamples > required {
 		available = (st.BufferSamples / required) * required
 		if available < required {
 			available = required
@@ -366,8 +391,10 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 		maxStreamSamples = required
 	}
 	maxStreamSamples = (maxStreamSamples / required) * required
+	streamDropped := false
 	if len(allIQ) > maxStreamSamples {
 		allIQ = allIQ[len(allIQ)-maxStreamSamples:]
+		streamDropped = true
 	}
 	logging.Debug("capture", "iq_len", "len", len(allIQ), "surv_fft", rt.cfg.FFTSize, "detail_fft", rt.detailFFT)
 	survIQ := allIQ
@@ -432,6 +459,7 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	finished, detected := rt.det.Process(now, survSpectrum, rt.cfg.CenterHz)
 	return &spectrumArtifacts{
 		allIQ:                allIQ,
+		streamDropped:        streamDropped,
 		surveillanceIQ:       survIQ,
 		detailIQ:             detailIQ,
 		surveillanceSpectrum: survSpectrum,
