@@ -42,6 +42,14 @@ type streamSession struct {
 	prevAudioL   float64 // second-to-last L sample for boundary transient detection
 	lastAudioSet bool
 
+	lastDecIQ    complex64
+	prevDecIQ    complex64
+	lastDecIQSet bool
+
+	lastDemodL    float32
+	prevDemodL    float64
+	lastDemodSet  bool
+
 	// listenOnly sessions have no WAV file and no disk I/O.
 	// They exist solely to feed audio to live-listen subscribers.
 	listenOnly bool
@@ -786,10 +794,99 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		dec = fullSnip
 	}
 
+	if logging.EnabledCategory("boundary") && len(dec) > 0 {
+		first := dec[0]
+		if sess.lastDecIQSet {
+			d2Re := math.Abs(2*float64(real(sess.lastDecIQ)) - float64(real(sess.prevDecIQ)) - float64(real(first)))
+			d2Im := math.Abs(2*float64(imag(sess.lastDecIQ)) - float64(imag(sess.prevDecIQ)) - float64(imag(first)))
+			d2Mag := math.Hypot(d2Re, d2Im)
+			if d2Mag > 0.15 {
+				logging.Warn("boundary", "dec_iq_boundary", "signal", sess.signalID, "d2", d2Mag)
+			}
+		}
+
+		headN := 16
+		if len(dec) < headN {
+			headN = len(dec)
+		}
+		tailN := 16
+		if len(dec) < tailN {
+			tailN = len(dec)
+		}
+		var headSum, tailSum, minMag, maxMag float64
+		minMag = math.MaxFloat64
+		for i, v := range dec {
+			mag := math.Hypot(float64(real(v)), float64(imag(v)))
+			if mag < minMag {
+				minMag = mag
+			}
+			if mag > maxMag {
+				maxMag = mag
+			}
+			if i < headN {
+				headSum += mag
+			}
+		}
+		for i := len(dec) - tailN; i < len(dec); i++ {
+			if i >= 0 {
+				v := dec[i]
+				tailSum += math.Hypot(float64(real(v)), float64(imag(v)))
+			}
+		}
+		headAvg := 0.0
+		if headN > 0 {
+			headAvg = headSum / float64(headN)
+		}
+		tailAvg := 0.0
+		if tailN > 0 {
+			tailAvg = tailSum / float64(tailN)
+		}
+		logging.Debug("boundary", "dec_iq_meter", "signal", sess.signalID, "len", len(dec), "head_avg", headAvg, "tail_avg", tailAvg, "min_mag", minMag, "max_mag", maxMag)
+		if tailAvg > 0 {
+			ratio := headAvg / tailAvg
+			if ratio < 0.75 || ratio > 1.25 {
+				logging.Warn("boundary", "dec_iq_head_tail_skew", "signal", sess.signalID, "head_avg", headAvg, "tail_avg", tailAvg, "ratio", ratio)
+			}
+		}
+
+		if len(dec) >= 2 {
+			sess.prevDecIQ = dec[len(dec)-2]
+			sess.lastDecIQ = dec[len(dec)-1]
+		} else {
+			sess.prevDecIQ = sess.lastDecIQ
+			sess.lastDecIQ = dec[0]
+		}
+		sess.lastDecIQSet = true
+	}
+
 	// --- FM/AM/etc Demod ---
 	audio := d.Demod(dec, actualDemodRate)
 	if len(audio) == 0 {
 		return nil, 0
+	}
+	if logging.EnabledCategory("boundary") {
+		stride := d.Channels()
+		if stride < 1 {
+			stride = 1
+		}
+		nFrames := len(audio) / stride
+		if nFrames > 0 {
+			first := float64(audio[0])
+			if sess.lastDemodSet {
+				d2 := math.Abs(2*float64(sess.lastDemodL) - sess.prevDemodL - first)
+				if d2 > 0.15 {
+					logging.Warn("boundary", "demod_boundary", "signal", sess.signalID, "d2", d2)
+				}
+			}
+			if nFrames >= 2 {
+				sess.prevDemodL = float64(audio[(nFrames-2)*stride])
+				sess.lastDemodL = audio[(nFrames-1)*stride]
+			} else {
+				sess.prevDemodL = float64(sess.lastDemodL)
+				sess.lastDemodL = audio[0]
+			}
+			sess.lastDemodSet = true
+		}
 	}
 	logging.Debug("boundary", "audio_path", "signal", sess.signalID, "demod", demodName, "actual_rate", actualDemodRate, "audio_len", len(audio), "channels", d.Channels(), "overlap_applied", overlapApplied, "prev_tail_valid", prevTailValid)
 
