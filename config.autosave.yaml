@@ -327,16 +327,13 @@ debug:
         rotate_mb: 16
         keep_files: 8
 logging:
-    level: debug
-    categories:
-        - gap
-        - prefir
-        - boundary
-    rate_limit_ms: 100
+    level: error
+    categories: []
+    rate_limit_ms: 1000
     stdout: true
     stdout_color: true
     file: logs/trace.log
-    file_level: debug
+    file_level: error
     time_format: "15:04:05"
     disable_time: false
 web_addr: :8080
