@@ -657,19 +657,66 @@ Interpretation:
 - trimming is therefore **not** the main origin of the problem
 - it acts more like cleanup of an already bad upstream/raw start region
 
-### Strongest current conclusion after the 2026-03-25 telemetry pass
+### Input-vs-raw-vs-trimmed extractor result (important refinement)
 
-The current best reading is:
+A later, more targeted telemetry pass added a direct probe on the signal-specific extractor input head (`extract_input_head_probe`) and compared it against the raw and trimmed extractor output heads.
 
-> The click root cause is very likely **upstream of final trimming**, at or before the raw extractor output head, and likely tied to shared block-boundary / extractor-start conditions rather than to feed enqueue, browser playback, or trimming itself.
+This materially refined the earlier conclusion.
+
+#### Input-head result
+Representative values from `iq.extract.input_head.*`:
+- `iq.extract.input_head.zero_count = 0`
+- `iq.extract.input_head.first_nonzero_index = 0`
+
+Interpretation:
+- the signal-specific input head going into the GPU extractor is **not** starting with a zero sample
+- the head is not arriving already dead/null from the immediate input probe point
+
+#### Raw-head result
+Representative values from `iq.extract.raw.*`:
+- `iq.extract.raw.head_mag = 0`
+- `iq.extract.raw.head_zero_count = 1`
+- `iq.extract.raw.head_max_step` frequently around `2.4–3.14`
+
+These values repeated for strong channels such as `signal_id=2`, and similarly across other signals.
+
+Interpretation:
+- the first raw output sample is repeatedly exactly zero
+- therefore the visibly bad raw head is being created **after** the probed input head and **before/during raw extractor output generation**
+
+#### Trimmed-head result
+Representative values from `iq.extract.trimmed.*`:
+- `iq.extract.trimmed.head_zero_count = 0`
+- `iq.extract.trimmed.head_mag` often looked healthy immediately after trimming, for example:
+  - signal 1: about `0.275–0.300`
+  - signal 2: about `0.311`
+- `iq.extract.trimmed.head_max_step` was much lower than raw for strong channels, often around:
+  - `0.11`
+  - `0.14`
+  - `0.19`
+  - `0.30`
+  - `0.75`
+
+Interpretation:
+- trimming cleans up the visibly bad raw head region
+- trimming still does **not** explain the deeper output-boundary continuity issue
+
+### Refined strongest current conclusion after the 2026-03-25 telemetry pass
+
+The strongest current reading is now:
+
+> The click root cause is very likely **not** that the signal-specific extractor input already starts dead/null. Instead, the bad raw head appears to be introduced **inside the GPU extractor path or at its immediate start/output semantics**, before final trimming.
 
 More specifically:
-- all signals show a systematically bad raw extractor head
+- signal-specific extractor input head looks non-zero and sane at the probe point
+- all signals still show a systematically bad raw extractor head
 - the trimmed head usually looks healthier
 - yet the final extractor output still exhibits significant complex boundary discontinuity from block to block
-- therefore there are likely **two connected effects**:
-  1. a bad / settling / zeroed raw extractor head
-  2. remaining complex phase-continuity problems across final output blocks even after that head is trimmed away
+
+This points away from a simple "shared global input head is already zero" theory and toward one of these narrower causes:
+1. GPU extractor start semantics / kernel warmup / first-output handling
+2. phase-start or alignment handling at extractor block start
+3. output assembly semantics inside the raw GPU extractor path
 
 ### What should not be forgotten from this stage
 

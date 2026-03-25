@@ -352,6 +352,23 @@ func extractForStreaming(
 			OutRate:    jobOutRate,
 			PhaseStart: gpuPhaseStart,
 		}
+		if coll != nil {
+			tags := telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sig.ID), "path", "gpu")
+			inputHead := probeHead(gpuIQ, 16, 1e-6)
+			coll.SetGauge("iq.extract.input_head.zero_count", float64(inputHead.zeroCount), tags)
+			coll.SetGauge("iq.extract.input_head.first_nonzero_index", float64(inputHead.firstNonZeroIndex), tags)
+			coll.SetGauge("iq.extract.input_head.max_step", inputHead.maxStep, tags)
+			coll.Event("extract_input_head_probe", "info", "extractor input head probe", tags, map[string]any{
+				"mags": inputHead.mags,
+				"zero_count": inputHead.zeroCount,
+				"first_nonzero_index": inputHead.firstNonZeroIndex,
+				"head_max_step": inputHead.maxStep,
+				"center_offset_hz": jobs[i].OffsetHz,
+				"bandwidth_hz": bw,
+				"out_rate": jobOutRate,
+				"trim_samples": (overlapLen + int(math.Max(1, math.Round(float64(sampleRate)/float64(jobOutRate)))) - 1) / int(math.Max(1, math.Round(float64(sampleRate)/float64(jobOutRate)))),
+			})
+		}
 	}
 
 	// Try GPU BatchRunner with phase unless CPU-only debug is forced.
