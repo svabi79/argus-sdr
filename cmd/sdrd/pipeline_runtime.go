@@ -508,8 +508,16 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 		}
 	}
 	if rt.iqEnabled {
+		// IQBalance must NOT modify allIQ in-place: allIQ goes to the extraction
+		// pipeline and any in-place modification creates a phase/amplitude
+		// discontinuity at the survIQ boundary (len-FFTSize) that the polyphase
+		// extractor then sees as paired click artifacts in the FM discriminator.
+		detailIsSurv := sameIQBuffer(detailIQ, survIQ)
+		survIQ = append([]complex64(nil), survIQ...)
 		dsp.IQBalance(survIQ)
-		if !sameIQBuffer(detailIQ, survIQ) {
+		if detailIsSurv {
+			detailIQ = survIQ
+		} else {
 			detailIQ = append([]complex64(nil), detailIQ...)
 			dsp.IQBalance(detailIQ)
 		}

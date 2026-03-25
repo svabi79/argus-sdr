@@ -10,9 +10,14 @@ Goal: preserve the reasoning, experiments, false leads, and current best underst
 
 ## High-level outcome so far
 
-We do **not** yet have the final root cause.
+**SOLVED** — the persistent audio clicking issue is now resolved.
 
-But we now know substantially more about what the clicks are **not**, and we identified at least one real bug plus several strong behavioral constraints in the pipeline.
+Final result:
+- live listening test confirmed the clicks are gone
+- the final fix set consists of three independent root-cause fixes plus two secondary fixes
+- the CUDA DLL did **not** need a rebuild for the final fix
+
+This document now serves as the investigation log plus final resolution record.
 
 ---
 
@@ -1001,13 +1006,72 @@ This was created specifically so the same reviewer payload can be consumed by to
 
 ---
 
+## Final resolution — 2026-03-25
+
+Status: **SOLVED**
+
+The final fix set that resolved the audible clicks consisted of **three root-cause fixes** and **two secondary fixes**:
+
+### Root causes fixed
+
+1. **IQBalance in-place corruption of shared `allIQ` tail**
+   - File: `cmd/sdrd/pipeline_runtime.go`
+   - The surveillance slice (`survIQ`) was an alias of the tail of `allIQ`.
+   - `dsp.IQBalance(survIQ)` therefore modified the shared `allIQ` buffer in-place.
+   - The same `allIQ` buffer was then passed into the streaming extractor, creating a discontinuity where the IQ-balanced tail met unbalanced samples.
+   - Fix: copy `survIQ` before applying IQBalance so extraction sees an unmodified `allIQ` buffer.
+
+2. **`StreamingConfigHash` forced full extractor state reset every frame**
+   - File: `internal/demod/gpudemod/streaming_types.go`
+   - Floating-point jitter in smoothed center frequency caused `offsetHz` / `bandwidth` hash churn.
+   - That reset extractor history, NCO phase, and decimation phase every frame.
+   - Fix: hash only structural parameters (`signalID`, `outRate`, `numTaps`, `sampleRate`).
+
+3. **Non-WFM exact-decimation failure killed the entire streaming batch**
+   - File: `cmd/sdrd/streaming_refactor.go`
+   - Hardcoded `200000` output rate was not an exact divisor of `4096000`, so one non-WFM signal could reject the whole batch and silently force fallback to legacy extraction.
+   - Fix: use nearest exact integer-divisor output rate and keep fallthrough logging visible.
+
+### Secondary issues fixed
+
+1. **FM discriminator block-boundary gap**
+   - File: `internal/recorder/streamer.go`
+   - The cross-boundary phase step between consecutive IQ blocks was missing.
+   - Fix: carry the last IQ sample into the next discriminator block.
+
+2. **Missing 15 kHz lowpass on WFM mono/plain paths**
+   - File: `internal/recorder/streamer.go`
+   - Mono fallback / plain WFM paths sent raw discriminator output (pilot/subcarrier/RDS energy) directly into the resampler.
+   - Fix: add a stateful 15 kHz LPF before resampling on those paths.
+
+### Final verification summary
+
+- Before major fixes:
+  - persistent loud clicking on all signals/modes
+  - `intra_click_rate` about `110/sec`
+  - extractor/audio boundary telemetry showed large discontinuities
+- After config-hash fix:
+  - hard clicks disappeared
+  - large discontinuities dropped sharply
+  - fine click noise still remained
+- After the final `IQBalance` aliasing fix:
+  - operator listening test confirmed clicks were eliminated
+
+### Files involved in the final fix set
+
+- `cmd/sdrd/helpers.go`
+- `cmd/sdrd/streaming_refactor.go`
+- `cmd/sdrd/pipeline_runtime.go`
+- `internal/demod/gpudemod/streaming_types.go`
+- `internal/demod/gpudemod/stream_state.go`
+- `internal/recorder/streamer.go`
+
+### Important architectural note
+
+The CUDA streaming polyphase kernel itself was **not** the root cause.
+The actual bugs were in the Go-side orchestration around path selection, extractor reset semantics, and mutation of the shared IQ buffer before extraction.
+
 ## Meta note
 
-This investigation already disproved several plausible explanations. That is progress.
-
-The most important thing not to forget is:
-- the overlap prepend bug was real, but not sufficient
-- the click is already present in demod audio
-- whole-process CPU saturation is not the main explanation
-- excessive debug instrumentation can itself create misleading secondary problems
-- the 2026-03-25 extractor telemetry strongly suggests the remaining root cause is upstream of the final trim stage
+This investigation disproved several plausible explanations before landing the final answer.
+That mattered, because the eventual root cause was not a single simple DSP bug but a combination of path fallthrough, state-reset churn, and shared-buffer mutation.
