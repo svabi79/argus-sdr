@@ -13,7 +13,7 @@ func TestNewDSPRuntime(t *testing.T) {
 	cfg := config.Default()
 	det := detector.New(cfg.Detector, cfg.SampleRate, cfg.FFTSize)
 	window := fftutil.Hann(cfg.FFTSize)
-	rt := newDSPRuntime(cfg, det, window, &gpuStatus{})
+	rt := newDSPRuntime(cfg, det, window, &gpuStatus{}, nil)
 	if rt == nil {
 		t.Fatalf("runtime is nil")
 	}
@@ -47,7 +47,7 @@ func TestSurveillanceLevelsRespectStrategy(t *testing.T) {
 	cfg := config.Default()
 	det := detector.New(cfg.Detector, cfg.SampleRate, cfg.FFTSize)
 	window := fftutil.Hann(cfg.FFTSize)
-	rt := newDSPRuntime(cfg, det, window, &gpuStatus{})
+	rt := newDSPRuntime(cfg, det, window, &gpuStatus{}, nil)
 	policy := pipeline.Policy{SurveillanceStrategy: "single-resolution"}
 	plan := rt.buildSurveillancePlan(policy)
 	if len(plan.Levels) != 1 {

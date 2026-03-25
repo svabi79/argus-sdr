@@ -231,7 +231,7 @@ type extractionConfig struct {
 
 const streamOverlapLen = 512 // must be >= FIR tap count with margin
 const (
-	wfmStreamOutRate = 500000
+	wfmStreamOutRate = 512000
 	wfmStreamMinBW   = 250000
 )
 
@@ -252,6 +252,9 @@ var forceCPUStreamExtract = func() bool {
 //   - IQ overlap prepended to allIQ so FIR kernel has real data in halo
 //
 // Returns extracted snippets with overlap trimmed, and updates phase state.
+// extractForStreaming is the current legacy production path.
+// It still relies on overlap-prepend + trim semantics and is intentionally
+// kept separate from the new streaming refactor/oracle path under development.
 func extractForStreaming(
 	extractMgr *extractionManager,
 	allIQ []complex64,
@@ -263,6 +266,16 @@ func extractForStreaming(
 	aqCfg extractionConfig,
 	coll *telemetry.Collector,
 ) ([][]complex64, []int) {
+	if useStreamingProductionPath {
+		if out, rates, err := extractForStreamingProduction(extractMgr, allIQ, sampleRate, centerHz, signals, aqCfg, coll); err == nil {
+			return out, rates
+		}
+	}
+	if useStreamingOraclePath {
+		if out, rates, err := extractForStreamingOracle(allIQ, sampleRate, centerHz, signals, aqCfg, coll); err == nil {
+			return out, rates
+		}
+	}
 	out := make([][]complex64, len(signals))
 	rates := make([]int, len(signals))
 	if len(allIQ) == 0 || sampleRate <= 0 || len(signals) == 0 {

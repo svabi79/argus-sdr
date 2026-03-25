@@ -113,6 +113,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						for k := range rt.streamPhaseState {
 							rt.streamPhaseState[k].phase = 0
 						}
+						resetStreamingOracleRunner()
 						rec.ResetStreams()
 						logging.Warn("gap", "iq_dropped", "msg", "buffer bloat caused extraction drop; overlap reset")
 						if coll != nil {

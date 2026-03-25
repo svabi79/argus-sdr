@@ -320,3 +320,132 @@ GPUD_API int GPUD_CALL gpud_launch_ssb_product_cuda(
     gpud_ssb_product_kernel<<<grid, block>>>(in, out, n, phase_inc, phase_start);
     return (int)cudaGetLastError();
 }
+
+GPUD_API int GPUD_CALL gpud_launch_streaming_polyphase_prepare_cuda(
+    const float2* in_new,
+    int n_new,
+    const float2* history_in,
+    int history_len,
+    const float* polyphase_taps,
+    int polyphase_len,
+    int decim,
+    int num_taps,
+    int phase_count_in,
+    double phase_start,
+    double phase_inc,
+    float2* out,
+    int* n_out,
+    int* phase_count_out,
+    double* phase_end_out,
+    float2* history_out
+) {
+    if (!in_new || n_new < 0 || !polyphase_taps || polyphase_len <= 0 || decim <= 0 || num_taps <= 0) return -1;
+    const int phase_len = (num_taps + decim - 1) / decim;
+    if (polyphase_len < decim * phase_len) return -2;
+
+    const int combined_len = history_len + n_new;
+    float2* shifted = NULL;
+    float2* combined = NULL;
+    cudaError_t err = cudaMalloc((void**)&shifted, (size_t)max(1, n_new) * sizeof(float2));
+    if (err != cudaSuccess) return (int)err;
+    err = cudaMalloc((void**)&combined, (size_t)max(1, combined_len) * sizeof(float2));
+    if (err != cudaSuccess) {
+        cudaFree(shifted);
+        return (int)err;
+    }
+
+    const int block = 256;
+    const int grid_shift = (n_new + block - 1) / block;
+    if (n_new > 0) {
+        gpud_freq_shift_kernel<<<grid_shift, block>>>(in_new, shifted, n_new, phase_inc, phase_start);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(shifted);
+            cudaFree(combined);
+            return (int)err;
+        }
+    }
+
+    if (history_len > 0 && history_in) {
+        err = cudaMemcpy(combined, history_in, (size_t)history_len * sizeof(float2), cudaMemcpyDeviceToDevice);
+        if (err != cudaSuccess) {
+            cudaFree(shifted);
+            cudaFree(combined);
+            return (int)err;
+        }
+    }
+    if (n_new > 0) {
+        err = cudaMemcpy(combined + history_len, shifted, (size_t)n_new * sizeof(float2), cudaMemcpyDeviceToDevice);
+        if (err != cudaSuccess) {
+            cudaFree(shifted);
+            cudaFree(combined);
+            return (int)err;
+        }
+    }
+
+    int out_count = 0;
+    int phase_count = phase_count_in;
+    for (int i = 0; i < n_new; ++i) {
+        phase_count++;
+        if (phase_count == decim) {
+            float2 acc = make_float2(0.0f, 0.0f);
+            int newest = history_len + i;
+            for (int p = 0; p < decim; ++p) {
+                for (int k = 0; k < phase_len; ++k) {
+                    int tap_idx = p * phase_len + k;
+                    if (tap_idx >= polyphase_len) continue;
+                    float tap;
+                    err = cudaMemcpy(&tap, polyphase_taps + tap_idx, sizeof(float), cudaMemcpyDeviceToHost);
+                    if (err != cudaSuccess) {
+                        cudaFree(shifted);
+                        cudaFree(combined);
+                        return (int)err;
+                    }
+                    if (tap == 0.0f) continue;
+                    int src_back = p + k * decim;
+                    int src_idx = newest - src_back;
+                    if (src_idx < 0) continue;
+                    float2 sample;
+                    err = cudaMemcpy(&sample, combined + src_idx, sizeof(float2), cudaMemcpyDeviceToHost);
+                    if (err != cudaSuccess) {
+                        cudaFree(shifted);
+                        cudaFree(combined);
+                        return (int)err;
+                    }
+                    acc.x += sample.x * tap;
+                    acc.y += sample.y * tap;
+                }
+            }
+            err = cudaMemcpy(out + out_count, &acc, sizeof(float2), cudaMemcpyHostToDevice);
+            if (err != cudaSuccess) {
+                cudaFree(shifted);
+                cudaFree(combined);
+                return (int)err;
+            }
+            out_count++;
+            phase_count = 0;
+        }
+    }
+
+    const int keep = num_taps > 1 ? num_taps - 1 : 0;
+    if (history_out && keep > 0) {
+        int copy = keep;
+        if (combined_len < copy) copy = combined_len;
+        if (copy > 0) {
+            err = cudaMemcpy(history_out, combined + (combined_len - copy), (size_t)copy * sizeof(float2), cudaMemcpyDeviceToDevice);
+            if (err != cudaSuccess) {
+                cudaFree(shifted);
+                cudaFree(combined);
+                return (int)err;
+            }
+        }
+    }
+
+    if (n_out) *n_out = out_count;
+    if (phase_count_out) *phase_count_out = phase_count;
+    if (phase_end_out) *phase_end_out = phase_start + phase_inc * (double)n_new;
+
+    cudaFree(shifted);
+    cudaFree(combined);
+    return 0;
+}

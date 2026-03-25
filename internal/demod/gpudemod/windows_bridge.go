@@ -26,6 +26,7 @@ typedef int (__stdcall *gpud_launch_decimate_stream_fn)(const gpud_float2* in, g
 typedef int (__stdcall *gpud_launch_decimate_fn)(const gpud_float2* in, gpud_float2* out, int n_out, int factor);
 typedef int (__stdcall *gpud_launch_am_envelope_fn)(const gpud_float2* in, float* out, int n);
 typedef int (__stdcall *gpud_launch_ssb_product_fn)(const gpud_float2* in, float* out, int n, double phase_inc, double phase_start);
+typedef int (__stdcall *gpud_launch_streaming_polyphase_prepare_fn)(const gpud_float2* in_new, int n_new, const gpud_float2* history_in, int history_len, const float* polyphase_taps, int polyphase_len, int decim, int num_taps, int phase_count_in, double phase_start, double phase_inc, gpud_float2* out, int* n_out, int* phase_count_out, double* phase_end_out, gpud_float2* history_out);
 
 static HMODULE gpud_mod = NULL;
 static gpud_stream_create_fn gpud_p_stream_create = NULL;
@@ -42,6 +43,7 @@ static gpud_launch_decimate_stream_fn gpud_p_launch_decimate_stream = NULL;
 static gpud_launch_decimate_fn gpud_p_launch_decimate = NULL;
 static gpud_launch_am_envelope_fn gpud_p_launch_am_envelope = NULL;
 static gpud_launch_ssb_product_fn gpud_p_launch_ssb_product = NULL;
+static gpud_launch_streaming_polyphase_prepare_fn gpud_p_launch_streaming_polyphase_prepare = NULL;
 
 static int gpud_cuda_malloc(void **ptr, size_t bytes) { return (int)cudaMalloc(ptr, bytes); }
 static int gpud_cuda_free(void *ptr) { return (int)cudaFree(ptr); }
@@ -67,6 +69,7 @@ static int gpud_load_library(const char* path) {
 	gpud_p_launch_decimate = (gpud_launch_decimate_fn)GetProcAddress(gpud_mod, "gpud_launch_decimate_cuda");
 	gpud_p_launch_am_envelope = (gpud_launch_am_envelope_fn)GetProcAddress(gpud_mod, "gpud_launch_am_envelope_cuda");
 	gpud_p_launch_ssb_product = (gpud_launch_ssb_product_fn)GetProcAddress(gpud_mod, "gpud_launch_ssb_product_cuda");
+	gpud_p_launch_streaming_polyphase_prepare = (gpud_launch_streaming_polyphase_prepare_fn)GetProcAddress(gpud_mod, "gpud_launch_streaming_polyphase_prepare_cuda");
 	if (!gpud_p_stream_create || !gpud_p_stream_destroy || !gpud_p_stream_sync || !gpud_p_upload_fir_taps || !gpud_p_launch_freq_shift_stream || !gpud_p_launch_freq_shift || !gpud_p_launch_fm_discrim || !gpud_p_launch_fir_stream || !gpud_p_launch_fir || !gpud_p_launch_decimate_stream || !gpud_p_launch_decimate || !gpud_p_launch_am_envelope || !gpud_p_launch_ssb_product) {
 		FreeLibrary(gpud_mod);
 		gpud_mod = NULL;
@@ -89,6 +92,7 @@ static int gpud_launch_decimate_stream(gpud_float2 *in, gpud_float2 *out, int n_
 static int gpud_launch_decimate(gpud_float2 *in, gpud_float2 *out, int n_out, int factor) { if (!gpud_p_launch_decimate) return -1; return gpud_p_launch_decimate(in, out, n_out, factor); }
 static int gpud_launch_am_envelope(gpud_float2 *in, float *out, int n) { if (!gpud_p_launch_am_envelope) return -1; return gpud_p_launch_am_envelope(in, out, n); }
 static int gpud_launch_ssb_product(gpud_float2 *in, float *out, int n, double phase_inc, double phase_start) { if (!gpud_p_launch_ssb_product) return -1; return gpud_p_launch_ssb_product(in, out, n, phase_inc, phase_start); }
+static int gpud_launch_streaming_polyphase_prepare(gpud_float2 *in_new, int n_new, gpud_float2 *history_in, int history_len, float *polyphase_taps, int polyphase_len, int decim, int num_taps, int phase_count_in, double phase_start, double phase_inc, gpud_float2 *out, int *n_out, int *phase_count_out, double *phase_end_out, gpud_float2 *history_out) { if (!gpud_p_launch_streaming_polyphase_prepare) return -1; return gpud_p_launch_streaming_polyphase_prepare(in_new, n_new, history_in, history_len, polyphase_taps, polyphase_len, decim, num_taps, phase_count_in, phase_start, phase_inc, out, n_out, phase_count_out, phase_end_out, history_out); }
 */
 import "C"
 
@@ -130,6 +134,9 @@ func bridgeLaunchFMDiscrim(in *C.gpud_float2, out *C.float, n int) int { return 
 func bridgeLaunchAMEnvelope(in *C.gpud_float2, out *C.float, n int) int { return int(C.gpud_launch_am_envelope(in, out, C.int(n))) }
 func bridgeLaunchSSBProduct(in *C.gpud_float2, out *C.float, n int, phaseInc float64, phaseStart float64) int {
 	return int(C.gpud_launch_ssb_product(in, out, C.int(n), C.double(phaseInc), C.double(phaseStart)))
+}
+func bridgeLaunchStreamingPolyphasePrepare(inNew *C.gpud_float2, nNew int, historyIn *C.gpud_float2, historyLen int, polyphaseTaps *C.float, polyphaseLen int, decim int, numTaps int, phaseCountIn int, phaseStart float64, phaseInc float64, out *C.gpud_float2, nOut *C.int, phaseCountOut *C.int, phaseEndOut *C.double, historyOut *C.gpud_float2) int {
+	return int(C.gpud_launch_streaming_polyphase_prepare(inNew, C.int(nNew), historyIn, C.int(historyLen), polyphaseTaps, C.int(polyphaseLen), C.int(decim), C.int(numTaps), C.int(phaseCountIn), C.double(phaseStart), C.double(phaseInc), out, nOut, phaseCountOut, phaseEndOut, historyOut))
 }
 func bridgeStreamCreate() (streamHandle, int) {
 	var s C.gpud_stream_handle

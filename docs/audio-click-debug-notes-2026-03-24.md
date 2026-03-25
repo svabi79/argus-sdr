@@ -808,6 +808,176 @@ This now points away from a simple "shared global input head is already zero" th
 - `config.autosave.yaml` must be kept in sync with `config.yaml` or telemetry defaults can silently revert after restart.
 - The most promising root-cause area is now the shared upstream/extractor-start boundary path, not downstream playback.
 
+### 2026-03-25 refactor work status (post-reviewer instruction)
+
+After the reviewer guidance, work pivoted away from symptomatic patching and onto the required two-track architecture change:
+
+#### Track 1 — CPU/oracle path repair (in progress)
+The following was added to start building a trustworthy streaming oracle:
+- `internal/demod/gpudemod/streaming_types.go`
+- `internal/demod/gpudemod/cpu_oracle.go`
+- `internal/demod/gpudemod/cpu_oracle_test.go`
+- `internal/demod/gpudemod/streaming_oracle_extract.go`
+- `internal/demod/gpudemod/polyphase.go`
+- `internal/demod/gpudemod/polyphase_test.go`
+
+What exists now:
+- explicit `StreamingExtractJob` / `StreamingExtractResult`
+- explicit `CPUOracleState`
+- exact integer decimation enforcement (`ExactIntegerDecimation`)
+- monolithic-vs-chunked CPU oracle test
+- explicit polyphase tap layout (`phase-major`)
+- CPU oracle direct-vs-polyphase equivalence test
+- persistent CPU oracle runner state keyed by signal ID
+- config-hash reset behavior
+- cleanup of disappeared signals from oracle state
+
+Important limitation:
+- this is **not finished production validation yet**
+- the CPU oracle path is being built toward the reviewer’s required semantics, but it is not yet the final signed-off oracle for GPU validation
+
+#### Track 2 — GPU path architecture refactor (in progress)
+The following was added to begin the new stateful GPU architecture:
+- `internal/demod/gpudemod/stream_state.go`
+- `internal/demod/gpudemod/streaming_gpu_stub.go`
+- `docs/gpu-streaming-refactor-plan-2026-03-25.md`
+- `cmd/sdrd/streaming_refactor.go`
+
+What exists now:
+- explicit `ExtractStreamState`
+- batch-runner-owned per-signal state map
+- config-hash reset behavior for GPU-side stream state
+- exact integer decimation enforcement in relevant batch path
+- base taps and polyphase taps initialized into GPU-side stream state
+- explicit future production entry point: `StreamingExtractGPU(...)`
+- explicit separation between current legacy extractor path and the new streaming/oracle path
+- persistent oracle-runner lifecycle hooks, including reset on stream-drop events
+
+Important limitation:
+- the new GPU production path is **not implemented yet**
+- the legacy overlap+trim production path still exists and is still the current active path
+- the new GPU entry point currently exists as an explicit architectural boundary and state owner, not as the finished stateful polyphase kernel path
+
+#### Tests currently passing during refactor
+Repeatedly verified during the refactor work:
+- `go test ./internal/demod/gpudemod/...`
+- `go test ./cmd/sdrd/...`
+
+#### Incremental progress reached so far inside the refactor
+
+Additional progress after the initial refactor scaffolding:
+- the CPU oracle runner now uses the explicit polyphase oracle path (`CPUOracleExtractPolyphase`) instead of only carrying polyphase tap data passively
+- the CPU oracle now has a direct-vs-polyphase equivalence test
+- the GPU-side stream state now initializes both `BaseTaps` and `PolyphaseTaps`
+- the GPU side now has an explicit future production entry point `StreamingExtractGPU(...)`
+- the GPU streaming stub now advances `NCOPhase` over NEW samples only
+- the GPU streaming stub now advances `PhaseCount` modulo exact integer decimation
+- the GPU streaming stub now builds and persists `ShiftedHistory` from already frequency-shifted NEW samples
+- the new streaming/oracle path is explicitly separated from the current legacy overlap+trim production path
+
+Important current limitation:
+- `StreamingExtractGPU(...)` still intentionally returns a not-implemented error rather than pretending to be the finished production path
+- this is deliberate, to avoid hidden quick-fix semantics or silent goalpost shifts
+
+Additional note on the latest step:
+- the GPU streaming stub now also reports an estimated output-count schedule (`NOut`) derived from NEW sample consumption plus carried `PhaseCount`
+- this still does **not** make it a production path; it only means the stub now models output cadence semantics more honestly
+- the new CPU/oracle path is also now exposing additional runtime telemetry such as `streaming.oracle.rate` and `streaming.oracle.output_len`, so the reference path becomes easier to inspect as it matures
+- a reusable complex-slice comparison helper now exists (`CompareComplexSlices`) to support later oracle-vs-GPU equivalence work without improvising comparison logic at the last minute
+- a dedicated `TestCPUOracleMonolithicVsChunkedPolyphase` now verifies chunked-vs-monolithic self-consistency for the polyphase oracle path specifically
+- explicit reset tests now exist for both CPU oracle state and GPU streaming state, so config-change reset semantics are no longer only implicit in code review
+- a dedicated `ExtractDebugMetrics` structure now exists as a future comparison/telemetry contract for reviewer-required state/error/boundary metrics
+- the first mapper from oracle results into that debug-metric structure now exists, so the comparison contract is beginning to attach to real refactor code rather than staying purely conceptual
+- the same minimal debug-metric mapping now also exists for GPU-stub results, so both sides of the future GPU-vs-oracle comparison now have an initial common reporting shape
+- a first comparison-pipeline helper now exists to turn oracle-vs-GPU-stub results into shared `CompareStats` / `ExtractDebugMetrics` output, even though the GPU path is still intentionally incomplete
+- that comparison helper is now also covered by a dedicated unit test, so even the scaffolding around future GPU-vs-oracle validation is being locked down incrementally
+- GPU-side stream-state initialization is now also unit-tested (`Decim`, `BaseTaps`, `PolyphaseTaps`, `ShiftedHistory` capacity), so the new state ownership layer is no longer just trusted by inspection
+- the GPU streaming stub now also has a dedicated test proving that it advances persistent state while still explicitly failing as a not-yet-implemented production path
+- at this point, enough scaffolding exists that the next sensible step is to build the broader validation/test harness in one larger pass before continuing the actual production-path rewrite
+- that harness pass has now happened: deterministic IQ/tone fixtures, harness config/state builders, chunked polyphase oracle runners, and additional validation tests now exist, so the next step is back to the actual production-path rewrite
+- the first non-stub NEW-samples-only production-like path now exists as `StreamingExtractGPUHostOracle(...)`: it is still host-side, but it executes the new streaming/stateful semantics and therefore serves as a concrete bridge between pure test infrastructure and the eventual real GPU production path
+- that host-side production-like path is now directly compared against the CPU oracle in tests and currently matches within tight tolerance, which is an important confidence step before any real CUDA-path replacement
+- the canonical new production entry point `StreamingExtractGPU(...)` is now structurally wired so that the host-side production-like implementation can sit behind the same API later, without forcing a premature switch today
+- a top-level `cmd/sdrd` production path hook now exists as well (`extractForStreamingProduction` plus `useStreamingProductionPath=false`), so the new architecture is no longer isolated to internal packages only
+- the new production path now also emits first-class output/heading telemetry (`rate`, `output_len`, `head_mean_mag`, `head_max_step`) in addition to pure state counters, which will make activation/debugging easier later
+- a top-level comparison observation hook now also exists in `cmd/sdrd`, so oracle-vs-production metrics no longer have to remain buried inside internal package helpers
+- after the broader monitoring/comparison consolidation pass, the next agreed work mode is to continue in larger clusters rather than micro-steps: (1) wire the new production semantics more deeply, (2) isolate the legacy path more sharply, (3) keep preparing the eventual real GPU production path behind the same architecture
+- after the first larger cluster, the next explicit target is to complete Cluster B: make the host-oracle bridge sit more naturally behind the new production execution architecture, rather than leaving production-path semantics spread across loosely connected files
+- after Cluster B, the remaining GPU rewrite work is now best split into two explicit parts: `C1 = prepare` and `C2 = definitive implementation`, so the project can keep momentum without pretending that the final CUDA/stateful production path is already done
+- Cluster B is now effectively complete: CPU oracle runner, host-oracle production-like path, and top-level production comparison all share the same host streaming core, and that common core is directly tested against the polyphase oracle
+- Cluster C1 is now also complete: the new GPU production layer has an explicit invocation contract, execution-result contract, state handoff/build/apply stages, and a host-side execution strategy already running behind the same model
+
+### Current refactor status before C2
+
+At this point the project has:
+- a corrected streaming/oracle architecture direction
+- a shared host-side streaming core used by both the CPU oracle runner and the host-side production-like bridge
+- explicit production-path hooks in `cmd/sdrd`
+- comparison and monitoring scaffolding above and below the execution layer
+- a prepared GPU execution contract (`StreamingGPUInvocation` / `StreamingGPUExecutionResult`)
+
+What it does **not** have yet:
+- a real native CUDA streaming/polyphase execution entry point with history-in/history-out and phase-count in/out semantics
+- a real CUDA-backed implementation behind `StreamingExtractGPUExec(...)`
+- completed GPU-vs-oracle validation on the final native execution path
+
+### C2 plan
+
+#### C2-A — native CUDA / bridge entry preparation
+Goal:
+- introduce the real native entry shape for stateful streaming/polyphase execution
+
+Status note before starting C2-A:
+- C2 is **not** honestly complete yet because the native CUDA side still only exposes the old separate freq-shift/FIR/decimate pieces.
+- Therefore C2-A must begin by creating the real native entry shape rather than continuing to stack more Go-only abstractions on top of the old kernels.
+
+Required outcomes:
+- explicit native/CUDA function signature for streaming execution
+- bridge bindings for history in/out, phase count in/out, new samples in, outputs out
+- Go-side wrapper ready to call the new native path through the prepared invocation/result model
+
+#### C2-B — definitive execution implementation hookup
+Goal:
+- put a real native CUDA-backed execution strategy behind `StreamingExtractGPUExec(...)`
+
+Status note after C2-A:
+- the native entry shape now exists in CUDA, the Windows bridge can resolve it, and the Go execution layer can route into a native-prepared strategy.
+- what is still missing for C2-B is the actual stateful execution body behind that new native entrypoint.
+- therefore C2-B now means exactly one serious thing: replace the current placeholder body of the new native entrypoint with real stateful streaming/polyphase execution semantics, rather than adding more scaffolding around it.
+- C2-B is now materially done: the new native entrypoint no longer returns only placeholder state, and the Go native execution path now uploads inputs/history/taps, runs the new native function, and reads back outputs plus updated state.
+- when the new exact-integer streaming decimation rules were turned on, an immediate runtime integration issue appeared: previous WFM extraction defaults expected `outRate=500000`, but the live sample rate was `4096000`, which is not exactly divisible. The correct fix is to align streaming defaults with the new integer-decimation model instead of trying to preserve the old rounded ratio behavior.
+- the concrete immediate adjustment made for this was: `wfmStreamOutRate = 512000` (instead of `500000`), because `4096000 / 512000 = 8` is exactly divisible and therefore consistent with the new streaming architecture’s no-rounding rule.
+
+Required outcomes:
+- `StreamingExtractGPUExec(...)` can execute a real native stateful path
+- host-oracle bridge remains available only as a comparison/support path, not as the disguised production implementation
+- state apply/backflow goes through the already prepared invocation/result contract
+
+#### C2-C — final validation and serious completion gate
+Goal:
+- validate the real CUDA-backed path against the corrected oracle and make the completion criterion explicit
+
+Required outcomes:
+- GPU-vs-oracle comparison active on the real native path
+- test coverage and runtime comparison hooks in place
+- after C2-C, the CUDA story must be treated as complete, correct, and serious — not half-switched or pseudo-finished
+
+#### Why the refactor is intentionally incremental
+The reviewer explicitly required:
+- no start-index-only production patch
+- no continued reliance on overlap+trim as final continuity model
+- no silent decimation rounding
+- no GPU sign-off without a corrected CPU oracle
+
+Because of that, the work is being done in ordered layers:
+1. define streaming types and state
+2. build the CPU oracle with exact streaming semantics
+3. establish shared polyphase/tap semantics
+4. prepare GPU-side persistent state ownership
+5. only then replace the actual production GPU execution path
+
+This means the repo now contains partially completed new architecture pieces that are deliberate stepping stones, not abandoned half-fixes.
+
 ### Reviewer package artifacts created for second-opinion review
 
 To support external/secondary review of the GPU extractor path, a focused reviewer package was created in the project root:
