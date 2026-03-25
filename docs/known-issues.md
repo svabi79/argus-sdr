@@ -1,0 +1,196 @@
+# Known Issues
+
+This file tracks durable open engineering issues that remain after the 2026-03-25 audio-click fix.
+
+Primary source:
+- `docs/open-issues-report-2026-03-25.json`
+
+Status values used here:
+- `open`
+- `deferred`
+- `info`
+
+---
+
+## High Priority
+
+### OI-02 — `lastDiscrimIQ` missing from `dspStateSnapshot`
+- Status: `open`
+- Severity: High
+- Category: state-continuity
+- File: `internal/recorder/streamer.go`
+- Summary: FM discriminator bridging state is not preserved across `captureDSPState()` / `restoreDSPState()`, so recording segment splits can lose the final IQ sample and create a micro-click at the segment boundary.
+- Recommended fix: add `lastDiscrimIQ` and `lastDiscrimIQSet` to `dspStateSnapshot`.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-02)
+
+### OI-03 — CPU oracle path not yet usable as validation baseline
+- Status: `open`
+- Severity: High
+- Category: architecture
+- File: `cmd/sdrd/streaming_refactor.go`, `internal/demod/gpudemod/cpu_oracle.go`
+- Summary: the CPU oracle exists, but the production comparison/integration path is not trusted yet. That means GPU-path regressions still cannot be checked automatically with confidence.
+- Recommended fix: repair oracle integration and restore GPU-vs-CPU validation flow.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-03)
+
+### OI-18 — planned C2-C validation gate never completed
+- Status: `open`
+- Severity: Info
+- Category: architecture
+- File: `docs/audio-click-debug-notes-2026-03-24.md`
+- Summary: the final native streaming path works in practice, but the planned formal GPU-vs-oracle validation gate was never completed.
+- Recommended fix: complete this together with OI-03.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-18)
+
+---
+
+## Medium Priority
+
+### OI-14 — no regression test for `allIQ` immutability through spectrum/detection pipeline
+- Status: `open`
+- Severity: Low
+- Category: test-coverage
+- File: `cmd/sdrd/pipeline_runtime.go`
+- Summary: the `IQBalance` aliasing bug showed that shared-buffer mutation can slip in undetected. There is still no test asserting that `allIQ` remains unchanged after capture/detection-side processing.
+- Recommended fix: add an integration test that compares `allIQ` before and after the relevant pipeline stage.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-14)
+
+### OI-15 — very low test coverage for `processSnippet` audio pipeline
+- Status: `open`
+- Severity: Low
+- Category: test-coverage
+- File: `internal/recorder/streamer.go`
+- Summary: the main live audio pipeline still lacks focused tests for boundary continuity, WFM mono/stereo behavior, resampling, and demod-path regressions.
+- Recommended fix: add synthetic fixtures and continuity-oriented tests around repeated `processSnippet` calls.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-15)
+
+### OI-07 — taps are recalculated every frame
+- Status: `open`
+- Severity: Medium
+- Category: correctness
+- File: `internal/demod/gpudemod/stream_state.go`
+- Summary: FIR/polyphase taps are recomputed every frame even when parameters do not change, which is unnecessary work and makes it easier for host/GPU tap state to drift apart.
+- Recommended fix: only rebuild taps when tap-relevant inputs actually change.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-07)
+
+### OI-17 — bandwidth changes can change Go-side taps without GPU tap re-upload
+- Status: `open`
+- Severity: Low-Medium
+- Category: correctness
+- File: `internal/demod/gpudemod/streaming_gpu_native_prepare.go`, `internal/demod/gpudemod/stream_state.go`
+- Summary: after the config-hash fix, a bandwidth change may rebuild taps on the Go side while the GPU still keeps older uploaded taps unless a reset happens.
+- Recommended fix: add a separate tap-change detection/re-upload path without forcing full extractor reset.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-17)
+
+### OI-09 — streaming feature flags are compile-time constants
+- Status: `open`
+- Severity: Medium
+- Category: architecture
+- File: `cmd/sdrd/streaming_refactor.go`, `internal/demod/gpudemod/streaming_gpu_modes.go`
+- Summary: switching between production/oracle/native-host modes still requires code changes and rebuilds, which makes field debugging and A/B validation harder than necessary.
+- Recommended fix: expose these as config or environment-driven switches.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-09)
+
+### OI-05 — feed channel is shallow and can drop frames under pressure
+- Status: `open`
+- Severity: Medium
+- Category: reliability
+- File: `internal/recorder/streamer.go`
+- Summary: `feedCh` has a buffer of only 2. Under heavier processing or debug load, dropped feed messages can create audible gaps.
+- Recommended fix: increase channel depth or redesign backpressure behavior.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-05)
+
+### OI-06 — legacy overlap/trim extractor path is now mostly legacy baggage
+- Status: `deferred`
+- Severity: Medium
+- Category: dead-code
+- File: `cmd/sdrd/helpers.go`
+- Summary: the old overlap/trim path is now mainly fallback/legacy code and adds complexity plus old instrumentation noise.
+- Recommended fix: isolate, simplify, or remove it once the production path and fallback strategy are formally settled.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-06)
+
+### OI-04 — telemetry history storage still uses append+copy trim
+- Status: `deferred`
+- Severity: Medium
+- Category: telemetry
+- File: `internal/telemetry/telemetry.go`
+- Summary: heavy telemetry can still create avoidable allocation/copy pressure because history trimming is O(n) and happens under lock.
+- Recommended fix: replace with a ring-buffer design.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-04)
+
+---
+
+## Lower Priority / Nice-to-Have
+
+### OI-01 — `DCBlocker.Apply(allIQ)` still mutates extraction input in-place
+- Status: `deferred`
+- Severity: High
+- Category: data-integrity
+- File: `cmd/sdrd/pipeline_runtime.go`
+- Summary: unlike the old `IQBalance` bug this does not create a boundary artifact, but it does mean live extraction and recorded/replayed data are not semantically identical.
+- Recommended fix: clarify the contract or move to immutable/copy-based handling.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-01)
+
+### OI-08 — WFM audio LPF could reject pilot more strongly
+- Status: `deferred`
+- Severity: Medium
+- Category: audio-quality
+- File: `internal/recorder/streamer.go`
+- Summary: the current 15 kHz LPF is good enough functionally, but a steeper filter could further improve pilot suppression.
+- Recommended fix: more taps or a dedicated pilot notch.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-08)
+
+### OI-10 — `demod.wav` debug dumps can clip and mislead analysis
+- Status: `deferred`
+- Severity: Medium
+- Category: correctness
+- File: `internal/recorder/streamer.go`, `internal/recorder/wavwriter.go`
+- Summary: raw discriminator output can exceed the WAV writer's `[-1,+1]` clip range, so debug dumps can show artifacts that are not part of the real downstream audio path.
+- Recommended fix: scale by `1/pi` before dumping or use float WAV output.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-10)
+
+### OI-11 — browser AudioContext resync still causes audible micro-gaps
+- Status: `deferred`
+- Severity: Low
+- Category: reliability
+- File: `web/app.js`
+- Summary: underrun recovery is softened with a fade-in, but repeated resyncs still create audible stutter on the browser side.
+- Recommended fix: prefer the AudioWorklet/ring-player path wherever possible.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-11)
+
+### OI-12 — tiny per-frame tail copy for boundary telemetry
+- Status: `info`
+- Severity: Low
+- Category: performance
+- File: `cmd/sdrd/pipeline_runtime.go`
+- Summary: the last-32-sample copy is trivial and not urgent, but it is one more small allocation in a path that already has several.
+- Recommended fix: none needed unless a broader allocation cleanup happens.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-12)
+
+### OI-13 — temporary patch artifacts should not live in the repo long-term
+- Status: `deferred`
+- Severity: Low
+- Category: dead-code
+- File: `patches/*`
+- Summary: reviewer/debug patch artifacts were useful during the investigation, but they should either be removed or archived under docs rather than kept as loose patch files.
+- Recommended fix: delete or archive them once no longer needed.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-13)
+
+### OI-16 — `config.autosave.yaml` can re-enable unwanted debug telemetry after restart
+- Status: `deferred`
+- Severity: Low
+- Category: config
+- File: `config.autosave.yaml`
+- Summary: autosave can silently restore debug-heavy telemetry settings after restart and distort future runs.
+- Recommended fix: stop persisting debug telemetry knobs to autosave or explicitly ignore them.
+- Source: `docs/open-issues-report-2026-03-25.json` (OI-16)
+
+---
+
+## Suggested next execution order
+
+1. Fix OI-02 (`lastDiscrimIQ` snapshot/restore)
+2. Repair OI-03 and close OI-18 (oracle + formal validation path)
+3. Add OI-14 and OI-15 regression tests
+4. Consolidate OI-07 and OI-17 (tap rebuild / tap upload logic)
+5. Expose OI-09 feature flags via config or env
+6. Revisit OI-05 / OI-06 / OI-04 when doing reliability/cleanup work
