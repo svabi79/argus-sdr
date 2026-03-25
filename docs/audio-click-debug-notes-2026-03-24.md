@@ -808,6 +808,27 @@ This now points away from a simple "shared global input head is already zero" th
 - `config.autosave.yaml` must be kept in sync with `config.yaml` or telemetry defaults can silently revert after restart.
 - The most promising root-cause area is now the shared upstream/extractor-start boundary path, not downstream playback.
 
+### Reviewer package artifacts created for second-opinion review
+
+To support external/secondary review of the GPU extractor path, a focused reviewer package was created in the project root:
+- `reviewer-gpu-extractor-package/`
+- `reviewer-gpu-extractor-package.zip`
+- `reviewer-gpu-extractor-package.json`
+
+The package intentionally contains:
+- relevant GPU extractor / kernel code
+- surrounding host-path code needed for context
+- current debug notes
+- a reviewer brief
+- a short reviewer prompt
+- relevant config files used during live telemetry work
+
+The JSON variant is uncompressed and stores all included package files as a single JSON document with repeated entries of:
+- `path`
+- `content`
+
+This was created specifically so the same reviewer payload can be consumed by tools or APIs that prefer a single structured text file instead of a ZIP archive.
+
 ---
 
 ## Meta note
