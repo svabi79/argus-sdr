@@ -6,7 +6,7 @@ type ExtractJob struct {
 	OffsetHz   float64
 	BW         float64
 	OutRate    int
-	PhaseStart float64 // FreqShift starting phase (0 for stateless, carry over for streaming)
+	PhaseStart float64 // legacy batch phase field; retained only while migrating to streaming extractor semantics
 }
 
 // ExtractResult holds the output of a batch extraction including the ending

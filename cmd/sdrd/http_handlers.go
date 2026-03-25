@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -19,9 +20,10 @@ import (
 	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/recorder"
 	"sdr-wideband-suite/internal/runtime"
+	"sdr-wideband-suite/internal/telemetry"
 )
 
-func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime.Manager, srcMgr *sourceManager, dspUpdates chan dspUpdate, gpuState *gpuStatus, recMgr *recorder.Manager, sigSnap *signalSnapshot, eventMu *sync.RWMutex, phaseSnap *phaseSnapshot) {
+func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime.Manager, srcMgr *sourceManager, dspUpdates chan dspUpdate, gpuState *gpuStatus, recMgr *recorder.Manager, sigSnap *signalSnapshot, eventMu *sync.RWMutex, phaseSnap *phaseSnapshot, telem *telemetry.Collector) {
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
@@ -378,14 +380,194 @@ func registerAPIHandlers(mux *http.ServeMux, cfgPath string, cfgManager *runtime
 		w.Header().Set("Content-Type", "audio/wav")
 		_, _ = w.Write(data)
 	})
+	mux.HandleFunc("/api/debug/telemetry/live", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if telem == nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{"enabled": false, "error": "telemetry unavailable"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(telem.LiveSnapshot())
+	})
+	mux.HandleFunc("/api/debug/telemetry/history", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if telem == nil {
+			http.Error(w, "telemetry unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		query, err := telemetryQueryFromRequest(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		items, err := telem.QueryMetrics(query)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": items, "count": len(items)})
+	})
+	mux.HandleFunc("/api/debug/telemetry/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if telem == nil {
+			http.Error(w, "telemetry unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		query, err := telemetryQueryFromRequest(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		items, err := telem.QueryEvents(query)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": items, "count": len(items)})
+	})
+	mux.HandleFunc("/api/debug/telemetry/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if telem == nil {
+			http.Error(w, "telemetry unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"collector": telem.Config(),
+				"config":    cfgManager.Snapshot().Debug.Telemetry,
+			})
+		case http.MethodPost:
+			var update struct {
+				Enabled           *bool   `json:"enabled"`
+				HeavyEnabled      *bool   `json:"heavy_enabled"`
+				HeavySampleEvery  *int    `json:"heavy_sample_every"`
+				MetricSampleEvery *int    `json:"metric_sample_every"`
+				MetricHistoryMax  *int    `json:"metric_history_max"`
+				EventHistoryMax   *int    `json:"event_history_max"`
+				RetentionSeconds  *int    `json:"retention_seconds"`
+				PersistEnabled    *bool   `json:"persist_enabled"`
+				PersistDir        *string `json:"persist_dir"`
+				RotateMB          *int    `json:"rotate_mb"`
+				KeepFiles         *int    `json:"keep_files"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+				http.Error(w, "invalid json", http.StatusBadRequest)
+				return
+			}
+			next := cfgManager.Snapshot()
+			cur := next.Debug.Telemetry
+			if update.Enabled != nil {
+				cur.Enabled = *update.Enabled
+			}
+			if update.HeavyEnabled != nil {
+				cur.HeavyEnabled = *update.HeavyEnabled
+			}
+			if update.HeavySampleEvery != nil {
+				cur.HeavySampleEvery = *update.HeavySampleEvery
+			}
+			if update.MetricSampleEvery != nil {
+				cur.MetricSampleEvery = *update.MetricSampleEvery
+			}
+			if update.MetricHistoryMax != nil {
+				cur.MetricHistoryMax = *update.MetricHistoryMax
+			}
+			if update.EventHistoryMax != nil {
+				cur.EventHistoryMax = *update.EventHistoryMax
+			}
+			if update.RetentionSeconds != nil {
+				cur.RetentionSeconds = *update.RetentionSeconds
+			}
+			if update.PersistEnabled != nil {
+				cur.PersistEnabled = *update.PersistEnabled
+			}
+			if update.PersistDir != nil && *update.PersistDir != "" {
+				cur.PersistDir = *update.PersistDir
+			}
+			if update.RotateMB != nil {
+				cur.RotateMB = *update.RotateMB
+			}
+			if update.KeepFiles != nil {
+				cur.KeepFiles = *update.KeepFiles
+			}
+			next.Debug.Telemetry = cur
+			cfgManager.Replace(next)
+			if err := config.Save(cfgPath, next); err != nil {
+				log.Printf("telemetry config save failed: %v", err)
+			}
+			err := telem.Configure(telemetry.Config{
+				Enabled:           cur.Enabled,
+				HeavyEnabled:      cur.HeavyEnabled,
+				HeavySampleEvery:  cur.HeavySampleEvery,
+				MetricSampleEvery: cur.MetricSampleEvery,
+				MetricHistoryMax:  cur.MetricHistoryMax,
+				EventHistoryMax:   cur.EventHistoryMax,
+				Retention:         time.Duration(cur.RetentionSeconds) * time.Second,
+				PersistEnabled:    cur.PersistEnabled,
+				PersistDir:        cur.PersistDir,
+				RotateMB:          cur.RotateMB,
+				KeepFiles:         cur.KeepFiles,
+			})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "collector": telem.Config(), "config": cur})
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 }
 
-func newHTTPServer(addr string, webRoot string, h *hub, cfgPath string, cfgManager *runtime.Manager, srcMgr *sourceManager, dspUpdates chan dspUpdate, gpuState *gpuStatus, recMgr *recorder.Manager, sigSnap *signalSnapshot, eventMu *sync.RWMutex, phaseSnap *phaseSnapshot) *http.Server {
+func newHTTPServer(addr string, webRoot string, h *hub, cfgPath string, cfgManager *runtime.Manager, srcMgr *sourceManager, dspUpdates chan dspUpdate, gpuState *gpuStatus, recMgr *recorder.Manager, sigSnap *signalSnapshot, eventMu *sync.RWMutex, phaseSnap *phaseSnapshot, telem *telemetry.Collector) *http.Server {
 	mux := http.NewServeMux()
 	registerWSHandlers(mux, h, recMgr)
-	registerAPIHandlers(mux, cfgPath, cfgManager, srcMgr, dspUpdates, gpuState, recMgr, sigSnap, eventMu, phaseSnap)
+	registerAPIHandlers(mux, cfgPath, cfgManager, srcMgr, dspUpdates, gpuState, recMgr, sigSnap, eventMu, phaseSnap, telem)
 	mux.Handle("/", http.FileServer(http.Dir(webRoot)))
 	return &http.Server{Addr: addr, Handler: mux}
+}
+
+func telemetryQueryFromRequest(r *http.Request) (telemetry.Query, error) {
+	q := r.URL.Query()
+	var out telemetry.Query
+	var err error
+	if out.From, err = telemetry.ParseTimeQuery(q.Get("since")); err != nil {
+		return out, errors.New("invalid since")
+	}
+	if out.To, err = telemetry.ParseTimeQuery(q.Get("until")); err != nil {
+		return out, errors.New("invalid until")
+	}
+	if v := q.Get("limit"); v != "" {
+		if parsed, parseErr := strconv.Atoi(v); parseErr == nil {
+			out.Limit = parsed
+		}
+	}
+	out.Name = q.Get("name")
+	out.NamePrefix = q.Get("prefix")
+	out.Level = q.Get("level")
+	out.IncludePersisted = true
+	if v := q.Get("include_persisted"); v != "" {
+		if b, parseErr := strconv.ParseBool(v); parseErr == nil {
+			out.IncludePersisted = b
+		}
+	}
+	tags := telemetry.Tags{}
+	for key, vals := range q {
+		if len(vals) == 0 {
+			continue
+		}
+		if strings.HasPrefix(key, "tag_") {
+			tags[strings.TrimPrefix(key, "tag_")] = vals[0]
+		}
+	}
+	for _, key := range []string{"signal_id", "session_id", "stage", "trace_id", "component"} {
+		if v := q.Get(key); v != "" {
+			tags[key] = v
+		}
+	}
+	if len(tags) > 0 {
+		out.Tags = tags
+	}
+	return out, nil
 }
 
 func shutdownServer(server *http.Server) {

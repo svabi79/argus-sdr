@@ -160,9 +160,9 @@ func (r *BatchRunner) shiftFilterDecimateSlotParallel(iq []complex64, job Extrac
 	if bridgeMemcpyH2D(buf.dTaps, unsafe.Pointer(&taps[0]), tapsBytes) != 0 {
 		return 0, 0, errors.New("taps H2D failed")
 	}
-	decim := int(math.Round(float64(e.sampleRate) / float64(job.OutRate)))
-	if decim < 1 {
-		decim = 1
+	decim, err := ExactIntegerDecimation(e.sampleRate, job.OutRate)
+	if err != nil {
+		return 0, 0, err
 	}
 	nOut := n / decim
 	if nOut <= 0 {

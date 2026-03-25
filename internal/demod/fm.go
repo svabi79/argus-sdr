@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"sdr-wideband-suite/internal/dsp"
+	"sdr-wideband-suite/internal/logging"
 )
 
 type NFM struct{}
@@ -45,12 +46,45 @@ func fmDiscrim(iq []complex64) []float32 {
 		return nil
 	}
 	out := make([]float32, len(iq)-1)
+	maxAbs := 0.0
+	maxIdx := 0
+	largeSteps := 0
+	minMag := math.MaxFloat64
+	maxMag := 0.0
 	for i := 1; i < len(iq); i++ {
 		p := iq[i-1]
 		c := iq[i]
+		pmag := math.Hypot(float64(real(p)), float64(imag(p)))
+		cmag := math.Hypot(float64(real(c)), float64(imag(c)))
+		if pmag < minMag {
+			minMag = pmag
+		}
+		if cmag < minMag {
+			minMag = cmag
+		}
+		if pmag > maxMag {
+			maxMag = pmag
+		}
+		if cmag > maxMag {
+			maxMag = cmag
+		}
 		num := float64(real(p))*float64(imag(c)) - float64(imag(p))*float64(real(c))
 		den := float64(real(p))*float64(real(c)) + float64(imag(p))*float64(imag(c))
-		out[i-1] = float32(math.Atan2(num, den))
+		step := math.Atan2(num, den)
+		if a := math.Abs(step); a > maxAbs {
+			maxAbs = a
+			maxIdx = i - 1
+		}
+		if math.Abs(step) > 1.5 {
+			largeSteps++
+		}
+		out[i-1] = float32(step)
+	}
+	if logging.EnabledCategory("discrim") {
+		logging.Debug("discrim", "fm_meter", "iq_len", len(iq), "audio_len", len(out), "min_mag", minMag, "max_mag", maxMag, "max_abs_step", maxAbs, "max_idx", maxIdx, "large_steps", largeSteps)
+		if largeSteps > 0 {
+			logging.Warn("discrim", "fm_large_steps", "iq_len", len(iq), "large_steps", largeSteps, "max_abs_step", maxAbs, "max_idx", maxIdx, "min_mag", minMag, "max_mag", maxMag)
+		}
 	}
 	return out
 }

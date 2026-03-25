@@ -16,12 +16,25 @@ if (!(Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Nul
 
 Remove-Item $dll,$lib,$exp -Force -ErrorAction SilentlyContinue
 
-$cmd = @"
-call "$vcvars" && "$nvcc" -shared "$src" -o "$dll" -cudart=hybrid -Xcompiler "/MD" -arch=sm_75 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 -gencode arch=compute_86,code=sm_86 -gencode arch=compute_89,code=sm_89 -gencode arch=compute_90,code=sm_90
+$bat = Join-Path $env:TEMP 'build-gpudemod-dll.bat'
+$batContent = @"
+@echo off
+call "$vcvars"
+if errorlevel 1 exit /b %errorlevel%
+"$nvcc" -shared "$src" -o "$dll" -cudart=hybrid -Xcompiler "/MD" -arch=sm_75 ^
+  -gencode arch=compute_75,code=sm_75 ^
+  -gencode arch=compute_80,code=sm_80 ^
+  -gencode arch=compute_86,code=sm_86 ^
+  -gencode arch=compute_89,code=sm_89 ^
+  -gencode arch=compute_90,code=sm_90
+exit /b %errorlevel%
 "@
+Set-Content -Path $bat -Value $batContent -Encoding ASCII
 
 Write-Host 'Building gpudemod CUDA DLL...' -ForegroundColor Cyan
-cmd.exe /c $cmd
-if ($LASTEXITCODE -ne 0) { throw 'gpudemod DLL build failed' }
+cmd.exe /c ""$bat""
+$exitCode = $LASTEXITCODE
+Remove-Item $bat -Force -ErrorAction SilentlyContinue
+if ($exitCode -ne 0) { throw 'gpudemod DLL build failed' }
 
 Write-Host "Built: $dll" -ForegroundColor Green

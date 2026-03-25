@@ -248,14 +248,29 @@ decoder:
   dstar_cmd: tools/dsd-neo/bin/dsd-neo.exe -fd -i {audio} -s {sr} -o null
   fsk_cmd: tools/fsk/fsk_decoder --iq {iq} --sample-rate {sr}
   psk_cmd: tools/psk/psk_decoder --iq {iq} --sample-rate {sr}
+debug:
+  audio_dump_enabled: false
+  cpu_monitoring: false
+  telemetry:
+    enabled: true
+    heavy_enabled: false
+    heavy_sample_every: 12
+    metric_sample_every: 8
+    metric_history_max: 6000
+    event_history_max: 1500
+    retention_seconds: 900
+    persist_enabled: true
+    persist_dir: debug/telemetry
+    rotate_mb: 16
+    keep_files: 8
 logging:
-  level: debug
-  categories: [capture, extract, demod, resample, drop, ws, boundary]
-  rate_limit_ms: 500
+  level: error
+  categories: []
+  rate_limit_ms: 1000
   stdout: true
   stdout_color: true
-  file: logs/trace.log
-  file_level: debug
+  file: ""
+  file_level: error
   time_format: "15:04:05"
   disable_time: false
 web_addr: :8080

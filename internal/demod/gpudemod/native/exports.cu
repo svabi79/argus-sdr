@@ -11,6 +11,10 @@
 
 typedef void* gpud_stream_handle;
 
+static __forceinline__ int gpud_max_i(int a, int b) {
+    return a > b ? a : b;
+}
+
 GPUD_API int GPUD_CALL gpud_stream_create(gpud_stream_handle* out) {
     if (!out) return -1;
     cudaStream_t stream;
@@ -319,4 +323,309 @@ GPUD_API int GPUD_CALL gpud_launch_ssb_product_cuda(
     const int grid = (n + block - 1) / block;
     gpud_ssb_product_kernel<<<grid, block>>>(in, out, n, phase_inc, phase_start);
     return (int)cudaGetLastError();
+}
+
+__global__ void gpud_streaming_polyphase_accum_kernel(
+    const float2* __restrict__ history_state,
+    int history_len,
+    const float2* __restrict__ shifted_new,
+    int n_new,
+    const float* __restrict__ polyphase_taps,
+    int polyphase_len,
+    int decim,
+    int phase_len,
+    int start_idx,
+    int n_out,
+    float2* __restrict__ out
+);
+
+__global__ void gpud_streaming_history_tail_kernel(
+    const float2* __restrict__ history_state,
+    int history_len,
+    const float2* __restrict__ shifted_new,
+    int n_new,
+    int keep,
+    float2* __restrict__ history_out
+);
+
+static __forceinline__ double gpud_reduce_phase(double phase);
+
+// Transitional legacy entrypoint retained for bring-up and comparison.
+// The production-native streaming path is gpud_launch_streaming_polyphase_stateful_cuda,
+// which preserves per-signal carry state across NEW-samples-only chunks.
+GPUD_API int GPUD_CALL gpud_launch_streaming_polyphase_prepare_cuda(
+    const float2* in_new,
+    int n_new,
+    const float2* history_in,
+    int history_len,
+    const float* polyphase_taps,
+    int polyphase_len,
+    int decim,
+    int num_taps,
+    int phase_count_in,
+    double phase_start,
+    double phase_inc,
+    float2* out,
+    int* n_out,
+    int* phase_count_out,
+    double* phase_end_out,
+    float2* history_out
+) {
+    if (n_new < 0 || !polyphase_taps || polyphase_len <= 0 || decim <= 0 || num_taps <= 0) return -1;
+    const int phase_len = (num_taps + decim - 1) / decim;
+    if (polyphase_len < decim * phase_len) return -2;
+
+    const int keep = num_taps > 1 ? num_taps - 1 : 0;
+    int clamped_history_len = history_len;
+    if (clamped_history_len < 0) clamped_history_len = 0;
+    if (clamped_history_len > keep) clamped_history_len = keep;
+    if (clamped_history_len > 0 && !history_in) return -5;
+
+    float2* shifted = NULL;
+    cudaError_t err = cudaSuccess;
+    if (n_new > 0) {
+        if (!in_new) return -3;
+        err = cudaMalloc((void**)&shifted, (size_t)gpud_max_i(1, n_new) * sizeof(float2));
+        if (err != cudaSuccess) return (int)err;
+        const int block = 256;
+        const int grid_shift = (n_new + block - 1) / block;
+        gpud_freq_shift_kernel<<<grid_shift, block>>>(in_new, shifted, n_new, phase_inc, phase_start);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(shifted);
+            return (int)err;
+        }
+    }
+
+    int phase_count = phase_count_in;
+    if (phase_count < 0) phase_count = 0;
+    if (phase_count >= decim) phase_count %= decim;
+    const int total_phase = phase_count + n_new;
+    const int out_count = total_phase / decim;
+    if (out_count > 0) {
+        if (!out) {
+            cudaFree(shifted);
+            return -4;
+        }
+        const int block = 256;
+        const int grid = (out_count + block - 1) / block;
+        const int start_idx = decim - phase_count - 1;
+        gpud_streaming_polyphase_accum_kernel<<<grid, block>>>(
+            history_in,
+            clamped_history_len,
+            shifted,
+            n_new,
+            polyphase_taps,
+            polyphase_len,
+            decim,
+            phase_len,
+            start_idx,
+            out_count,
+            out
+        );
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(shifted);
+            return (int)err;
+        }
+    }
+
+    if (history_out && keep > 0) {
+        const int new_history_len = clamped_history_len + n_new < keep ? clamped_history_len + n_new : keep;
+        if (new_history_len > 0) {
+            const int block = 256;
+            const int grid = (new_history_len + block - 1) / block;
+            gpud_streaming_history_tail_kernel<<<grid, block>>>(
+                history_in,
+                clamped_history_len,
+                shifted,
+                n_new,
+                new_history_len,
+                history_out
+            );
+            err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                cudaFree(shifted);
+                return (int)err;
+            }
+        }
+    }
+
+    if (n_out) *n_out = out_count;
+    if (phase_count_out) *phase_count_out = total_phase % decim;
+    if (phase_end_out) *phase_end_out = gpud_reduce_phase(phase_start + phase_inc * (double)n_new);
+
+    if (shifted) cudaFree(shifted);
+    return 0;
+}
+
+static __device__ __forceinline__ float2 gpud_stream_sample_at(
+    const float2* __restrict__ history_state,
+    int history_len,
+    const float2* __restrict__ shifted_new,
+    int n_new,
+    int idx
+) {
+    if (idx < 0) return make_float2(0.0f, 0.0f);
+    if (idx < history_len) return history_state[idx];
+    int shifted_idx = idx - history_len;
+    if (shifted_idx < 0 || shifted_idx >= n_new) return make_float2(0.0f, 0.0f);
+    return shifted_new[shifted_idx];
+}
+
+__global__ void gpud_streaming_polyphase_accum_kernel(
+    const float2* __restrict__ history_state,
+    int history_len,
+    const float2* __restrict__ shifted_new,
+    int n_new,
+    const float* __restrict__ polyphase_taps,
+    int polyphase_len,
+    int decim,
+    int phase_len,
+    int start_idx,
+    int n_out,
+    float2* __restrict__ out
+) {
+    int out_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (out_idx >= n_out) return;
+
+    int newest = history_len + start_idx + out_idx * decim;
+    float acc_r = 0.0f;
+    float acc_i = 0.0f;
+    for (int p = 0; p < decim; ++p) {
+        for (int k = 0; k < phase_len; ++k) {
+            int tap_idx = p * phase_len + k;
+            if (tap_idx >= polyphase_len) continue;
+            float tap = polyphase_taps[tap_idx];
+            if (tap == 0.0f) continue;
+            int src_back = p + k * decim;
+            int src_idx = newest - src_back;
+            float2 sample = gpud_stream_sample_at(history_state, history_len, shifted_new, n_new, src_idx);
+            acc_r += sample.x * tap;
+            acc_i += sample.y * tap;
+        }
+    }
+    out[out_idx] = make_float2(acc_r, acc_i);
+}
+
+__global__ void gpud_streaming_history_tail_kernel(
+    const float2* __restrict__ history_state,
+    int history_len,
+    const float2* __restrict__ shifted_new,
+    int n_new,
+    int keep,
+    float2* __restrict__ history_out
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= keep) return;
+    int combined_len = history_len + n_new;
+    int src_idx = combined_len - keep + idx;
+    history_out[idx] = gpud_stream_sample_at(history_state, history_len, shifted_new, n_new, src_idx);
+}
+
+static __forceinline__ double gpud_reduce_phase(double phase) {
+    const double TWO_PI = 6.283185307179586;
+    return phase - rint(phase / TWO_PI) * TWO_PI;
+}
+
+// Production-native candidate entrypoint for the stateful streaming extractor.
+// Callers provide only NEW samples; overlap+trim is intentionally not part of this path.
+GPUD_API int GPUD_CALL gpud_launch_streaming_polyphase_stateful_cuda(
+    const float2* in_new,
+    int n_new,
+    float2* shifted_new_tmp,
+    const float* polyphase_taps,
+    int polyphase_len,
+    int decim,
+    int num_taps,
+    float2* history_state,
+    float2* history_scratch,
+    int history_cap,
+    int* history_len_io,
+    int* phase_count_state,
+    double* phase_state,
+    double phase_inc,
+    float2* out,
+    int out_cap,
+    int* n_out
+) {
+    if (!polyphase_taps || decim <= 0 || num_taps <= 0 || !history_len_io || !phase_count_state || !phase_state || !n_out) return -10;
+    if (n_new < 0 || out_cap < 0 || history_cap < 0) return -11;
+    const int phase_len = (num_taps + decim - 1) / decim;
+    if (polyphase_len < decim * phase_len) return -12;
+
+    int history_len = *history_len_io;
+    if (history_len < 0) history_len = 0;
+    if (history_len > history_cap) history_len = history_cap;
+
+    int phase_count = *phase_count_state;
+    if (phase_count < 0) phase_count = 0;
+    if (phase_count >= decim) phase_count %= decim;
+
+    double phase_start = *phase_state;
+    if (n_new > 0) {
+        if (!in_new || !shifted_new_tmp) return -13;
+        const int block = 256;
+        const int grid = (n_new + block - 1) / block;
+        gpud_freq_shift_kernel<<<grid, block>>>(in_new, shifted_new_tmp, n_new, phase_inc, phase_start);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) return (int)err;
+    }
+
+    const int total_phase = phase_count + n_new;
+    const int out_count = total_phase / decim;
+    if (out_count > out_cap) return -14;
+
+    if (out_count > 0) {
+        if (!out) return -15;
+        const int block = 256;
+        const int grid = (out_count + block - 1) / block;
+        const int start_idx = decim - phase_count - 1;
+        gpud_streaming_polyphase_accum_kernel<<<grid, block>>>(
+            history_state,
+            history_len,
+            shifted_new_tmp,
+            n_new,
+            polyphase_taps,
+            polyphase_len,
+            decim,
+            phase_len,
+            start_idx,
+            out_count,
+            out
+        );
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) return (int)err;
+    }
+
+    int new_history_len = history_len;
+    if (history_cap > 0) {
+        new_history_len = history_len + n_new;
+        if (new_history_len > history_cap) new_history_len = history_cap;
+        if (new_history_len > 0) {
+            if (!history_state || !history_scratch) return -16;
+            const int block = 256;
+            const int grid = (new_history_len + block - 1) / block;
+            gpud_streaming_history_tail_kernel<<<grid, block>>>(
+                history_state,
+                history_len,
+                shifted_new_tmp,
+                n_new,
+                new_history_len,
+                history_scratch
+            );
+            cudaError_t err = cudaGetLastError();
+            if (err != cudaSuccess) return (int)err;
+            err = cudaMemcpy(history_state, history_scratch, (size_t)new_history_len * sizeof(float2), cudaMemcpyDeviceToDevice);
+            if (err != cudaSuccess) return (int)err;
+        }
+    } else {
+        new_history_len = 0;
+    }
+
+    *history_len_io = new_history_len;
+    *phase_count_state = total_phase % decim;
+    *phase_state = gpud_reduce_phase(phase_start + phase_inc * (double)n_new);
+    *n_out = out_count;
+    return 0;
 }

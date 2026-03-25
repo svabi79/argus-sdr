@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"runtime/debug"
@@ -16,15 +17,16 @@ import (
 	"sdr-wideband-suite/internal/logging"
 	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/recorder"
+	"sdr-wideband-suite/internal/telemetry"
 )
 
-func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot, extractMgr *extractionManager, phaseSnap *phaseSnapshot) {
+func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot, extractMgr *extractionManager, phaseSnap *phaseSnapshot, coll *telemetry.Collector) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("FATAL: runDSP goroutine panic: %v\n%s", r, debug.Stack())
 		}
 	}()
-	rt := newDSPRuntime(cfg, det, window, gpuState)
+	rt := newDSPRuntime(cfg, det, window, gpuState, coll)
 	ticker := time.NewTicker(cfg.FrameInterval())
 	defer ticker.Stop()
 	logTicker := time.NewTicker(5 * time.Second)
@@ -33,6 +35,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 	dcBlocker := dsp.NewDCBlocker(0.995)
 	state := &phaseState{}
 	var frameID uint64
+	prevDisplayed := map[int64]detector.Signal{}
+	lastSourceDrops := uint64(0)
+	lastSourceResets := uint64(0)
 	for {
 		select {
 		case <-ctx.Done():
@@ -40,11 +45,28 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 		case <-logTicker.C:
 			st := srcMgr.Stats()
 			log.Printf("stats: buf=%d drop=%d reset=%d last=%dms", st.BufferSamples, st.Dropped, st.Resets, st.LastSampleAgoMs)
+			if coll != nil {
+				coll.SetGauge("source.buffer_samples", float64(st.BufferSamples), nil)
+				coll.SetGauge("source.last_sample_ago_ms", float64(st.LastSampleAgoMs), nil)
+				if st.Dropped > lastSourceDrops {
+					coll.IncCounter("source.drop.count", float64(st.Dropped-lastSourceDrops), nil)
+				}
+				if st.Resets > lastSourceResets {
+					coll.IncCounter("source.reset.count", float64(st.Resets-lastSourceResets), nil)
+					coll.Event("source_reset", "warn", "source reset observed", nil, map[string]any{"resets": st.Resets})
+				}
+				lastSourceDrops = st.Dropped
+				lastSourceResets = st.Resets
+			}
 		case upd := <-updates:
 			rt.applyUpdate(upd, srcMgr, rec, gpuState)
 			dcBlocker.Reset()
 			ticker.Reset(rt.cfg.FrameInterval())
+			if coll != nil {
+				coll.IncCounter("dsp.update.apply", 1, nil)
+			}
 		case <-ticker.C:
+			frameStart := time.Now()
 			frameID++
 			art, err := rt.captureSpectrum(srcMgr, rec, dcBlocker, gpuState)
 			if err != nil {
@@ -61,8 +83,19 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				rt.gotSamples = true
 			}
 			logging.Debug("trace", "capture_done", "trace", frameID, "allIQ", len(art.allIQ), "detailIQ", len(art.detailIQ))
+			if coll != nil {
+				coll.Observe("stage.capture.duration_ms", float64(time.Since(frameStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+			}
+			survStart := time.Now()
 			state.surveillance = rt.buildSurveillanceResult(art)
+			if coll != nil {
+				coll.Observe("stage.surveillance.duration_ms", float64(time.Since(survStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+			}
+			refineStart := time.Now()
 			state.refinement = rt.runRefinement(art, state.surveillance, extractMgr, rec)
+			if coll != nil {
+				coll.Observe("stage.refinement.duration_ms", float64(time.Since(refineStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+			}
 			finished := state.surveillance.Finished
 			thresholds := state.surveillance.Thresholds
 			noiseFloor := state.surveillance.NoiseFloor
@@ -75,11 +108,44 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					streamSignals = stableSignals
 				}
 				if rec != nil && len(art.allIQ) > 0 {
+					if art.streamDropped {
+						rt.streamOverlap = &streamIQOverlap{}
+						for k := range rt.streamPhaseState {
+							rt.streamPhaseState[k].phase = 0
+						}
+						resetStreamingOracleRunner()
+						rec.ResetStreams()
+						logging.Warn("gap", "iq_dropped", "msg", "buffer bloat caused extraction drop; overlap reset")
+						if coll != nil {
+							coll.IncCounter("capture.stream_reset", 1, nil)
+							coll.Event("iq_dropped", "warn", "stream overlap reset after dropped IQ", nil, map[string]any{"frame_id": frameID})
+						}
+					}
 					if rt.cfg.Recorder.DebugLiveAudio {
 						log.Printf("LIVEAUDIO DSP: detailIQ=%d displaySignals=%d streamSignals=%d stableSignals=%d allIQ=%d", len(art.detailIQ), len(displaySignals), len(streamSignals), len(stableSignals), len(art.allIQ))
 					}
 					aqCfg := extractionConfig{firTaps: rt.cfg.Recorder.ExtractionTaps, bwMult: rt.cfg.Recorder.ExtractionBwMult}
-					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, streamSignals, rt.streamPhaseState, rt.streamOverlap, aqCfg)
+					extractStart := time.Now()
+					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, streamSignals, rt.streamPhaseState, rt.streamOverlap, aqCfg, rt.telemetry)
+					if coll != nil {
+						coll.Observe("stage.extract_stream.duration_ms", float64(time.Since(extractStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+						coll.SetGauge("stage.extract_stream.signals", float64(len(streamSignals)), nil)
+						if coll.ShouldSampleHeavy() {
+							for i := range streamSnips {
+								if i >= len(streamSignals) {
+									break
+								}
+								tags := telemetry.TagsFromPairs(
+									"signal_id", fmt.Sprintf("%d", streamSignals[i].ID),
+									"stage", "extract_stream",
+								)
+								coll.SetGauge("iq.stage.extract.length", float64(len(streamSnips[i])), tags)
+								if len(streamSnips[i]) > 0 {
+									observeIQStats(coll, "extract_stream", streamSnips[i], tags)
+								}
+							}
+						}
+					}
 					nonEmpty := 0
 					minLen := 0
 					maxLen := 0
@@ -127,10 +193,18 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						log.Printf("LIVEAUDIO DSP: feedItems=%d", len(items))
 					}
 					if len(items) > 0 {
+						feedStart := time.Now()
 						rec.FeedSnippets(items, frameID)
+						if coll != nil {
+							coll.Observe("stage.feed_enqueue.duration_ms", float64(time.Since(feedStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+							coll.SetGauge("stage.feed.items", float64(len(items)), nil)
+						}
 						logging.Debug("trace", "feed", "trace", frameID, "items", len(items), "signals", len(streamSignals), "allIQ", len(art.allIQ))
 					} else {
 						logging.Warn("gap", "feed_empty", "signals", len(streamSignals), "trace", frameID)
+						if coll != nil {
+							coll.IncCounter("stage.feed.empty", 1, nil)
+						}
 					}
 				}
 				rt.maintenance(displaySignals, rec)
@@ -155,6 +229,27 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 
 			if sigSnap != nil {
 				sigSnap.set(displaySignals)
+			}
+			if coll != nil {
+				coll.SetGauge("signals.display.count", float64(len(displaySignals)), nil)
+				current := make(map[int64]detector.Signal, len(displaySignals))
+				for _, s := range displaySignals {
+					current[s.ID] = s
+					if _, ok := prevDisplayed[s.ID]; !ok {
+						coll.Event("signal_create", "info", "signal entered display set", telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", s.ID)), map[string]any{
+							"center_hz": s.CenterHz,
+							"bw_hz":     s.BWHz,
+						})
+					}
+				}
+				for id, prev := range prevDisplayed {
+					if _, ok := current[id]; !ok {
+						coll.Event("signal_remove", "info", "signal left display set", telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", id)), map[string]any{
+							"center_hz": prev.CenterHz,
+						})
+					}
+				}
+				prevDisplayed = current
 			}
 			eventMu.Lock()
 			for _, ev := range finished {
@@ -244,6 +339,9 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				debugInfo.Refinement = refinementDebug
 			}
 			h.broadcast(SpectrumFrame{Timestamp: art.now.UnixMilli(), CenterHz: rt.cfg.CenterHz, SampleHz: rt.cfg.SampleRate, FFTSize: rt.cfg.FFTSize, Spectrum: art.surveillanceSpectrum, Signals: displaySignals, Debug: debugInfo})
+			if coll != nil {
+				coll.Observe("dsp.frame.duration_ms", float64(time.Since(frameStart).Microseconds())/1000.0, nil)
+			}
 		}
 	}
 }

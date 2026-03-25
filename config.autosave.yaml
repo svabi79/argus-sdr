@@ -1,0 +1,343 @@
+bands:
+    - name: uk-fm-broadcast
+      start_hz: 8.75e+07
+      end_hz: 1.08e+08
+center_hz: 1.02e+08
+sample_rate: 4096000
+fft_size: 512
+gain_db: 32
+tuner_bw_khz: 5000
+use_gpu_fft: true
+classifier_mode: combined
+agc: true
+dc_block: true
+iq_balance: true
+pipeline:
+    mode: wideband-balanced
+    profile: wideband-balanced
+    goals:
+        intent: broadcast-monitoring
+        monitor_start_hz: 8.8e+07
+        monitor_end_hz: 1.08e+08
+        monitor_span_hz: 2e+07
+        monitor_windows:
+            - label: ""
+              zone: focus
+              start_hz: 8.75e+07
+              end_hz: 1.08e+08
+              center_hz: 0
+              span_hz: 0
+              priority: 1.25
+              auto_record: false
+              auto_decode: false
+            - label: ""
+              zone: decode
+              start_hz: 8.75e+07
+              end_hz: 1.08e+08
+              center_hz: 0
+              span_hz: 0
+              priority: 1.35
+              auto_record: false
+              auto_decode: false
+        signal_priorities:
+            - wfm
+            - rds
+            - broadcast
+        auto_record_classes:
+            - WFM
+            - WFM_STEREO
+        auto_decode_classes:
+            - WFM
+            - WFM_STEREO
+            - RDS
+surveillance:
+    analysis_fft_size: 512
+    frame_rate: 12
+    strategy: multi-resolution
+    display_bins: 2048
+    display_fps: 12
+    derived_detection: auto
+refinement:
+    enabled: true
+    max_concurrent: 24
+    detail_fft_size: 4096
+    min_candidate_snr_db: -3
+    min_span_hz: 60000
+    max_span_hz: 250000
+    auto_span: true
+resources:
+    prefer_gpu: true
+    max_refinement_jobs: 24
+    max_recording_streams: 32
+    max_decode_jobs: 16
+    decision_hold_ms: 2500
+profiles:
+    - name: legacy
+      description: Current single-band pipeline behavior
+      pipeline:
+        mode: legacy
+        profile: legacy
+        goals:
+            intent: general-monitoring
+            monitor_start_hz: 0
+            monitor_end_hz: 0
+            monitor_span_hz: 0
+            monitor_windows: []
+            signal_priorities: []
+            auto_record_classes: []
+            auto_decode_classes: []
+      surveillance:
+        analysis_fft_size: 2048
+        frame_rate: 15
+        strategy: single-resolution
+        display_bins: 2048
+        display_fps: 15
+        derived_detection: auto
+      refinement:
+        enabled: true
+        max_concurrent: 8
+        detail_fft_size: 2048
+        min_candidate_snr_db: 0
+        min_span_hz: 0
+        max_span_hz: 0
+        auto_span: true
+      resources:
+        prefer_gpu: false
+        max_refinement_jobs: 8
+        max_recording_streams: 16
+        max_decode_jobs: 16
+        decision_hold_ms: 2000
+    - name: wideband-balanced
+      description: Baseline multi-resolution wideband surveillance
+      pipeline:
+        mode: wideband-balanced
+        profile: wideband-balanced
+        goals:
+            intent: broadcast-monitoring
+            monitor_start_hz: 0
+            monitor_end_hz: 0
+            monitor_span_hz: 0
+            monitor_windows: []
+            signal_priorities:
+                - wfm
+                - rds
+                - broadcast
+            auto_record_classes:
+                - WFM
+                - WFM_STEREO
+            auto_decode_classes:
+                - WFM
+                - WFM_STEREO
+                - RDS
+      surveillance:
+        analysis_fft_size: 4096
+        frame_rate: 12
+        strategy: multi-resolution
+        display_bins: 2048
+        display_fps: 12
+        derived_detection: auto
+      refinement:
+        enabled: true
+        max_concurrent: 24
+        detail_fft_size: 4096
+        min_candidate_snr_db: -3
+        min_span_hz: 60000
+        max_span_hz: 250000
+        auto_span: true
+      resources:
+        prefer_gpu: true
+        max_refinement_jobs: 24
+        max_recording_streams: 32
+        max_decode_jobs: 16
+        decision_hold_ms: 2500
+    - name: wideband-aggressive
+      description: Higher surveillance/refinement budgets for dense wideband monitoring
+      pipeline:
+        mode: wideband-aggressive
+        profile: wideband-aggressive
+        goals:
+            intent: high-density-wideband-surveillance
+            monitor_start_hz: 0
+            monitor_end_hz: 0
+            monitor_span_hz: 0
+            monitor_windows: []
+            signal_priorities:
+                - wfm
+                - rds
+                - broadcast
+                - digital
+            auto_record_classes: []
+            auto_decode_classes: []
+      surveillance:
+        analysis_fft_size: 8192
+        frame_rate: 10
+        strategy: multi-resolution
+        display_bins: 4096
+        display_fps: 10
+        derived_detection: auto
+      refinement:
+        enabled: true
+        max_concurrent: 32
+        detail_fft_size: 8192
+        min_candidate_snr_db: -3
+        min_span_hz: 50000
+        max_span_hz: 280000
+        auto_span: true
+      resources:
+        prefer_gpu: true
+        max_refinement_jobs: 32
+        max_recording_streams: 40
+        max_decode_jobs: 24
+        decision_hold_ms: 2500
+    - name: archive
+      description: Record-first monitoring profile
+      pipeline:
+        mode: archive
+        profile: archive
+        goals:
+            intent: archive-and-triage
+            monitor_start_hz: 0
+            monitor_end_hz: 0
+            monitor_span_hz: 0
+            monitor_windows: []
+            signal_priorities:
+                - wfm
+                - broadcast
+                - digital
+            auto_record_classes: []
+            auto_decode_classes: []
+      surveillance:
+        analysis_fft_size: 4096
+        frame_rate: 12
+        strategy: single-resolution
+        display_bins: 2048
+        display_fps: 12
+        derived_detection: auto
+      refinement:
+        enabled: true
+        max_concurrent: 16
+        detail_fft_size: 4096
+        min_candidate_snr_db: -2
+        min_span_hz: 50000
+        max_span_hz: 250000
+        auto_span: true
+      resources:
+        prefer_gpu: true
+        max_refinement_jobs: 16
+        max_recording_streams: 40
+        max_decode_jobs: 16
+        decision_hold_ms: 3000
+    - name: digital-hunting
+      description: Digital-first refinement and decode focus
+      pipeline:
+        mode: digital-hunting
+        profile: digital-hunting
+        goals:
+            intent: digital-surveillance
+            monitor_start_hz: 0
+            monitor_end_hz: 0
+            monitor_span_hz: 0
+            monitor_windows: []
+            signal_priorities:
+                - rds
+                - digital
+                - wfm
+            auto_record_classes: []
+            auto_decode_classes: []
+      surveillance:
+        analysis_fft_size: 4096
+        frame_rate: 12
+        strategy: multi-resolution
+        display_bins: 2048
+        display_fps: 12
+        derived_detection: auto
+      refinement:
+        enabled: true
+        max_concurrent: 20
+        detail_fft_size: 4096
+        min_candidate_snr_db: -2
+        min_span_hz: 50000
+        max_span_hz: 200000
+        auto_span: true
+      resources:
+        prefer_gpu: true
+        max_refinement_jobs: 20
+        max_recording_streams: 20
+        max_decode_jobs: 24
+        decision_hold_ms: 2500
+detector:
+    threshold_db: -60
+    min_duration_ms: 500
+    hold_ms: 1500
+    ema_alpha: 0.025
+    hysteresis_db: 10
+    min_stable_frames: 4
+    gap_tolerance_ms: 2000
+    cfar_mode: GOSCA
+    cfar_guard_hz: 200000
+    cfar_train_hz: 100000
+    cfar_guard_cells: 3
+    cfar_train_cells: 24
+    cfar_rank: 36
+    cfar_scale_db: 23
+    cfar_wrap_around: true
+    edge_margin_db: 6
+    max_signal_bw_hz: 260000
+    merge_gap_hz: 20000
+    class_history_size: 10
+    class_switch_ratio: 0.6
+recorder:
+    enabled: false
+    min_snr_db: 0
+    min_duration: 500ms
+    max_duration: 300s
+    preroll_ms: 500
+    record_iq: false
+    record_audio: true
+    auto_demod: true
+    auto_decode: false
+    max_disk_mb: 0
+    output_dir: data/recordings
+    class_filter: []
+    ring_seconds: 12
+    deemphasis_us: 50
+    extraction_fir_taps: 101
+    extraction_bw_mult: 1.35
+    debug_live_audio: false
+decoder:
+    ft8_cmd: C:/WSJT/wsjtx-2.7.0-rc6/bin/jt9.exe -8 {audio}
+    wspr_cmd: C:/WSJT/wsjtx-2.7.0-rc6/bin/wsprd.exe {audio}
+    dmr_cmd: tools/dsd-neo/bin/dsd-neo.exe -fs -i {audio} -s {sr} -o null
+    dstar_cmd: tools/dsd-neo/bin/dsd-neo.exe -fd -i {audio} -s {sr} -o null
+    fsk_cmd: tools/fsk/fsk_decoder --iq {iq} --sample-rate {sr}
+    psk_cmd: tools/psk/psk_decoder --iq {iq} --sample-rate {sr}
+debug:
+    audio_dump_enabled: false
+    cpu_monitoring: false
+    telemetry:
+        enabled: true
+        heavy_enabled: false
+        heavy_sample_every: 12
+        metric_sample_every: 8
+        metric_history_max: 6000
+        event_history_max: 1500
+        retention_seconds: 900
+        persist_enabled: false
+        persist_dir: debug/telemetry
+        rotate_mb: 16
+        keep_files: 8
+logging:
+    level: error
+    categories: []
+    rate_limit_ms: 1000
+    stdout: true
+    stdout_color: true
+    file: logs/trace.log
+    file_level: error
+    time_format: "15:04:05"
+    disable_time: false
+web_addr: :8080
+event_path: data/events.jsonl
+frame_rate: 12
+waterfall_lines: 200
+web_root: web

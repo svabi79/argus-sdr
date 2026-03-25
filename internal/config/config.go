@@ -96,6 +96,26 @@ type DecoderConfig struct {
 	PSKCmd   string `yaml:"psk_cmd" json:"psk_cmd"`
 }
 
+type DebugConfig struct {
+	AudioDumpEnabled bool `yaml:"audio_dump_enabled" json:"audio_dump_enabled"`
+	CPUMonitoring    bool `yaml:"cpu_monitoring" json:"cpu_monitoring"`
+	Telemetry        TelemetryConfig `yaml:"telemetry" json:"telemetry"`
+}
+
+type TelemetryConfig struct {
+	Enabled           bool   `yaml:"enabled" json:"enabled"`
+	HeavyEnabled      bool   `yaml:"heavy_enabled" json:"heavy_enabled"`
+	HeavySampleEvery  int    `yaml:"heavy_sample_every" json:"heavy_sample_every"`
+	MetricSampleEvery int    `yaml:"metric_sample_every" json:"metric_sample_every"`
+	MetricHistoryMax  int    `yaml:"metric_history_max" json:"metric_history_max"`
+	EventHistoryMax   int    `yaml:"event_history_max" json:"event_history_max"`
+	RetentionSeconds  int    `yaml:"retention_seconds" json:"retention_seconds"`
+	PersistEnabled    bool   `yaml:"persist_enabled" json:"persist_enabled"`
+	PersistDir        string `yaml:"persist_dir" json:"persist_dir"`
+	RotateMB          int    `yaml:"rotate_mb" json:"rotate_mb"`
+	KeepFiles         int    `yaml:"keep_files" json:"keep_files"`
+}
+
 type PipelineGoalConfig struct {
 	Intent            string          `yaml:"intent" json:"intent"`
 	MonitorStartHz    float64         `yaml:"monitor_start_hz" json:"monitor_start_hz"`
@@ -169,6 +189,7 @@ type Config struct {
 	Detector       DetectorConfig     `yaml:"detector" json:"detector"`
 	Recorder       RecorderConfig     `yaml:"recorder" json:"recorder"`
 	Decoder        DecoderConfig      `yaml:"decoder" json:"decoder"`
+	Debug          DebugConfig        `yaml:"debug" json:"debug"`
 	Logging        LogConfig          `yaml:"logging" json:"logging"`
 	WebAddr        string             `yaml:"web_addr" json:"web_addr"`
 	EventPath      string             `yaml:"event_path" json:"event_path"`
@@ -421,6 +442,23 @@ func Default() Config {
 			ExtractionBwMult: 1.2,
 		},
 		Decoder:        DecoderConfig{},
+		Debug: DebugConfig{
+			AudioDumpEnabled: false,
+			CPUMonitoring:    false,
+			Telemetry: TelemetryConfig{
+				Enabled:           true,
+				HeavyEnabled:      false,
+				HeavySampleEvery:  12,
+				MetricSampleEvery: 2,
+				MetricHistoryMax:  12000,
+				EventHistoryMax:   4000,
+				RetentionSeconds:  900,
+				PersistEnabled:    false,
+				PersistDir:        "debug/telemetry",
+				RotateMB:          16,
+				KeepFiles:         8,
+			},
+		},
 		Logging: LogConfig{
 			Level:       "informal",
 			Categories:  []string{},
@@ -663,6 +701,30 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Recorder.ExtractionBwMult <= 0 {
 		cfg.Recorder.ExtractionBwMult = 1.2
+	}
+	if cfg.Debug.Telemetry.HeavySampleEvery <= 0 {
+		cfg.Debug.Telemetry.HeavySampleEvery = 12
+	}
+	if cfg.Debug.Telemetry.MetricSampleEvery <= 0 {
+		cfg.Debug.Telemetry.MetricSampleEvery = 2
+	}
+	if cfg.Debug.Telemetry.MetricHistoryMax <= 0 {
+		cfg.Debug.Telemetry.MetricHistoryMax = 12000
+	}
+	if cfg.Debug.Telemetry.EventHistoryMax <= 0 {
+		cfg.Debug.Telemetry.EventHistoryMax = 4000
+	}
+	if cfg.Debug.Telemetry.RetentionSeconds <= 0 {
+		cfg.Debug.Telemetry.RetentionSeconds = 900
+	}
+	if cfg.Debug.Telemetry.PersistDir == "" {
+		cfg.Debug.Telemetry.PersistDir = "debug/telemetry"
+	}
+	if cfg.Debug.Telemetry.RotateMB <= 0 {
+		cfg.Debug.Telemetry.RotateMB = 16
+	}
+	if cfg.Debug.Telemetry.KeepFiles <= 0 {
+		cfg.Debug.Telemetry.KeepFiles = 8
 	}
 	return cfg
 }

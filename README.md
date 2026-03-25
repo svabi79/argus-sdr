@@ -192,6 +192,32 @@ go build -tags sdrplay ./cmd/sdrd
 - `GET /api/signals` -> current live signals
 - `GET /api/events?limit=&since=` -> recent events
 
+### Debug Telemetry
+- `GET /api/debug/telemetry/live` -> current telemetry snapshot (counters, gauges, distributions, recent events, collector status/config)
+- `GET /api/debug/telemetry/history` -> historical metric samples with filtering by time/name/prefix/tags
+- `GET /api/debug/telemetry/events` -> telemetry event/anomaly history with filtering by time/name/prefix/level/tags
+- `GET /api/debug/telemetry/config` -> current collector config plus `debug.telemetry` runtime config
+- `POST /api/debug/telemetry/config` -> update telemetry settings at runtime and persist them to autosave config
+
+Telemetry query params (`history` / `events`) include:
+- `since`, `until` -> unix seconds, unix milliseconds, or RFC3339 timestamps
+- `limit`
+- `name`, `prefix`
+- `signal_id`, `session_id`, `stage`, `trace_id`, `component`
+- `tag_<key>=<value>` for arbitrary tag filters
+- `include_persisted=true|false` (default `true`)
+- `level` on the events endpoint
+
+Telemetry config lives under `debug.telemetry`:
+- `enabled`, `heavy_enabled`, `heavy_sample_every`
+- `metric_sample_every`, `metric_history_max`, `event_history_max`
+- `retention_seconds`
+- `persist_enabled`, `persist_dir`, `rotate_mb`, `keep_files`
+
+See also:
+- `docs/telemetry-api.md` for the full telemetry API reference
+- `docs/telemetry-debug-runbook.md` for the short operational debug flow
+
 ### Recordings
 - `GET /api/recordings`
 - `GET /api/recordings/:id` (meta.json)
