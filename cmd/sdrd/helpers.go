@@ -379,6 +379,18 @@ func extractForStreaming(
 		runner = extractMgr.get(len(gpuIQ), sampleRate)
 	}
 	if runner != nil {
+		if coll != nil && len(gpuIQ) > 0 {
+			inputProbe := probeHead(gpuIQ, 16, 1e-6)
+			coll.Event("gpu_kernel_input_head_probe", "info", "gpu kernel input head probe", nil, map[string]any{
+				"mags": inputProbe.mags,
+				"zero_count": inputProbe.zeroCount,
+				"first_nonzero_index": inputProbe.firstNonZeroIndex,
+				"head_max_step": inputProbe.maxStep,
+				"gpuIQ_len": len(gpuIQ),
+				"sample_rate": sampleRate,
+				"signals": len(signals),
+			})
+		}
 		results, err := runner.ShiftFilterDecimateBatchWithPhase(gpuIQ, jobs)
 		if err == nil && len(results) == len(signals) {
 			for i, res := range results {
@@ -417,6 +429,16 @@ func extractForStreaming(
 				}
 				if coll != nil {
 					tags := telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", signals[i].ID), "path", "gpu")
+					kernelProbe := probeHead(res.IQ, 16, 1e-6)
+					coll.Event("gpu_kernel_output_head_probe", "info", "gpu kernel output head probe", tags, map[string]any{
+						"mags": kernelProbe.mags,
+						"zero_count": kernelProbe.zeroCount,
+						"first_nonzero_index": kernelProbe.firstNonZeroIndex,
+						"head_max_step": kernelProbe.maxStep,
+						"raw_len": rawLen,
+						"out_rate": outRate,
+						"trim_samples": trimSamples,
+					})
 					stats := computeIQHeadStats(iq, 64)
 					coll.SetGauge("iq.extract.output.length", float64(len(iq)), tags)
 					coll.Observe("iq.extract.output.head_mean_mag", stats.meanMag, tags)

@@ -429,6 +429,8 @@ Used heavily once compact per-block event probes were added, because events were
 This ended up being especially useful for:
 - raw extractor head probes
 - trimmed extractor head probes
+- extractor input head probes
+- GPU kernel input/output head probes
 - boundary snapshots
 
 ### Important telemetry families added/used
@@ -482,6 +484,20 @@ Purpose:
 
 Purpose:
 - answer the key question: is the corruption already present in the raw extractor output head, or created by trimming/overlap logic afterward?
+
+#### Additional extractor input / GPU-kernel probe telemetry
+- `iq.extract.input_head.zero_count`
+- `iq.extract.input_head.first_nonzero_index`
+- `iq.extract.input_head.max_step`
+- event `extract_input_head_probe`
+- event `gpu_kernel_input_head_probe`
+- event `gpu_kernel_output_head_probe`
+
+Purpose:
+- split the remaining uncertainty between:
+  - signal-specific input already being bad
+  - GPU extractor kernel/start semantics producing the bad raw head
+  - later output assembly after the kernel
 
 #### Pre-demod / audio-stage metrics
 - `iq.pre_demod.head_mean_mag`
@@ -701,22 +717,88 @@ Interpretation:
 - trimming cleans up the visibly bad raw head region
 - trimming still does **not** explain the deeper output-boundary continuity issue
 
-### Refined strongest current conclusion after the 2026-03-25 telemetry pass
+### Further refinement after direct extractor-input and GPU-kernel probes
+
+A final telemetry round added:
+- `extract_input_head_probe`
+- `gpu_kernel_input_head_probe`
+- `gpu_kernel_output_head_probe`
+
+These probes further sharpened the likely fault location.
+
+#### Signal-specific extractor input head looked sane
+Representative values:
+- `iq.extract.input_head.zero_count = 0`
+- `iq.extract.input_head.first_nonzero_index = 0`
+
+Interpretation:
+- at the observed signal-specific input probe point, the GPU extractor is **not** receiving a dead/null head
+
+#### Raw GPU output head remained systematically broken
+Representative repeated values:
+- `iq.extract.raw.head_mag = 0`
+- `iq.extract.raw.head_zero_count = 1`
+- `iq.extract.raw.head_max_step` repeatedly around:
+  - `3.141592653589793`
+  - `3.122847934305907`
+  - `3.101915352902961`
+  - `3.080672178550904`
+  - `3.062425574273907`
+  - `2.9785041567778427`
+  - `2.7508533785793476`
+
+Representative repeated examples from strong channels:
+- signal 2: `head_mag = 0`, `head_zero_count = 1`
+- signal 3: `head_mag = 0`, `head_zero_count = 1`
+- signal 1/4 showed the same qualitative head-zero pattern as well
+
+Interpretation:
+- the raw extractor output head is still repeatedly born broken
+- the problem is therefore after the currently probed input head and before/during raw output creation
+
+#### Trimmed head still looked healthier
+Representative values:
+- `iq.extract.trimmed.head_zero_count = 0`
+- signal 1 `iq.extract.trimmed.head_mag` repeatedly around:
+  - `0.2868`
+  - `0.2907`
+  - `0.3036`
+  - `0.3116`
+  - `0.2838`
+  - `0.2760`
+- signal 2 examples:
+  - `0.3461`
+  - `0.3182`
+
+Representative `iq.extract.trimmed.head_max_step` values for strong channels were much lower than raw, often around:
+- `0.11`
+- `0.13`
+- `0.21`
+- `0.30`
+- `0.44`
+- `0.69`
+- `0.86`
+
+Interpretation:
+- trimming still removes the most visibly broken head region
+- but trimming does not explain the deeper output-boundary continuity issue
+
+### Refined strongest current conclusion after the full 2026-03-25 telemetry pass
 
 The strongest current reading is now:
 
-> The click root cause is very likely **not** that the signal-specific extractor input already starts dead/null. Instead, the bad raw head appears to be introduced **inside the GPU extractor path or at its immediate start/output semantics**, before final trimming.
+> The click root cause is very likely **not** that the signal-specific extractor input already starts dead/null. Instead, the bad raw head appears to be introduced **inside the GPU extractor path itself** (or at its immediate start/output semantics) before final trimming.
 
 More specifically:
 - signal-specific extractor input head looks non-zero and sane at the probe point
-- all signals still show a systematically bad raw extractor head
+- raw GPU output head still repeatedly starts with an exact zero sample and a short bad settling region
 - the trimmed head usually looks healthier
 - yet the final extractor output still exhibits significant complex boundary discontinuity from block to block
 
-This points away from a simple "shared global input head is already zero" theory and toward one of these narrower causes:
-1. GPU extractor start semantics / kernel warmup / first-output handling
+This now points away from a simple "shared global input head is already zero" theory and toward one of these narrower causes:
+1. GPU extractor kernel start semantics / warmup / first-output handling
 2. phase-start or alignment handling at extractor block start
-3. output assembly semantics inside the raw GPU extractor path
+3. raw GPU output assembly semantics within the extractor path
 
 ### What should not be forgotten from this stage
 
