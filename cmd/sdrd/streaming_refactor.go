@@ -8,8 +8,8 @@ import (
 	"sdr-wideband-suite/internal/telemetry"
 )
 
-const useStreamingOraclePath = true  // keep true during C2-C so the real native path is continuously compared against the corrected oracle
-const useStreamingProductionPath = false // keep false until the new production path is explicitly activated in runtime bring-up
+const useStreamingOraclePath = false // temporarily disable oracle during bring-up to isolate production-path runtime behavior
+const useStreamingProductionPath = true // route top-level extraction through the new production path during bring-up/validation
 
 var streamingOracleRunner *gpudemod.CPUOracleRunner
 
