@@ -67,7 +67,8 @@ If new open problems are found:
 ## 4. Branching and workflow rules
 
 ### Current working model
-- Use focused branches for real feature/fix work.
+- `master` is the canonical active branch.
+- Use focused short-lived branches for real feature/fix work when needed.
 - Do not keep long-lived junk/debug branches alive once the useful work has been transferred.
 - Prefer short-lived cleanup branches for docs/config cleanup.
 
@@ -75,6 +76,7 @@ If new open problems are found:
 - Do not pile unrelated work onto one branch if it can be split cleanly.
 - Keep bugfixes, config cleanup, and large refactors logically separable when possible.
 - Before deleting an old branch, ensure all useful work is already present in the active branch or merged into the main line.
+- After merge, prefer deleting obsolete local branches so `master` stays the obvious default.
 
 ### Mainline policy
 - Do not merge to `master` blindly.
@@ -123,6 +125,7 @@ Rules:
 - These can drift during debugging.
 - Do not commit config changes accidentally.
 - Only commit them when the intent is to change repo defaults.
+- `config.autosave.yaml` may be intentionally kept locally modified and uncommitted.
 - Keep in mind that `config.autosave.yaml` can override expected runtime behavior after restart.
 
 ### Debug / dump artifacts
