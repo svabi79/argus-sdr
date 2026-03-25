@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"os"
@@ -260,6 +261,7 @@ func extractForStreaming(
 	phaseState map[int64]*streamExtractState,
 	overlap *streamIQOverlap,
 	aqCfg extractionConfig,
+	coll *telemetry.Collector,
 ) ([][]complex64, []int) {
 	out := make([][]complex64, len(signals))
 	rates := make([]int, len(signals))
@@ -300,6 +302,18 @@ func extractForStreaming(
 	if bwMult <= 0 {
 		bwMult = 1.0
 	}
+
+	if coll != nil {
+		coll.SetGauge("iq.extract.input.length", float64(len(allIQ)), nil)
+		coll.SetGauge("iq.extract.input.overlap_length", float64(overlapLen), nil)
+		headMean, tailMean, boundaryScore, _ := boundaryMetrics(overlap.tail, allIQ, 32)
+		coll.SetGauge("iq.extract.input.head_mean_mag", headMean, nil)
+		coll.SetGauge("iq.extract.input.prev_tail_mean_mag", tailMean, nil)
+		coll.Observe("iq.extract.input.discontinuity_score", boundaryScore, nil)
+	}
+
+	rawBoundary := make(map[int64]boundaryProbeState, len(signals))
+	trimmedBoundary := make(map[int64]boundaryProbeState, len(signals))
 
 	// Build jobs with per-signal phase
 	jobs := make([]gpudemod.ExtractJob, len(signals))
@@ -384,6 +398,77 @@ func extractForStreaming(
 					logging.Debug("boundary", "extract_trim", "path", "gpu", "raw_len", rawLen, "trim", trimSamples, "out_len", len(iq), "overlap_len", overlapLen, "allIQ_len", len(allIQ), "gpuIQ_len", len(gpuIQ), "outRate", outRate, "signal", signals[i].ID)
 					logExtractorHeadComparison(signals[i].ID, "gpu", overlapLen, res.IQ, trimSamples, iq)
 				}
+				if coll != nil {
+					tags := telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", signals[i].ID), "path", "gpu")
+					stats := computeIQHeadStats(iq, 64)
+					coll.SetGauge("iq.extract.output.length", float64(len(iq)), tags)
+					coll.Observe("iq.extract.output.head_mean_mag", stats.meanMag, tags)
+					coll.Observe("iq.extract.output.head_min_mag", stats.minMag, tags)
+					coll.Observe("iq.extract.output.head_max_step", stats.maxStep, tags)
+					coll.Observe("iq.extract.output.head_p95_step", stats.p95Step, tags)
+					coll.Observe("iq.extract.output.head_tail_ratio", stats.headTail, tags)
+					coll.SetGauge("iq.extract.output.head_low_magnitude_count", float64(stats.lowMag), tags)
+					coll.SetGauge("iq.extract.raw.length", float64(rawLen), tags)
+					coll.SetGauge("iq.extract.trim.trim_samples", float64(trimSamples), tags)
+					if rawLen > 0 {
+						coll.SetGauge("iq.extract.raw.head_mag", math.Hypot(float64(real(res.IQ[0])), float64(imag(res.IQ[0]))), tags)
+						coll.SetGauge("iq.extract.raw.tail_mag", math.Hypot(float64(real(res.IQ[rawLen-1])), float64(imag(res.IQ[rawLen-1]))), tags)
+						rawHead := probeHead(res.IQ, 16, 1e-6)
+						coll.SetGauge("iq.extract.raw.head_zero_count", float64(rawHead.zeroCount), tags)
+						coll.SetGauge("iq.extract.raw.first_nonzero_index", float64(rawHead.firstNonZeroIndex), tags)
+						coll.SetGauge("iq.extract.raw.head_max_step", rawHead.maxStep, tags)
+						coll.Event("extract_raw_head_probe", "info", "raw extractor head probe", tags, map[string]any{
+							"mags": rawHead.mags,
+							"zero_count": rawHead.zeroCount,
+							"first_nonzero_index": rawHead.firstNonZeroIndex,
+							"head_max_step": rawHead.maxStep,
+							"trim_samples": trimSamples,
+						})
+					}
+					if len(iq) > 0 {
+						coll.SetGauge("iq.extract.trimmed.head_mag", math.Hypot(float64(real(iq[0])), float64(imag(iq[0]))), tags)
+						coll.SetGauge("iq.extract.trimmed.tail_mag", math.Hypot(float64(real(iq[len(iq)-1])), float64(imag(iq[len(iq)-1]))), tags)
+						trimmedHead := probeHead(iq, 16, 1e-6)
+						coll.SetGauge("iq.extract.trimmed.head_zero_count", float64(trimmedHead.zeroCount), tags)
+						coll.SetGauge("iq.extract.trimmed.first_nonzero_index", float64(trimmedHead.firstNonZeroIndex), tags)
+						coll.SetGauge("iq.extract.trimmed.head_max_step", trimmedHead.maxStep, tags)
+						coll.Event("extract_trimmed_head_probe", "info", "trimmed extractor head probe", tags, map[string]any{
+							"mags": trimmedHead.mags,
+							"zero_count": trimmedHead.zeroCount,
+							"first_nonzero_index": trimmedHead.firstNonZeroIndex,
+							"head_max_step": trimmedHead.maxStep,
+							"trim_samples": trimSamples,
+						})
+					}
+					if rb := rawBoundary[signals[i].ID]; rb.set && rawLen > 0 {
+						prevMag := math.Hypot(float64(real(rb.last)), float64(imag(rb.last)))
+						currMag := math.Hypot(float64(real(res.IQ[0])), float64(imag(res.IQ[0])))
+						coll.SetGauge("iq.extract.raw.boundary.prev_tail_mag", prevMag, tags)
+						coll.SetGauge("iq.extract.raw.boundary.curr_head_mag", currMag, tags)
+						coll.Event("extract_raw_boundary", "info", "raw extractor boundary", tags, map[string]any{
+							"delta_mag": math.Abs(currMag - prevMag),
+							"trim_samples": trimSamples,
+							"raw_len": rawLen,
+						})
+					}
+					if tb := trimmedBoundary[signals[i].ID]; tb.set && len(iq) > 0 {
+						prevMag := math.Hypot(float64(real(tb.last)), float64(imag(tb.last)))
+						currMag := math.Hypot(float64(real(iq[0])), float64(imag(iq[0])))
+						coll.SetGauge("iq.extract.trimmed.boundary.prev_tail_mag", prevMag, tags)
+						coll.SetGauge("iq.extract.trimmed.boundary.curr_head_mag", currMag, tags)
+						coll.Event("extract_trimmed_boundary", "info", "trimmed extractor boundary", tags, map[string]any{
+							"delta_mag": math.Abs(currMag - prevMag),
+							"trim_samples": trimSamples,
+							"out_len": len(iq),
+						})
+					}
+				}
+				if rawLen > 0 {
+					rawBoundary[signals[i].ID] = boundaryProbeState{last: res.IQ[rawLen-1], set: true}
+				}
+				if len(iq) > 0 {
+					trimmedBoundary[signals[i].ID] = boundaryProbeState{last: iq[len(iq)-1], set: true}
+				}
 				out[i] = iq
 				rates[i] = res.Rate
 			}
@@ -449,13 +534,39 @@ func extractForStreaming(
 		if i == 0 {
 			logging.Debug("extract", "cpu_result", "outRate", outRate, "decim", decim, "trim", trimSamples)
 		}
-		rawLen := len(decimated)
+		rawIQ := decimated
+		rawLen := len(rawIQ)
 		if trimSamples > 0 && trimSamples < len(decimated) {
 			decimated = decimated[trimSamples:]
 		}
 		if i == 0 {
 			logging.Debug("boundary", "extract_trim", "path", "cpu", "raw_len", rawLen, "trim", trimSamples, "out_len", len(decimated), "overlap_len", overlapLen, "allIQ_len", len(allIQ), "gpuIQ_len", len(gpuIQ), "outRate", outRate, "signal", signals[i].ID)
 			logExtractorHeadComparison(signals[i].ID, "cpu", overlapLen, decimated, trimSamples, decimated)
+		}
+		if coll != nil {
+			tags := telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", signals[i].ID), "path", "cpu")
+			stats := computeIQHeadStats(decimated, 64)
+			coll.SetGauge("iq.extract.output.length", float64(len(decimated)), tags)
+			coll.Observe("iq.extract.output.head_mean_mag", stats.meanMag, tags)
+			coll.Observe("iq.extract.output.head_min_mag", stats.minMag, tags)
+			coll.Observe("iq.extract.output.head_max_step", stats.maxStep, tags)
+			coll.Observe("iq.extract.output.head_p95_step", stats.p95Step, tags)
+			coll.Observe("iq.extract.output.head_tail_ratio", stats.headTail, tags)
+			coll.SetGauge("iq.extract.output.head_low_magnitude_count", float64(stats.lowMag), tags)
+			coll.SetGauge("iq.extract.raw.length", float64(rawLen), tags)
+			coll.SetGauge("iq.extract.trim.trim_samples", float64(trimSamples), tags)
+			if rb := rawBoundary[signals[i].ID]; rb.set && rawLen > 0 {
+				observeBoundarySample(coll, "iq.extract.raw.boundary", tags, rb.last, rawIQ[0])
+			}
+			if tb := trimmedBoundary[signals[i].ID]; tb.set && len(decimated) > 0 {
+				observeBoundarySample(coll, "iq.extract.trimmed.boundary", tags, tb.last, decimated[0])
+			}
+		}
+		if rawLen > 0 {
+			rawBoundary[signals[i].ID] = boundaryProbeState{last: rawIQ[rawLen-1], set: true}
+		}
+		if len(decimated) > 0 {
+			trimmedBoundary[signals[i].ID] = boundaryProbeState{last: decimated[len(decimated)-1], set: true}
 		}
 		out[i] = decimated
 	}
@@ -474,6 +585,65 @@ type iqHeadStats struct {
 	headTail    float64
 	headMinIdx  int
 	stepSamples []float64
+}
+
+type boundaryProbeState struct {
+	last complex64
+	set  bool
+}
+
+type headProbe struct {
+	zeroCount         int
+	firstNonZeroIndex int
+	maxStep           float64
+	mags              []float64
+}
+
+func probeHead(samples []complex64, n int, zeroThreshold float64) headProbe {
+	if n <= 0 || len(samples) == 0 {
+		return headProbe{firstNonZeroIndex: -1}
+	}
+	if len(samples) < n {
+		n = len(samples)
+	}
+	if zeroThreshold <= 0 {
+		zeroThreshold = 1e-6
+	}
+	out := headProbe{firstNonZeroIndex: -1, mags: make([]float64, 0, n)}
+	for i := 0; i < n; i++ {
+		v := samples[i]
+		mag := math.Hypot(float64(real(v)), float64(imag(v)))
+		out.mags = append(out.mags, mag)
+		if mag <= zeroThreshold {
+			out.zeroCount++
+		} else if out.firstNonZeroIndex < 0 {
+			out.firstNonZeroIndex = i
+		}
+		if i > 0 {
+			p := samples[i-1]
+			num := float64(real(p))*float64(imag(v)) - float64(imag(p))*float64(real(v))
+			den := float64(real(p))*float64(real(v)) + float64(imag(p))*float64(imag(v))
+			step := math.Abs(math.Atan2(num, den))
+			if step > out.maxStep {
+				out.maxStep = step
+			}
+		}
+	}
+	return out
+}
+
+func observeBoundarySample(coll *telemetry.Collector, metricPrefix string, tags map[string]string, prev complex64, curr complex64) {
+	prevMag := math.Hypot(float64(real(prev)), float64(imag(prev)))
+	currMag := math.Hypot(float64(real(curr)), float64(imag(curr)))
+	deltaMag := math.Abs(currMag - prevMag)
+	num := float64(real(prev))*float64(imag(curr)) - float64(imag(prev))*float64(real(curr))
+	den := float64(real(prev))*float64(real(curr)) + float64(imag(prev))*float64(imag(curr))
+	deltaPhase := math.Abs(math.Atan2(num, den))
+	d2 := float64(real(curr-prev))*float64(real(curr-prev)) + float64(imag(curr-prev))*float64(imag(curr-prev))
+	coll.Observe(metricPrefix+".delta_mag", deltaMag, tags)
+	coll.Observe(metricPrefix+".delta_phase", deltaPhase, tags)
+	coll.Observe(metricPrefix+".d2", d2, tags)
+	coll.Observe(metricPrefix+".discontinuity_score", deltaMag+deltaPhase, tags)
 }
 
 func computeIQHeadStats(iq []complex64, headLen int) iqHeadStats {

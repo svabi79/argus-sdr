@@ -255,9 +255,9 @@ debug:
     enabled: true
     heavy_enabled: false
     heavy_sample_every: 12
-    metric_sample_every: 2
-    metric_history_max: 12000
-    event_history_max: 4000
+    metric_sample_every: 8
+    metric_history_max: 6000
+    event_history_max: 1500
     retention_seconds: 900
     persist_enabled: true
     persist_dir: debug/telemetry

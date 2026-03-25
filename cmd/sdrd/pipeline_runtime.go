@@ -68,6 +68,7 @@ type dspRuntime struct {
 	arbitration      pipeline.ArbitrationState
 	gotSamples       bool
 	telemetry        *telemetry.Collector
+	lastAllIQTail    []complex64
 }
 
 type spectrumArtifacts struct {
@@ -361,6 +362,63 @@ func (rt *dspRuntime) decimateSurveillanceIQ(iq []complex64, factor int) []compl
 	return dsp.Decimate(filtered, factor)
 }
 
+func meanMagComplex(samples []complex64) float64 {
+	if len(samples) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range samples {
+		sum += math.Hypot(float64(real(v)), float64(imag(v)))
+	}
+	return sum / float64(len(samples))
+}
+
+func phaseStepAbs(a, b complex64) float64 {
+	num := float64(real(a))*float64(imag(b)) - float64(imag(a))*float64(real(b))
+	den := float64(real(a))*float64(real(b)) + float64(imag(a))*float64(imag(b))
+	return math.Abs(math.Atan2(num, den))
+}
+
+func boundaryMetrics(prevTail []complex64, curr []complex64, window int) (float64, float64, float64, int) {
+	if len(curr) == 0 {
+		return 0, 0, 0, 0
+	}
+	if window <= 0 {
+		window = 16
+	}
+	headN := window
+	if len(curr) < headN {
+		headN = len(curr)
+	}
+	headMean := meanMagComplex(curr[:headN])
+	if len(prevTail) == 0 {
+		return headMean, 0, 0, headN
+	}
+	tailN := window
+	if len(prevTail) < tailN {
+		tailN = len(prevTail)
+	}
+	tailMean := meanMagComplex(prevTail[len(prevTail)-tailN:])
+	deltaMag := math.Abs(headMean - tailMean)
+	phaseJump := phaseStepAbs(prevTail[len(prevTail)-1], curr[0])
+	score := deltaMag + phaseJump
+	return headMean, tailMean, score, headN
+}
+
+func tailWindowComplex(src []complex64, n int) []complex64 {
+	if n <= 0 || len(src) == 0 {
+		return nil
+	}
+	if len(src) <= n {
+		out := make([]complex64, len(src))
+		copy(out, src)
+		return out
+	}
+	out := make([]complex64, n)
+	copy(out, src[len(src)-n:])
+	return out
+}
+
 func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manager, dcBlocker *dsp.DCBlocker, gpuState *gpuStatus) (*spectrumArtifacts, error) {
 	start := time.Now()
 	required := rt.cfg.FFTSize
@@ -461,12 +519,36 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 		rt.telemetry.SetGauge("iq.stage.surveillance.length", float64(len(survIQ)), nil)
 		rt.telemetry.SetGauge("iq.stage.detail.length", float64(len(detailIQ)), nil)
 		rt.telemetry.Observe("capture.total.duration_ms", float64(time.Since(start).Microseconds())/1000.0, nil)
+
+		headMean, tailMean, boundaryScore, boundaryWindow := boundaryMetrics(rt.lastAllIQTail, allIQ, 32)
+		rt.telemetry.SetGauge("iq.boundary.all.head_mean_mag", headMean, nil)
+		rt.telemetry.SetGauge("iq.boundary.all.prev_tail_mean_mag", tailMean, nil)
+		rt.telemetry.Observe("iq.boundary.all.discontinuity_score", boundaryScore, nil)
+		if len(rt.lastAllIQTail) > 0 && len(allIQ) > 0 {
+			deltaMag := math.Abs(math.Hypot(float64(real(allIQ[0])), float64(imag(allIQ[0]))) - math.Hypot(float64(real(rt.lastAllIQTail[len(rt.lastAllIQTail)-1])), float64(imag(rt.lastAllIQTail[len(rt.lastAllIQTail)-1]))))
+			phaseJump := phaseStepAbs(rt.lastAllIQTail[len(rt.lastAllIQTail)-1], allIQ[0])
+			rt.telemetry.Observe("iq.boundary.all.delta_mag", deltaMag, nil)
+			rt.telemetry.Observe("iq.boundary.all.delta_phase", phaseJump, nil)
+			if rt.telemetry.ShouldSampleHeavy() {
+				rt.telemetry.Event("alliq_boundary", "info", "allIQ boundary snapshot", nil, map[string]any{
+					"window":                boundaryWindow,
+					"head_mean_mag":         headMean,
+					"prev_tail_mean_mag":    tailMean,
+					"delta_mag":             deltaMag,
+					"delta_phase":           phaseJump,
+					"discontinuity_score":   boundaryScore,
+					"alliq_len":             len(allIQ),
+					"stream_dropped":        streamDropped,
+				})
+			}
+		}
 		if rt.telemetry.ShouldSampleHeavy() {
 			observeIQStats(rt.telemetry, "capture_all", allIQ, nil)
 			observeIQStats(rt.telemetry, "capture_surveillance", survIQ, nil)
 			observeIQStats(rt.telemetry, "capture_detail", detailIQ, nil)
 		}
 	}
+	rt.lastAllIQTail = tailWindowComplex(allIQ, 32)
 	survSpectrum := rt.spectrumFromIQ(survIQ, gpuState)
 	sanitizeSpectrum(survSpectrum)
 	detailSpectrum := survSpectrum

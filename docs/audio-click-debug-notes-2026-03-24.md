@@ -321,6 +321,364 @@ Later refinements to this theory:
 4. When testing fixes, prefer low-overhead, theory-driven experiments over broad logging/dump spam.
 5. Only re-enable audio dump windows selectively and briefly.
 
+### Debug TODO / operational reminders
+
+- The current telemetry collector is **not** using a true ring buffer for metric/event history.
+- Internally it keeps append-only history slices (`metricsHistory`, `events`) and periodically trims them by copying tail slices.
+- Under heavy per-block telemetry this can add enough mutex/copy overhead to make the live stream start stuttering after a short run.
+- Therefore: keep telemetry sampling conservative during live reproduction runs; do **not** leave full heavy telemetry enabled longer than needed.
+- Follow-up engineering task: replace or redesign telemetry history storage to use a proper low-overhead ring-buffer style structure (or equivalent bounded lock-light design) if live telemetry is to remain a standard debugging tool.
+
+---
+
+## 2026-03-25 update — extractor-focused live telemetry findings
+
+### Where the investigation moved
+
+The investigation was deliberately refocused away from browser/feed/demod-only suspicions and toward:
+- shared upstream IQ cadence / block boundaries
+- extractor input/output continuity
+- raw vs trimmed extractor-head behaviour
+
+This was driven by two observations:
+1. all signals still click
+2. the newly added live telemetry made it possible to inspect the shared path while the system was running
+
+### Telemetry infrastructure / config notes
+
+Two config files matter for debug telemetry defaults:
+- `config.yaml`
+- `config.autosave.yaml`
+
+The autosave file can overwrite intended telemetry defaults after restart, so both must be updated together.
+
+Current conservative live-debug defaults that worked better:
+- `heavy_enabled: false`
+- `heavy_sample_every: 12`
+- `metric_sample_every: 8`
+- `metric_history_max: 6000`
+- `event_history_max: 1500`
+
+Important operational lesson:
+- runtime `POST /api/debug/telemetry/config` changes only affect the current `sdrd` process
+- after restart, the process reloads config defaults again
+- if autosave still contains older values (for example `heavy_enabled: true` or very large history limits), the debug run can accidentally become self-distorting again
+
+### Telemetry endpoints
+
+The live debug work used these HTTP endpoints on the `sdrd` web server (typically `http://127.0.0.1:8080`):
+
+#### `GET /api/debug/telemetry/config`
+Returns the current effective telemetry configuration.
+Useful for verifying:
+- whether heavy telemetry is enabled
+- history sizes
+- persistence settings
+- sample rates actually active in the running process
+
+Typical fields:
+- `enabled`
+- `heavy_enabled`
+- `heavy_sample_every`
+- `metric_sample_every`
+- `metric_history_max`
+- `event_history_max`
+- `retention_seconds`
+- `persist_enabled`
+- `persist_dir`
+
+#### `POST /api/debug/telemetry/config`
+Applies runtime telemetry config changes to the current process.
+Used during investigation to temporarily reduce telemetry load without editing files.
+
+Example body used during investigation:
+```json
+{
+  "heavy_enabled": true,
+  "heavy_sample_every": 12,
+  "metric_sample_every": 8
+}
+```
+
+#### `GET /api/debug/telemetry/live`
+Returns the current live metric snapshot (gauges/counters/distributions).
+Useful for:
+- quick sanity checks
+- verifying that a metric family exists
+- confirming whether a new metric name is actually being emitted
+
+#### `GET /api/debug/telemetry/history?prefix=<prefix>&limit=<n>`
+Returns stored metric history entries filtered by metric-name prefix.
+This is the main endpoint for time-series debugging during live runs.
+
+Useful examples:
+- `prefix=stage.`
+- `prefix=source.`
+- `prefix=iq.boundary.all`
+- `prefix=iq.extract.input`
+- `prefix=iq.extract.output`
+- `prefix=iq.extract.raw.`
+- `prefix=iq.extract.trimmed.`
+- `prefix=iq.pre_demod`
+- `prefix=audio.demod`
+
+#### `GET /api/debug/telemetry/events?limit=<n>`
+Returns recent structured telemetry events.
+Used heavily once compact per-block event probes were added, because events were often easier to inspect reliably than sparsely sampled distribution histories.
+
+This ended up being especially useful for:
+- raw extractor head probes
+- trimmed extractor head probes
+- boundary snapshots
+
+### Important telemetry families added/used
+
+#### Shared-path / global boundary metrics
+- `iq.boundary.all.head_mean_mag`
+- `iq.boundary.all.prev_tail_mean_mag`
+- `iq.boundary.all.delta_mag`
+- `iq.boundary.all.delta_phase`
+- `iq.boundary.all.discontinuity_score`
+
+Purpose:
+- detect whether the shared `allIQ` block boundary was already obviously broken before signal-specific extraction
+
+#### Extractor input/output metrics
+- `iq.extract.input.length`
+- `iq.extract.input.overlap_length`
+- `iq.extract.input.head_mean_mag`
+- `iq.extract.input.prev_tail_mean_mag`
+- `iq.extract.input.discontinuity_score`
+- `iq.extract.output.length`
+- `iq.extract.output.head_mean_mag`
+- `iq.extract.output.head_min_mag`
+- `iq.extract.output.head_max_step`
+- `iq.extract.output.head_p95_step`
+- `iq.extract.output.head_tail_ratio`
+- `iq.extract.output.head_low_magnitude_count`
+- `iq.extract.output.boundary.delta_mag`
+- `iq.extract.output.boundary.delta_phase`
+- `iq.extract.output.boundary.d2`
+- `iq.extract.output.boundary.discontinuity_score`
+
+Purpose:
+- isolate whether the final per-signal extractor output itself was discontinuous across blocks
+
+#### Raw vs trimmed extractor-head telemetry
+- `iq.extract.raw.length`
+- `iq.extract.raw.head_mag`
+- `iq.extract.raw.tail_mag`
+- `iq.extract.raw.head_zero_count`
+- `iq.extract.raw.first_nonzero_index`
+- `iq.extract.raw.head_max_step`
+- `iq.extract.trim.trim_samples`
+- `iq.extract.trimmed.head_mag`
+- `iq.extract.trimmed.tail_mag`
+- `iq.extract.trimmed.head_zero_count`
+- `iq.extract.trimmed.first_nonzero_index`
+- `iq.extract.trimmed.head_max_step`
+- event `extract_raw_head_probe`
+- event `extract_trimmed_head_probe`
+
+Purpose:
+- answer the key question: is the corruption already present in the raw extractor output head, or created by trimming/overlap logic afterward?
+
+#### Pre-demod / audio-stage metrics
+- `iq.pre_demod.head_mean_mag`
+- `iq.pre_demod.head_min_mag`
+- `iq.pre_demod.head_max_step`
+- `iq.pre_demod.head_p95_step`
+- `iq.pre_demod.head_low_magnitude_count`
+- `audio.demod.head_mean_abs`
+- `audio.demod.tail_mean_abs`
+- `audio.demod.edge_delta_abs`
+- existing `audio.demod_boundary.*`
+
+Purpose:
+- verify where artifacts become visible/audible downstream
+
+### What the 2026-03-25 telemetry actually showed
+
+#### 1. Feed / enqueue remained relatively uninteresting
+`stage.feed_enqueue.duration_ms` was usually effectively zero.
+
+Representative values during live runs:
+- mostly `0`
+- occasional small spikes such as `0.5 ms` and `5.8 ms`
+
+Interpretation:
+- feed enqueue is not the main source of clicks
+
+#### 2. Extract-stream time was usually modest
+`stage.extract_stream.duration_ms` was usually small and stable compared with the main loop.
+
+Representative values:
+- often `1–5 ms`
+- occasional spikes such as `10.7 ms` and `18.9 ms`
+
+Interpretation:
+- extraction is not free, but runtime cost alone does not explain the clicks
+
+#### 3. Shared capture / source cadence still fluctuated heavily
+Representative live values:
+- `dsp.frame.duration_ms`: often around `90–100 ms`, but also `110–150 ms`, with one observed spike around `212.6 ms`
+- `source.read.duration_ms`: roughly `80–90 ms` often, but also about `60 ms`, `47 ms`, `19 ms`, and even `0.677 ms`
+- `source.buffer_samples`: ranged from very small to very large bursts, including examples like `512`, `4608`, `94720`, `179200`, `304544`
+- a `source_reset` event was seen and `source.resets=1`
+
+Interpretation:
+- shared upstream cadence is clearly unstable enough to remain suspicious
+- but this alone did not localize the final click mechanism
+
+#### 4. Pre-demod stage showed repeated hard phase anomalies even when energy looked healthy
+Representative live values for normal non-vanishing signals:
+- `iq.pre_demod.head_mean_mag` around `0.25–0.31`
+- `iq.pre_demod.head_low_magnitude_count = 0`
+- `iq.pre_demod.head_max_step` repeatedly high, including roughly:
+  - `1.5`
+  - `2.0`
+  - `2.4`
+  - `2.8`
+  - `3.08`
+
+Interpretation:
+- not primarily an amplitude collapse
+- rather a strong phase/continuity defect reaching the pre-demod stage
+
+#### 5. Audio stage still showed real block-edge artifacts
+Representative values:
+- `audio.demod.edge_delta_abs` repeatedly around `0.4–0.8`
+- outliers up to roughly `1.21` and `1.26`
+- `audio.demod_boundary.count` continued to fire repeatedly
+
+Interpretation:
+- demod is where the problem becomes audible, but the root cause still appeared to be earlier/shared
+
+### Key extractor findings from the new telemetry
+
+#### A. Per-signal extractor output boundary is genuinely broken
+For a representative strong signal (`signal_id=2`), `iq.extract.output.boundary.delta_phase` repeatedly showed very large jumps such as:
+- `2.60`
+- `3.06`
+- `2.14`
+- `2.71`
+- `3.09`
+- `2.92`
+- `2.63`
+- `2.78`
+
+Also observed for `iq.extract.output.boundary.discontinuity_score`:
+- `2.86`
+- `3.08`
+- `2.92`
+- `2.52`
+- `2.40`
+- `2.85`
+
+Later runs using `d2` made the discontinuity even easier to see. Representative `iq.extract.output.boundary.d2` values for the same strong signal included:
+- `0.347`
+- `0.303`
+- `0.362`
+- `0.359`
+- `0.382`
+- `0.344`
+- `0.337`
+- `0.206`
+
+At the same time, `iq.extract.output.boundary.delta_mag` was often comparatively small (examples around `0.0003–0.0038`).
+
+Interpretation:
+- the main boundary defect is not primarily amplitude mismatch
+- it is much more consistent with complex/phase discontinuity across output blocks
+
+#### B. The raw extractor head is systematically bad on all signals
+The new `extract_raw_head_probe` events were the strongest finding of the day.
+
+Representative repeated pattern for strong signals (`signal_id=1` and `signal_id=2`):
+- `first_nonzero_index = 1`
+- `zero_count = 1`
+- first magnitude sample exactly `0`
+- then a short ramp: e.g. for `signal_id=2`
+  - `0`
+  - `0.000388`
+  - `0.002316`
+  - `0.004152`
+  - `0.019126`
+  - `0.011418`
+  - `0.124034`
+  - `0.257569`
+  - `0.317579`
+- `head_max_step` often near π, e.g.:
+  - `3.141592653589793`
+  - `3.088773696463606`
+  - `3.0106854446936318`
+  - `2.9794833659932527`
+
+The same qualitative pattern appeared for weaker signals too:
+- raw head starts at `0`
+- a brief near-zero ramp follows
+- only after several samples does the magnitude look like a normal extracted band
+
+Interpretation:
+- the raw extractor output head is already damaged / settling / invalid before trimming
+- this strongly supports an upstream/shared-start-condition problem rather than a trim-created artifact
+
+#### C. The trimmed extractor head usually looks sane
+Representative repeated pattern for the same signals after `trim_samples = 64`:
+- `first_nonzero_index = 0`
+- `zero_count = 0`
+- magnitudes look immediately plausible and stable
+- `head_max_step` is dramatically lower than raw, often around `0.15–0.9` for strong channels
+
+Example trimmed head magnitudes for `signal_id=2`:
+- `0.299350`
+- `0.300954`
+- `0.298032`
+- `0.298738`
+- `0.312258`
+- `0.296932`
+- `0.239010`
+- `0.266881`
+- `0.313193`
+
+Example trimmed head magnitudes for `signal_id=1`:
+- `0.277400`
+- `0.275994`
+- `0.273718`
+- `0.272846`
+- `0.277842`
+- `0.278398`
+- `0.268829`
+- `0.273790`
+- `0.279031`
+
+Interpretation:
+- trimming is removing a genuinely bad raw head region
+- trimming is therefore **not** the main origin of the problem
+- it acts more like cleanup of an already bad upstream/raw start region
+
+### Strongest current conclusion after the 2026-03-25 telemetry pass
+
+The current best reading is:
+
+> The click root cause is very likely **upstream of final trimming**, at or before the raw extractor output head, and likely tied to shared block-boundary / extractor-start conditions rather than to feed enqueue, browser playback, or trimming itself.
+
+More specifically:
+- all signals show a systematically bad raw extractor head
+- the trimmed head usually looks healthier
+- yet the final extractor output still exhibits significant complex boundary discontinuity from block to block
+- therefore there are likely **two connected effects**:
+  1. a bad / settling / zeroed raw extractor head
+  2. remaining complex phase-continuity problems across final output blocks even after that head is trimmed away
+
+### What should not be forgotten from this stage
+
+- The overlap-prepend bug was real and worth fixing, but was not sufficient.
+- The fixed read-size path (`SDR_FORCE_FIXED_STREAM_READ_SAMPLES=389120`) remains useful and likely worth promoting later, but it is not the root-cause fix.
+- The telemetry system itself can perturb runs if overused; conservative sampling matters.
+- `config.autosave.yaml` must be kept in sync with `config.yaml` or telemetry defaults can silently revert after restart.
+- The most promising root-cause area is now the shared upstream/extractor-start boundary path, not downstream playback.
+
 ---
 
 ## Meta note
@@ -332,3 +690,4 @@ The most important thing not to forget is:
 - the click is already present in demod audio
 - whole-process CPU saturation is not the main explanation
 - excessive debug instrumentation can itself create misleading secondary problems
+- the 2026-03-25 extractor telemetry strongly suggests the remaining root cause is upstream of the final trim stage

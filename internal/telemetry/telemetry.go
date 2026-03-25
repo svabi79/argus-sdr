@@ -356,7 +356,8 @@ func (c *Collector) recordMetric(kind string, name string, value float64, tags T
 	}
 	sampleN := c.cfg.MetricSampleEvery
 	seq := atomic.AddUint64(&c.counterSeq, 1)
-	shouldStore := sampleN <= 1 || seq%uint64(sampleN) == 0 || kind == "counter"
+	forceStore := strings.HasPrefix(name, "iq.extract.raw.boundary.") || strings.HasPrefix(name, "iq.extract.trimmed.boundary.")
+	shouldStore := forceStore || sampleN <= 1 || seq%uint64(sampleN) == 0 || kind == "counter"
 	var mp MetricPoint
 	if shouldStore {
 		mp = MetricPoint{

@@ -125,7 +125,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					}
 					aqCfg := extractionConfig{firTaps: rt.cfg.Recorder.ExtractionTaps, bwMult: rt.cfg.Recorder.ExtractionBwMult}
 					extractStart := time.Now()
-					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, streamSignals, rt.streamPhaseState, rt.streamOverlap, aqCfg)
+					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, streamSignals, rt.streamPhaseState, rt.streamOverlap, aqCfg, rt.telemetry)
 					if coll != nil {
 						coll.Observe("stage.extract_stream.duration_ms", float64(time.Since(extractStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
 						coll.SetGauge("stage.extract_stream.signals", float64(len(streamSignals)), nil)

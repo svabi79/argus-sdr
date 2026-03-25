@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sort"
 	"sync"
 	"time"
 
@@ -55,6 +56,10 @@ type streamSession struct {
 	lastDecIQ    complex64
 	prevDecIQ    complex64
 	lastDecIQSet bool
+
+	lastExtractIQ    complex64
+	prevExtractIQ    complex64
+	lastExtractIQSet bool
 
 	lastDemodL   float32
 	prevDemodL   float64
@@ -898,12 +903,95 @@ func (st *Streamer) UnsubscribeAudio(subID int64) {
 // processSnippet takes a pre-extracted IQ snippet and demodulates it with
 // persistent state. Uses stateful FIR + polyphase resampler for exact 48kHz
 // output with zero transient artifacts.
+type iqHeadProbeStats struct {
+	meanMag float64
+	minMag  float64
+	maxStep float64
+	p95Step float64
+	lowMag  int
+}
+
+func probeIQHeadStats(iq []complex64, probeLen int) iqHeadProbeStats {
+	if probeLen <= 0 || len(iq) == 0 {
+		return iqHeadProbeStats{}
+	}
+	if len(iq) < probeLen {
+		probeLen = len(iq)
+	}
+	stats := iqHeadProbeStats{minMag: math.MaxFloat64}
+	steps := make([]float64, 0, probeLen)
+	var sum float64
+	for i := 0; i < probeLen; i++ {
+		v := iq[i]
+		mag := math.Hypot(float64(real(v)), float64(imag(v)))
+		sum += mag
+		if mag < stats.minMag {
+			stats.minMag = mag
+		}
+		if mag < 0.02 {
+			stats.lowMag++
+		}
+		if i > 0 {
+			p := iq[i-1]
+			num := float64(real(p))*float64(imag(v)) - float64(imag(p))*float64(real(v))
+			den := float64(real(p))*float64(real(v)) + float64(imag(p))*float64(imag(v))
+			step := math.Abs(math.Atan2(num, den))
+			steps = append(steps, step)
+			if step > stats.maxStep {
+				stats.maxStep = step
+			}
+		}
+	}
+	stats.meanMag = sum / float64(probeLen)
+	if len(steps) > 0 {
+		sorted := append([]float64(nil), steps...)
+		sort.Float64s(sorted)
+		idx := int(math.Round(0.95 * float64(len(sorted)-1)))
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(sorted) {
+			idx = len(sorted) - 1
+		}
+		stats.p95Step = sorted[idx]
+	}
+	if stats.minMag == math.MaxFloat64 {
+		stats.minMag = 0
+	}
+	return stats
+}
+
 func (sess *streamSession) processSnippet(snippet []complex64, snipRate int, coll *telemetry.Collector) ([]float32, int) {
 	if len(snippet) == 0 || snipRate <= 0 {
 		return nil, 0
 	}
+	baseTags := telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID)
 	if coll != nil {
-		coll.SetGauge("iq.stage.snippet.length", float64(len(snippet)), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+		coll.SetGauge("iq.stage.snippet.length", float64(len(snippet)), baseTags)
+		stats := probeIQHeadStats(snippet, 64)
+		coll.Observe("iq.snippet.head_mean_mag", stats.meanMag, baseTags)
+		coll.Observe("iq.snippet.head_min_mag", stats.minMag, baseTags)
+		coll.Observe("iq.snippet.head_max_step", stats.maxStep, baseTags)
+		coll.Observe("iq.snippet.head_p95_step", stats.p95Step, baseTags)
+		coll.SetGauge("iq.snippet.head_low_magnitude_count", float64(stats.lowMag), baseTags)
+		if sess.lastExtractIQSet {
+			prevMag := math.Hypot(float64(real(sess.lastExtractIQ)), float64(imag(sess.lastExtractIQ)))
+			currMag := math.Hypot(float64(real(snippet[0])), float64(imag(snippet[0])))
+			deltaMag := math.Abs(currMag - prevMag)
+			num := float64(real(sess.lastExtractIQ))*float64(imag(snippet[0])) - float64(imag(sess.lastExtractIQ))*float64(real(snippet[0]))
+			den := float64(real(sess.lastExtractIQ))*float64(real(snippet[0])) + float64(imag(sess.lastExtractIQ))*float64(imag(snippet[0]))
+			deltaPhase := math.Abs(math.Atan2(num, den))
+			d2 := float64(real(snippet[0]-sess.lastExtractIQ))*float64(real(snippet[0]-sess.lastExtractIQ)) + float64(imag(snippet[0]-sess.lastExtractIQ))*float64(imag(snippet[0]-sess.lastExtractIQ))
+			coll.Observe("iq.extract.output.boundary.delta_mag", deltaMag, baseTags)
+			coll.Observe("iq.extract.output.boundary.delta_phase", deltaPhase, baseTags)
+			coll.Observe("iq.extract.output.boundary.d2", d2, baseTags)
+			coll.Observe("iq.extract.output.boundary.discontinuity_score", deltaMag+deltaPhase, baseTags)
+		}
+	}
+	if len(snippet) > 0 {
+		sess.prevExtractIQ = sess.lastExtractIQ
+		sess.lastExtractIQ = snippet[len(snippet)-1]
+		sess.lastExtractIQSet = true
 	}
 
 	isWFMStereo := sess.demodName == "WFM_STEREO"
@@ -1015,8 +1103,14 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int, col
 		dec = sess.preDemodDecimator.Process(fullSnip)
 		sess.preDemodDecimPhase = sess.preDemodDecimator.Phase()
 		if coll != nil {
-			coll.Observe("dsp.pre_demod.decimation_factor", float64(decim1), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
-			coll.SetGauge("iq.stage.pre_demod.length", float64(len(dec)), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+			coll.Observe("dsp.pre_demod.decimation_factor", float64(decim1), baseTags)
+			coll.SetGauge("iq.stage.pre_demod.length", float64(len(dec)), baseTags)
+			decStats := probeIQHeadStats(dec, 64)
+			coll.Observe("iq.pre_demod.head_mean_mag", decStats.meanMag, baseTags)
+			coll.Observe("iq.pre_demod.head_min_mag", decStats.minMag, baseTags)
+			coll.Observe("iq.pre_demod.head_max_step", decStats.maxStep, baseTags)
+			coll.Observe("iq.pre_demod.head_p95_step", decStats.p95Step, baseTags)
+			coll.SetGauge("iq.pre_demod.head_low_magnitude_count", float64(decStats.lowMag), baseTags)
 		}
 		logging.Debug("boundary", "snippet_path", "signal", sess.signalID, "overlap_applied", overlapApplied, "snip_len", len(snippet), "full_len", len(fullSnip), "filtered_len", len(filtered), "dec_len", len(dec), "decim1", decim1, "phase_before", decimPhaseBefore, "phase_after", sess.preDemodDecimPhase)
 	} else {
@@ -1149,7 +1243,21 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int, col
 		return nil, 0
 	}
 	if coll != nil {
-		coll.SetGauge("audio.stage.demod.length", float64(len(audio)), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+		coll.SetGauge("audio.stage.demod.length", float64(len(audio)), baseTags)
+		probe := 64
+		if len(audio) < probe {
+			probe = len(audio)
+		}
+		if probe > 0 {
+			var headAbs, tailAbs float64
+			for i := 0; i < probe; i++ {
+				headAbs += math.Abs(float64(audio[i]))
+				tailAbs += math.Abs(float64(audio[len(audio)-probe+i]))
+			}
+			coll.Observe("audio.demod.head_mean_abs", headAbs/float64(probe), baseTags)
+			coll.Observe("audio.demod.tail_mean_abs", tailAbs/float64(probe), baseTags)
+			coll.Observe("audio.demod.edge_delta_abs", math.Abs(float64(audio[0])-float64(audio[len(audio)-1])), baseTags)
+		}
 	}
 	if logging.EnabledCategory("boundary") {
 		stride := d.Channels()
