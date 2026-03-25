@@ -1,6 +1,10 @@
 package gpudemod
 
-import "sdr-wideband-suite/internal/dsp"
+import (
+	"log"
+
+	"sdr-wideband-suite/internal/dsp"
+)
 
 func (r *BatchRunner) ResetSignalState(signalID int64) {
 	if r == nil || r.streamState == nil {
@@ -35,6 +39,10 @@ func (r *BatchRunner) getOrInitExtractState(job StreamingExtractJob, sampleRate 
 		r.streamState[job.SignalID] = state
 	}
 	if state.ConfigHash != job.ConfigHash {
+		if state.Initialized {
+			log.Printf("STREAMING STATE RESET: signal=%d oldHash=%d newHash=%d historyLen=%d",
+				job.SignalID, state.ConfigHash, job.ConfigHash, len(state.ShiftedHistory))
+		}
 		ResetExtractStreamState(state, job.ConfigHash)
 	}
 	state.Decim = decim

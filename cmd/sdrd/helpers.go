@@ -267,14 +267,53 @@ func extractForStreaming(
 	coll *telemetry.Collector,
 ) ([][]complex64, []int) {
 	if useStreamingProductionPath {
-		if out, rates, err := extractForStreamingProduction(extractMgr, allIQ, sampleRate, centerHz, signals, aqCfg, coll); err == nil {
+		out, rates, err := extractForStreamingProduction(extractMgr, allIQ, sampleRate, centerHz, signals, aqCfg, coll)
+		if err == nil {
+			logging.Debug("extract", "path_active", "path", "streaming_production", "signals", len(signals), "allIQ", len(allIQ))
+			if coll != nil {
+				coll.IncCounter("extract.path.streaming_production", 1, nil)
+			}
 			return out, rates
+		}
+		// CRITICAL: the streaming production path failed — log WHY before falling through
+		log.Printf("EXTRACT PATH FALLTHROUGH: streaming production failed: %v — using legacy overlap+trim", err)
+		logging.Warn("extract", "streaming_production_fallthrough",
+			"err", err.Error(),
+			"signals", len(signals),
+			"allIQ", len(allIQ),
+			"sampleRate", sampleRate,
+		)
+		if coll != nil {
+			coll.IncCounter("extract.path.streaming_production_failed", 1, nil)
+			coll.Event("extraction_path_fallthrough", "warn",
+				"streaming production path failed, using legacy overlap+trim", nil,
+				map[string]any{
+					"error":      err.Error(),
+					"signals":    len(signals),
+					"allIQ_len":  len(allIQ),
+					"sampleRate": sampleRate,
+				})
 		}
 	}
 	if useStreamingOraclePath {
-		if out, rates, err := extractForStreamingOracle(allIQ, sampleRate, centerHz, signals, aqCfg, coll); err == nil {
+		out, rates, err := extractForStreamingOracle(allIQ, sampleRate, centerHz, signals, aqCfg, coll)
+		if err == nil {
+			logging.Debug("extract", "path_active", "path", "streaming_oracle", "signals", len(signals))
+			if coll != nil {
+				coll.IncCounter("extract.path.streaming_oracle", 1, nil)
+			}
 			return out, rates
 		}
+		log.Printf("EXTRACT PATH FALLTHROUGH: streaming oracle failed: %v", err)
+		logging.Warn("extract", "streaming_oracle_fallthrough", "err", err.Error())
+		if coll != nil {
+			coll.IncCounter("extract.path.streaming_oracle_failed", 1, nil)
+		}
+	}
+	// If we reach here, the legacy overlap+trim path is running
+	logging.Warn("extract", "path_active", "path", "legacy_overlap_trim", "signals", len(signals), "allIQ", len(allIQ))
+	if coll != nil {
+		coll.IncCounter("extract.path.legacy_overlap_trim", 1, nil)
 	}
 	out := make([][]complex64, len(signals))
 	rates := make([]int, len(signals))

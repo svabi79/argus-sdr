@@ -61,6 +61,11 @@ type streamSession struct {
 	prevExtractIQ    complex64
 	lastExtractIQSet bool
 
+	// FM discriminator cross-block bridging: carry the last IQ sample so the
+	// discriminator can compute the phase step across block boundaries.
+	lastDiscrimIQ    complex64
+	lastDiscrimIQSet bool
+
 	lastDemodL   float32
 	prevDemodL   float64
 	lastDemodSet bool
@@ -1238,7 +1243,26 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int, col
 	}
 
 	// --- FM/AM/etc Demod ---
-	audio := d.Demod(dec, actualDemodRate)
+	// For FM demod (NFM/WFM): bridge the block boundary by prepending the
+	// previous block's last IQ sample. Without this, the discriminator loses
+	// the cross-boundary phase step (1 audio sample missing per block) and
+	// any phase discontinuity at the seam becomes an unsmoothed audio transient.
+	var audio []float32
+	isFMDemod := demodName == "NFM" || demodName == "WFM"
+	if isFMDemod && sess.lastDiscrimIQSet && len(dec) > 0 {
+		bridged := make([]complex64, len(dec)+1)
+		bridged[0] = sess.lastDiscrimIQ
+		copy(bridged[1:], dec)
+		audio = d.Demod(bridged, actualDemodRate)
+		// bridged produced len(dec) audio samples (= len(bridged)-1)
+		// which is exactly the correct count for the new data
+	} else {
+		audio = d.Demod(dec, actualDemodRate)
+	}
+	if len(dec) > 0 {
+		sess.lastDiscrimIQ = dec[len(dec)-1]
+		sess.lastDiscrimIQSet = true
+	}
 	if len(audio) == 0 {
 		return nil, 0
 	}
