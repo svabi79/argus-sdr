@@ -15,6 +15,7 @@ type BatchRunner struct {
 	slotBufs    []slotBuffers
 	slotBufSize int // number of IQ samples the slot buffers were allocated for
 	streamState map[int64]*ExtractStreamState
+	nativeState map[int64]*nativeStreamingSignalState
 }
 
 func NewBatchRunner(maxSamples int, sampleRate int) (*BatchRunner, error) {
@@ -22,7 +23,11 @@ func NewBatchRunner(maxSamples int, sampleRate int) (*BatchRunner, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &BatchRunner{eng: eng, streamState: make(map[int64]*ExtractStreamState)}, nil
+	return &BatchRunner{
+		eng:         eng,
+		streamState: make(map[int64]*ExtractStreamState),
+		nativeState: make(map[int64]*nativeStreamingSignalState),
+	}, nil
 }
 
 func (r *BatchRunner) Close() {
@@ -30,10 +35,12 @@ func (r *BatchRunner) Close() {
 		return
 	}
 	r.freeSlotBuffers()
+	r.freeAllNativeStreamingStates()
 	r.eng.Close()
 	r.eng = nil
 	r.slots = nil
 	r.streamState = nil
+	r.nativeState = nil
 }
 
 func (r *BatchRunner) prepare(jobs []ExtractJob) {

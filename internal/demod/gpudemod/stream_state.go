@@ -7,6 +7,7 @@ func (r *BatchRunner) ResetSignalState(signalID int64) {
 		return
 	}
 	delete(r.streamState, signalID)
+	r.resetNativeStreamingState(signalID)
 }
 
 func (r *BatchRunner) ResetAllSignalStates() {
@@ -14,6 +15,7 @@ func (r *BatchRunner) ResetAllSignalStates() {
 		return
 	}
 	r.streamState = make(map[int64]*ExtractStreamState)
+	r.resetAllNativeStreamingStates()
 }
 
 func (r *BatchRunner) getOrInitExtractState(job StreamingExtractJob, sampleRate int) (*ExtractStreamState, error) {

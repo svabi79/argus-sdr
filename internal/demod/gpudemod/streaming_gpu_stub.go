@@ -1,7 +1,5 @@
 package gpudemod
 
-import "fmt"
-
 func updateShiftedHistory(prev []complex64, shiftedNew []complex64, numTaps int) []complex64 {
 	need := numTaps - 1
 	if need <= 0 {
@@ -18,22 +16,11 @@ func updateShiftedHistory(prev []complex64, shiftedNew []complex64, numTaps int)
 	return out
 }
 
-// StreamingExtractGPU is the planned production entry point for the stateful
-// GPU extractor path. It intentionally exists early as an explicit boundary so
-// callers can migrate away from legacy overlap+trim semantics.
-//
-// Current status:
-// - validates jobs against persistent per-signal state ownership
-// - enforces exact integer decimation
-// - initializes per-signal state (config hash, taps, history capacity)
-// - does not yet execute the final stateful polyphase GPU kernel path
+// StreamingExtractGPU is the production entry point for the stateful streaming
+// extractor path. Execution strategy is selected by StreamingExtractGPUExec.
 func (r *BatchRunner) StreamingExtractGPU(iqNew []complex64, jobs []StreamingExtractJob) ([]StreamingExtractResult, error) {
 	if r == nil || r.eng == nil {
 		return nil, ErrUnavailable
 	}
-	if results, err := r.StreamingExtractGPUExec(iqNew, jobs); err == nil {
-		return results, nil
-	}
-	_, _ = iqNew, jobs
-	return nil, fmt.Errorf("StreamingExtractGPU not implemented yet: stateful polyphase GPU path pending")
+	return r.StreamingExtractGPUExec(iqNew, jobs)
 }

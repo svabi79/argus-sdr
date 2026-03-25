@@ -21,10 +21,13 @@ if (Test-Path $sdrplayBin) { $env:PATH = "$sdrplayBin;" + $env:PATH }
 # CUDA runtime / cuFFT
 $cudaInc = 'C:\CUDA\include'
 $cudaBin = 'C:\CUDA\bin'
+$cudaBinX64 = 'C:\CUDA\bin\x64'
 if (-not (Test-Path $cudaInc)) { $cudaInc = 'C:\PROGRA~1\NVIDIA~2\CUDA\v13.2\include' }
 if (-not (Test-Path $cudaBin)) { $cudaBin = 'C:\PROGRA~1\NVIDIA~2\CUDA\v13.2\bin' }
+if (-not (Test-Path $cudaBinX64)) { $cudaBinX64 = 'C:\PROGRA~1\NVIDIA~2\CUDA\v13.2\bin\x64' }
 $cudaMingw = Join-Path $PSScriptRoot 'cuda-mingw'
 if (Test-Path $cudaInc) { $env:CGO_CFLAGS = "$env:CGO_CFLAGS -I$cudaInc" }
+if (Test-Path $cudaBinX64) { $env:PATH = "$cudaBinX64;" + $env:PATH }
 if (Test-Path $cudaBin) { $env:PATH = "$cudaBin;" + $env:PATH }
 if (Test-Path $cudaMingw) { $env:CGO_LDFLAGS = "$env:CGO_LDFLAGS -L$cudaMingw -lcudart64_13 -lcufft64_12 -lkernel32" }
 
@@ -68,8 +71,11 @@ if ($dllSrc) {
 }
 
 $cudartCandidates = @(
+  (Join-Path $cudaBinX64 'cudart64_13.dll'),
   (Join-Path $cudaBin 'cudart64_13.dll'),
+  'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin\x64\cudart64_13.dll',
   'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.2\bin\cudart64_13.dll',
+  'C:\CUDA\bin\x64\cudart64_13.dll',
   'C:\CUDA\bin\cudart64_13.dll'
 )
 $cudartSrc = $cudartCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1

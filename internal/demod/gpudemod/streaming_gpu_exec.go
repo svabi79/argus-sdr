@@ -9,15 +9,17 @@ func (r *BatchRunner) StreamingExtractGPUExec(iqNew []complex64, jobs []Streamin
 	if err != nil {
 		return nil, err
 	}
-	if useGPUHostOracleExecution {
-		execResults, err := r.executeStreamingGPUHostOraclePrepared(invocations)
-		if err != nil {
-			return nil, err
-		}
-		return r.applyStreamingGPUExecutionResults(execResults), nil
-	}
 	if useGPUNativePreparedExecution {
 		execResults, err := r.executeStreamingGPUNativePrepared(invocations)
+		if err == nil {
+			return r.applyStreamingGPUExecutionResults(execResults), nil
+		}
+		if !useGPUHostOracleExecution {
+			return nil, err
+		}
+	}
+	if useGPUHostOracleExecution {
+		execResults, err := r.executeStreamingGPUHostOraclePrepared(invocations)
 		if err != nil {
 			return nil, err
 		}

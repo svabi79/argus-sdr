@@ -2,7 +2,7 @@ package gpudemod
 
 import "testing"
 
-func TestStreamingGPUStubRemainsExplicitlyUnimplemented(t *testing.T) {
+func TestStreamingGPUUsesSafeProductionDefault(t *testing.T) {
 	r := &BatchRunner{eng: &Engine{sampleRate: 4000000}, streamState: make(map[int64]*ExtractStreamState)}
 	job := StreamingExtractJob{
 		SignalID:   1,
@@ -13,9 +13,15 @@ func TestStreamingGPUStubRemainsExplicitlyUnimplemented(t *testing.T) {
 		ConfigHash: 777,
 	}
 	iq := makeDeterministicIQ(1000)
-	_, err := r.StreamingExtractGPU(iq, []StreamingExtractJob{job})
-	if err == nil {
-		t.Fatalf("expected not-implemented error from GPU stub")
+	results, err := r.StreamingExtractGPU(iq, []StreamingExtractJob{job})
+	if err != nil {
+		t.Fatalf("expected safe production default path, got error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].NOut == 0 {
+		t.Fatalf("expected non-zero output count from safe production path")
 	}
 }
 

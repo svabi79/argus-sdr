@@ -10,6 +10,7 @@ const (
 
 type StreamingGPUInvocation struct {
 	SignalID       int64
+	ConfigHash     uint64
 	OffsetHz       float64
 	OutRate        int
 	Bandwidth      float64

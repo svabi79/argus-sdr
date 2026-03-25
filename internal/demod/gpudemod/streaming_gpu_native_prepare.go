@@ -15,101 +15,270 @@ import (
 )
 
 func (r *BatchRunner) executeStreamingGPUNativePrepared(invocations []StreamingGPUInvocation) ([]StreamingGPUExecutionResult, error) {
+	if r == nil || r.eng == nil {
+		return nil, ErrUnavailable
+	}
+	if r.nativeState == nil {
+		r.nativeState = make(map[int64]*nativeStreamingSignalState)
+	}
 	results := make([]StreamingGPUExecutionResult, len(invocations))
 	for i, inv := range invocations {
-		phaseInc := -2.0 * math.Pi * inv.OffsetHz / float64(inv.SampleRate)
-		outCap := len(inv.IQNew)/maxInt(1, inv.Decim) + 2
-		outHost := make([]complex64, outCap)
-		histCap := maxInt(0, inv.NumTaps-1)
-		histHost := make([]complex64, histCap)
-		var nOut C.int
-		var phaseCountOut C.int
-		var phaseEndOut C.double
-
-		var dInNew, dHistIn, dOut, dHistOut unsafe.Pointer
-		var dTaps unsafe.Pointer
+		state, err := r.getOrInitNativeStreamingState(inv)
+		if err != nil {
+			return nil, err
+		}
 		if len(inv.IQNew) > 0 {
-			if bridgeCudaMalloc(&dInNew, uintptr(len(inv.IQNew))*unsafe.Sizeof(C.gpud_float2{})) != 0 {
-				return nil, ErrUnavailable
+			if err := ensureNativeBuffer(&state.dInNew, &state.inNewCap, len(inv.IQNew), unsafe.Sizeof(C.gpud_float2{})); err != nil {
+				return nil, err
 			}
-			defer bridgeCudaFree(dInNew)
-			if bridgeMemcpyH2D(dInNew, unsafe.Pointer(&inv.IQNew[0]), uintptr(len(inv.IQNew))*unsafe.Sizeof(complex64(0))) != 0 {
-				return nil, ErrUnavailable
-			}
-		}
-		if len(inv.ShiftedHistory) > 0 {
-			if bridgeCudaMalloc(&dHistIn, uintptr(len(inv.ShiftedHistory))*unsafe.Sizeof(C.gpud_float2{})) != 0 {
-				return nil, ErrUnavailable
-			}
-			defer bridgeCudaFree(dHistIn)
-			if bridgeMemcpyH2D(dHistIn, unsafe.Pointer(&inv.ShiftedHistory[0]), uintptr(len(inv.ShiftedHistory))*unsafe.Sizeof(complex64(0))) != 0 {
+			if bridgeMemcpyH2D(state.dInNew, unsafe.Pointer(&inv.IQNew[0]), uintptr(len(inv.IQNew))*unsafe.Sizeof(complex64(0))) != 0 {
 				return nil, ErrUnavailable
 			}
 		}
-		if len(inv.PolyphaseTaps) > 0 {
-			if bridgeCudaMalloc(&dTaps, uintptr(len(inv.PolyphaseTaps))*unsafe.Sizeof(C.float(0))) != 0 {
-				return nil, ErrUnavailable
-			}
-			defer bridgeCudaFree(dTaps)
-			if bridgeMemcpyH2D(dTaps, unsafe.Pointer(&inv.PolyphaseTaps[0]), uintptr(len(inv.PolyphaseTaps))*unsafe.Sizeof(float32(0))) != 0 {
-				return nil, ErrUnavailable
-			}
-		}
+		outCap := len(inv.IQNew)/maxInt(1, inv.Decim) + 2
 		if outCap > 0 {
-			if bridgeCudaMalloc(&dOut, uintptr(outCap)*unsafe.Sizeof(C.gpud_float2{})) != 0 {
-				return nil, ErrUnavailable
+			if err := ensureNativeBuffer(&state.dOut, &state.outCap, outCap, unsafe.Sizeof(C.gpud_float2{})); err != nil {
+				return nil, err
 			}
-			defer bridgeCudaFree(dOut)
-		}
-		if histCap > 0 {
-			if bridgeCudaMalloc(&dHistOut, uintptr(histCap)*unsafe.Sizeof(C.gpud_float2{})) != 0 {
-				return nil, ErrUnavailable
-			}
-			defer bridgeCudaFree(dHistOut)
 		}
 
-		res := bridgeLaunchStreamingPolyphasePrepare(
-			(*C.gpud_float2)(dInNew),
+		phaseInc := -2.0 * math.Pi * inv.OffsetHz / float64(inv.SampleRate)
+		// The native export consumes phase carry as host scalars while sample/history
+		// buffers remain device-resident, so keep these counters in nativeState.
+		var nOut C.int
+		historyLen := C.int(state.historyLen)
+		phaseCount := C.int(state.phaseCount)
+		phaseNCO := C.double(state.phaseNCO)
+		res := bridgeLaunchStreamingPolyphaseStateful(
+			(*C.gpud_float2)(state.dInNew),
 			len(inv.IQNew),
-			(*C.gpud_float2)(dHistIn),
-			len(inv.ShiftedHistory),
-			(*C.float)(dTaps),
-			len(inv.PolyphaseTaps),
-			inv.Decim,
-			inv.NumTaps,
-			inv.PhaseCountIn,
-			inv.NCOPhaseIn,
+			(*C.gpud_float2)(state.dShifted),
+			(*C.float)(state.dTaps),
+			state.tapsLen,
+			state.decim,
+			state.numTaps,
+			(*C.gpud_float2)(state.dHistory),
+			(*C.gpud_float2)(state.dHistoryScratch),
+			state.historyCap,
+			&historyLen,
+			&phaseCount,
+			&phaseNCO,
 			phaseInc,
-			(*C.gpud_float2)(dOut),
+			(*C.gpud_float2)(state.dOut),
+			outCap,
 			&nOut,
-			&phaseCountOut,
-			&phaseEndOut,
-			(*C.gpud_float2)(dHistOut),
 		)
 		if res != 0 {
 			return nil, ErrUnavailable
 		}
-		if int(nOut) > 0 {
-			if bridgeMemcpyD2H(unsafe.Pointer(&outHost[0]), dOut, uintptr(int(nOut))*unsafe.Sizeof(complex64(0))) != 0 {
+		state.historyLen = int(historyLen)
+		state.phaseCount = int(phaseCount)
+		state.phaseNCO = float64(phaseNCO)
+
+		outHost := make([]complex64, int(nOut))
+		if len(outHost) > 0 {
+			if bridgeMemcpyD2H(unsafe.Pointer(&outHost[0]), state.dOut, uintptr(len(outHost))*unsafe.Sizeof(complex64(0))) != 0 {
 				return nil, ErrUnavailable
 			}
 		}
-		if histCap > 0 {
-			if bridgeMemcpyD2H(unsafe.Pointer(&histHost[0]), dHistOut, uintptr(histCap)*unsafe.Sizeof(complex64(0))) != 0 {
+		histHost := make([]complex64, state.historyLen)
+		if state.historyLen > 0 {
+			if bridgeMemcpyD2H(unsafe.Pointer(&histHost[0]), state.dHistory, uintptr(state.historyLen)*unsafe.Sizeof(complex64(0))) != 0 {
 				return nil, ErrUnavailable
 			}
 		}
+
 		results[i] = StreamingGPUExecutionResult{
 			SignalID:      inv.SignalID,
 			Mode:          StreamingGPUExecCUDA,
-			IQ:            append([]complex64(nil), outHost[:int(nOut)]...),
+			IQ:            outHost,
 			Rate:          inv.OutRate,
-			NOut:          int(nOut),
-			PhaseCountOut: int(phaseCountOut),
-			NCOPhaseOut:   float64(phaseEndOut),
-			HistoryOut:    append([]complex64(nil), histHost...),
-			HistoryLenOut: histCap,
+			NOut:          len(outHost),
+			PhaseCountOut: state.phaseCount,
+			NCOPhaseOut:   state.phaseNCO,
+			HistoryOut:    histHost,
+			HistoryLenOut: len(histHost),
 		}
 	}
 	return results, nil
+}
+
+func (r *BatchRunner) getOrInitNativeStreamingState(inv StreamingGPUInvocation) (*nativeStreamingSignalState, error) {
+	state := r.nativeState[inv.SignalID]
+	needReset := false
+	historyCap := maxInt(0, inv.NumTaps-1)
+	if state == nil {
+		state = &nativeStreamingSignalState{signalID: inv.SignalID}
+		r.nativeState[inv.SignalID] = state
+		needReset = true
+	}
+	if state.configHash != inv.ConfigHash {
+		needReset = true
+	}
+	if state.decim != inv.Decim || state.numTaps != inv.NumTaps || state.tapsLen != len(inv.PolyphaseTaps) {
+		needReset = true
+	}
+	if state.historyCap != historyCap {
+		needReset = true
+	}
+	if needReset {
+		releaseNativeStreamingSignalState(state)
+	}
+	if len(inv.PolyphaseTaps) == 0 {
+		return nil, ErrUnavailable
+	}
+	if state.dTaps == nil && len(inv.PolyphaseTaps) > 0 {
+		if bridgeCudaMalloc(&state.dTaps, uintptr(len(inv.PolyphaseTaps))*unsafe.Sizeof(C.float(0))) != 0 {
+			return nil, ErrUnavailable
+		}
+		if bridgeMemcpyH2D(state.dTaps, unsafe.Pointer(&inv.PolyphaseTaps[0]), uintptr(len(inv.PolyphaseTaps))*unsafe.Sizeof(float32(0))) != 0 {
+			return nil, ErrUnavailable
+		}
+		state.tapsLen = len(inv.PolyphaseTaps)
+	}
+	if state.dShifted == nil {
+		minCap := maxInt(1, len(inv.IQNew))
+		if bridgeCudaMalloc(&state.dShifted, uintptr(minCap)*unsafe.Sizeof(C.gpud_float2{})) != 0 {
+			return nil, ErrUnavailable
+		}
+		state.shiftedCap = minCap
+	}
+	if state.shiftedCap < len(inv.IQNew) {
+		if bridgeCudaFree(state.dShifted) != 0 {
+			return nil, ErrUnavailable
+		}
+		state.dShifted = nil
+		state.shiftedCap = 0
+		if bridgeCudaMalloc(&state.dShifted, uintptr(len(inv.IQNew))*unsafe.Sizeof(C.gpud_float2{})) != 0 {
+			return nil, ErrUnavailable
+		}
+		state.shiftedCap = len(inv.IQNew)
+	}
+	if state.dHistory == nil && historyCap > 0 {
+		if bridgeCudaMalloc(&state.dHistory, uintptr(historyCap)*unsafe.Sizeof(C.gpud_float2{})) != 0 {
+			return nil, ErrUnavailable
+		}
+	}
+	if state.dHistoryScratch == nil && historyCap > 0 {
+		if bridgeCudaMalloc(&state.dHistoryScratch, uintptr(historyCap)*unsafe.Sizeof(C.gpud_float2{})) != 0 {
+			return nil, ErrUnavailable
+		}
+		state.historyScratchCap = historyCap
+	}
+	if needReset {
+		state.phaseCount = inv.PhaseCountIn
+		state.phaseNCO = inv.NCOPhaseIn
+		state.historyLen = minInt(len(inv.ShiftedHistory), historyCap)
+		if state.historyLen > 0 {
+			if bridgeMemcpyH2D(state.dHistory, unsafe.Pointer(&inv.ShiftedHistory[len(inv.ShiftedHistory)-state.historyLen]), uintptr(state.historyLen)*unsafe.Sizeof(complex64(0))) != 0 {
+				return nil, ErrUnavailable
+			}
+		}
+	}
+	state.decim = inv.Decim
+	state.numTaps = inv.NumTaps
+	state.historyCap = historyCap
+	state.historyScratchCap = historyCap
+	state.configHash = inv.ConfigHash
+	return state, nil
+}
+
+func ensureNativeBuffer(ptr *unsafe.Pointer, capRef *int, need int, elemSize uintptr) error {
+	if need <= 0 {
+		return nil
+	}
+	if *ptr != nil && *capRef >= need {
+		return nil
+	}
+	if *ptr != nil {
+		if bridgeCudaFree(*ptr) != 0 {
+			return ErrUnavailable
+		}
+		*ptr = nil
+		*capRef = 0
+	}
+	if bridgeCudaMalloc(ptr, uintptr(need)*elemSize) != 0 {
+		return ErrUnavailable
+	}
+	*capRef = need
+	return nil
+}
+
+func (r *BatchRunner) syncNativeStreamingStates(active map[int64]struct{}) {
+	if r == nil || r.nativeState == nil {
+		return
+	}
+	for id, state := range r.nativeState {
+		if _, ok := active[id]; ok {
+			continue
+		}
+		releaseNativeStreamingSignalState(state)
+		delete(r.nativeState, id)
+	}
+}
+
+func (r *BatchRunner) resetNativeStreamingState(signalID int64) {
+	if r == nil || r.nativeState == nil {
+		return
+	}
+	if state := r.nativeState[signalID]; state != nil {
+		releaseNativeStreamingSignalState(state)
+	}
+	delete(r.nativeState, signalID)
+}
+
+func (r *BatchRunner) resetAllNativeStreamingStates() {
+	if r == nil {
+		return
+	}
+	r.freeAllNativeStreamingStates()
+	r.nativeState = make(map[int64]*nativeStreamingSignalState)
+}
+
+func (r *BatchRunner) freeAllNativeStreamingStates() {
+	if r == nil || r.nativeState == nil {
+		return
+	}
+	for id, state := range r.nativeState {
+		releaseNativeStreamingSignalState(state)
+		delete(r.nativeState, id)
+	}
+}
+
+func releaseNativeStreamingSignalState(state *nativeStreamingSignalState) {
+	if state == nil {
+		return
+	}
+	for _, ptr := range []*unsafe.Pointer{
+		&state.dInNew,
+		&state.dShifted,
+		&state.dOut,
+		&state.dTaps,
+		&state.dHistory,
+		&state.dHistoryScratch,
+	} {
+		if *ptr != nil {
+			_ = bridgeCudaFree(*ptr)
+			*ptr = nil
+		}
+	}
+	state.inNewCap = 0
+	state.shiftedCap = 0
+	state.outCap = 0
+	state.tapsLen = 0
+	state.historyCap = 0
+	state.historyLen = 0
+	state.historyScratchCap = 0
+	state.phaseCount = 0
+	state.phaseNCO = 0
+	state.decim = 0
+	state.numTaps = 0
+	state.configHash = 0
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

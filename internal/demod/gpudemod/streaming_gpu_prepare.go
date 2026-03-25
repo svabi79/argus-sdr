@@ -14,6 +14,7 @@ func (r *BatchRunner) buildStreamingGPUInvocations(iqNew []complex64, jobs []Str
 		}
 		invocations[i] = StreamingGPUInvocation{
 			SignalID:       job.SignalID,
+			ConfigHash:     state.ConfigHash,
 			OffsetHz:       job.OffsetHz,
 			OutRate:        job.OutRate,
 			Bandwidth:      job.Bandwidth,
@@ -34,6 +35,7 @@ func (r *BatchRunner) buildStreamingGPUInvocations(iqNew []complex64, jobs []Str
 			delete(r.streamState, signalID)
 		}
 	}
+	r.syncNativeStreamingStates(active)
 	return invocations, nil
 }
 
