@@ -12,6 +12,7 @@ import (
 
 	"sdr-wideband-suite/internal/demod/gpudemod"
 	"sdr-wideband-suite/internal/detector"
+	"sdr-wideband-suite/internal/telemetry"
 )
 
 type Policy struct {
@@ -54,9 +55,10 @@ type Manager struct {
 	streamer    *Streamer
 	streamedIDs map[int64]bool // signal IDs that were streamed (skip retroactive recording)
 	streamedMu  sync.Mutex
+	telemetry   *telemetry.Collector
 }
 
-func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeCommands map[string]string) *Manager {
+func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeCommands map[string]string, coll *telemetry.Collector) *Manager {
 	if policy.OutputDir == "" {
 		policy.OutputDir = "data/recordings"
 	}
@@ -71,8 +73,9 @@ func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeC
 		centerHz:       centerHz,
 		decodeCommands: decodeCommands,
 		queue:          make(chan detector.Event, 64),
-		streamer:       newStreamer(policy, centerHz),
+		streamer:       newStreamer(policy, centerHz, coll),
 		streamedIDs:    make(map[int64]bool),
+		telemetry:      coll,
 	}
 	m.initGPUDemod(sampleRate, blockSize)
 	m.workerWG.Add(1)
@@ -103,6 +106,13 @@ func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz 
 	if m.streamer != nil {
 		m.streamer.updatePolicy(policy, centerHz)
 	}
+	if m.telemetry != nil {
+		m.telemetry.Event("recorder_update", "info", "recorder policy updated", nil, map[string]any{
+			"sample_rate": sampleRate,
+			"block_size":  blockSize,
+			"enabled":     policy.Enabled,
+		})
+	}
 }
 
 func (m *Manager) Ingest(t0 time.Time, samples []complex64) {
@@ -116,6 +126,9 @@ func (m *Manager) Ingest(t0 time.Time, samples []complex64) {
 		return
 	}
 	ring.Push(t0, samples)
+	if m.telemetry != nil {
+		m.telemetry.SetGauge("recorder.ring.push_samples", float64(len(samples)), nil)
+	}
 }
 
 func (m *Manager) OnEvents(events []detector.Event) {
@@ -134,7 +147,13 @@ func (m *Manager) OnEvents(events []detector.Event) {
 		case m.queue <- ev:
 		default:
 			// drop if queue full
+			if m.telemetry != nil {
+				m.telemetry.IncCounter("recorder.event_queue.drop", 1, nil)
+			}
 		}
+	}
+	if m.telemetry != nil {
+		m.telemetry.SetGauge("recorder.event_queue.len", float64(len(m.queue)), nil)
 	}
 }
 

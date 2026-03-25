@@ -20,6 +20,7 @@ import (
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
 	"sdr-wideband-suite/internal/logging"
+	"sdr-wideband-suite/internal/telemetry"
 )
 
 // ---------------------------------------------------------------------------
@@ -27,6 +28,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type streamSession struct {
+	sessionID    string
 	signalID     int64
 	centerHz     float64
 	bwHz         float64
@@ -54,9 +56,10 @@ type streamSession struct {
 	prevDecIQ    complex64
 	lastDecIQSet bool
 
-	lastDemodL    float32
-	prevDemodL    float64
-	lastDemodSet  bool
+	lastDemodL   float32
+	prevDemodL   float64
+	lastDemodSet bool
+	snippetSeq   uint64
 
 	// listenOnly sessions have no WAV file and no disk I/O.
 	// They exist solely to feed audio to live-listen subscribers.
@@ -226,6 +229,7 @@ type streamFeedItem struct {
 type streamFeedMsg struct {
 	traceID uint64
 	items   []streamFeedItem
+	enqueuedAt time.Time
 }
 
 type Streamer struct {
@@ -245,6 +249,7 @@ type Streamer struct {
 
 	// pendingListens are subscribers waiting for a matching session.
 	pendingListens map[int64]*pendingListen
+	telemetry      *telemetry.Collector
 }
 
 type pendingListen struct {
@@ -254,7 +259,7 @@ type pendingListen struct {
 	ch   chan []byte
 }
 
-func newStreamer(policy Policy, centerHz float64) *Streamer {
+func newStreamer(policy Policy, centerHz float64, coll *telemetry.Collector) *Streamer {
 	st := &Streamer{
 		sessions:       make(map[int64]*streamSession),
 		policy:         policy,
@@ -262,6 +267,7 @@ func newStreamer(policy Policy, centerHz float64) *Streamer {
 		feedCh:         make(chan streamFeedMsg, 2),
 		done:           make(chan struct{}),
 		pendingListens: make(map[int64]*pendingListen),
+		telemetry:      coll,
 	}
 	go st.worker()
 	return st
@@ -349,18 +355,33 @@ func (st *Streamer) FeedSnippets(items []streamFeedItem, traceID uint64) {
 	if (!recEnabled && !hasListeners) || len(items) == 0 {
 		return
 	}
+	if st.telemetry != nil {
+		st.telemetry.SetGauge("streamer.feed.queue_len", float64(len(st.feedCh)), nil)
+		st.telemetry.SetGauge("streamer.pending_listeners", float64(pending), nil)
+		st.telemetry.Observe("streamer.feed.batch_size", float64(len(items)), nil)
+	}
 
 	select {
-	case st.feedCh <- streamFeedMsg{traceID: traceID, items: items}:
+	case st.feedCh <- streamFeedMsg{traceID: traceID, items: items, enqueuedAt: time.Now()}:
 	default:
 		st.droppedFeed++
 		logging.Warn("drop", "feed_drop", "count", st.droppedFeed)
+		if st.telemetry != nil {
+			st.telemetry.IncCounter("streamer.feed.drop", 1, nil)
+			st.telemetry.Event("stream_feed_drop", "warn", "feed queue full", nil, map[string]any{
+				"trace_id": traceID,
+				"queue_len": len(st.feedCh),
+			})
+		}
 	}
 }
 
 // processFeed runs in the worker goroutine.
 func (st *Streamer) processFeed(msg streamFeedMsg) {
+	procStart := time.Now()
+	lockStart := time.Now()
 	st.mu.Lock()
+	lockWait := time.Since(lockStart)
 	recEnabled := st.policy.Enabled && (st.policy.RecordAudio || st.policy.RecordIQ)
 	hasListeners := st.hasListenersLocked()
 	now := time.Now()
@@ -368,10 +389,24 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 		gap := now.Sub(st.lastProcTS)
 		if gap > 150*time.Millisecond {
 			logging.Warn("gap", "process_gap", "gap_ms", gap.Milliseconds(), "trace", msg.traceID)
+			if st.telemetry != nil {
+				st.telemetry.IncCounter("streamer.process.gap.count", 1, nil)
+				st.telemetry.Observe("streamer.process.gap_ms", float64(gap.Milliseconds()), nil)
+			}
 		}
 	}
 	st.lastProcTS = now
 	defer st.mu.Unlock()
+	defer func() {
+		if st.telemetry != nil {
+			st.telemetry.Observe("streamer.process.total_ms", float64(time.Since(procStart).Microseconds())/1000.0, nil)
+			st.telemetry.Observe("streamer.lock_wait_ms", float64(lockWait.Microseconds())/1000.0, telemetry.TagsFromPairs("lock", "process"))
+		}
+	}()
+	if st.telemetry != nil {
+		st.telemetry.Observe("streamer.feed.enqueue_delay_ms", float64(now.Sub(msg.enqueuedAt).Microseconds())/1000.0, nil)
+		st.telemetry.SetGauge("streamer.sessions.active", float64(len(st.sessions)), nil)
+	}
 
 	logging.Debug("trace", "process_feed", "trace", msg.traceID, "items", len(msg.items))
 
@@ -434,6 +469,9 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 				if err != nil {
 					log.Printf("STREAM: open failed signal=%d %.1fMHz: %v",
 						sig.ID, sig.CenterHz/1e6, err)
+					if st.telemetry != nil {
+						st.telemetry.IncCounter("streamer.session.open_error", 1, telemetry.TagsFromPairs("kind", "recording"))
+					}
 					continue
 				}
 				st.sessions[sig.ID] = s
@@ -445,6 +483,13 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 			}
 			// Attach any pending listeners
 			st.attachPendingListeners(sess)
+			if st.telemetry != nil {
+				st.telemetry.IncCounter("streamer.session.open", 1, telemetry.TagsFromPairs("session_id", sess.sessionID, "signal_id", fmt.Sprintf("%d", sig.ID)))
+				st.telemetry.Event("session_open", "info", "stream session opened", telemetry.TagsFromPairs("session_id", sess.sessionID, "signal_id", fmt.Sprintf("%d", sig.ID)), map[string]any{
+					"listen_only": sess.listenOnly,
+					"demod":       sess.demodName,
+				})
+			}
 		}
 
 		// Update metadata
@@ -463,10 +508,17 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 
 		// Demod with persistent state
 		logging.Debug("trace", "demod_start", "trace", msg.traceID, "signal", sess.signalID, "snip_len", len(item.snippet), "snip_rate", item.snipRate)
-		audio, audioRate := sess.processSnippet(item.snippet, item.snipRate)
+		audioStart := time.Now()
+		audio, audioRate := sess.processSnippet(item.snippet, item.snipRate, st.telemetry)
+		if st.telemetry != nil {
+			st.telemetry.Observe("streamer.process_snippet_ms", float64(time.Since(audioStart).Microseconds())/1000.0, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+		}
 		logging.Debug("trace", "demod_done", "trace", msg.traceID, "signal", sess.signalID, "audio_len", len(audio), "audio_rate", audioRate)
 		if len(audio) == 0 {
 			logging.Warn("gap", "audio_empty", "signal", sess.signalID, "snip_len", len(item.snippet), "snip_rate", item.snipRate)
+			if st.telemetry != nil {
+				st.telemetry.IncCounter("streamer.audio.empty", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID)))
+			}
 		}
 		if len(audio) > 0 {
 			if sess.wavSamples == 0 && audioRate > 0 {
@@ -493,6 +545,10 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 					gap := time.Since(sess.lastAudioTs)
 					if gap > 150*time.Millisecond {
 						logging.Warn("gap", "audio_gap", "signal", sess.signalID, "gap_ms", gap.Milliseconds())
+						if st.telemetry != nil {
+							st.telemetry.IncCounter("streamer.audio.gap.count", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID)))
+							st.telemetry.Observe("streamer.audio.gap_ms", float64(gap.Milliseconds()), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID)))
+						}
 					}
 				}
 				// Transient click detector: finds short impulses (1-3 samples)
@@ -519,6 +575,10 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 						d2 := math.Abs(2*float64(sess.lastAudioL) - sess.prevAudioL - first)
 						if d2 > 0.15 {
 							logging.Warn("boundary", "boundary_click", "signal", sess.signalID, "d2", d2)
+							if st.telemetry != nil {
+								st.telemetry.IncCounter("audio.boundary_click.count", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+								st.telemetry.Observe("audio.boundary_click.d2", d2, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID)))
+							}
 						}
 					}
 
@@ -541,6 +601,10 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 					}
 					if nClicks > 0 {
 						logging.Warn("boundary", "intra_click", "signal", sess.signalID, "clicks", nClicks, "maxD2", maxD2, "pos", maxD2Pos, "len", nFrames)
+						if st.telemetry != nil {
+							st.telemetry.IncCounter("audio.intra_click.count", float64(nClicks), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+							st.telemetry.Observe("audio.intra_click.max_d2", maxD2, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID)))
+						}
 					}
 
 					// Store last two samples for next frame's boundary check
@@ -580,6 +644,13 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 			s.audioSubs = oldSubs
 			s.restoreDSPState(oldState)
 			st.sessions[sig.ID] = s
+			if st.telemetry != nil {
+				st.telemetry.IncCounter("streamer.session.reopen", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sig.ID)))
+				st.telemetry.Event("session_reopen", "info", "stream session rotated by max duration", telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sig.ID)), map[string]any{
+					"old_session": sess.sessionID,
+					"new_session": s.sessionID,
+				})
+			}
 		}
 	}
 
@@ -599,6 +670,13 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 			sess.audioSubs = nil
 			if !sess.listenOnly {
 				closeSession(sess, &st.policy)
+			}
+			if st.telemetry != nil {
+				st.telemetry.IncCounter("streamer.session.close", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", id), "session_id", sess.sessionID))
+				st.telemetry.Event("session_close", "info", "stream session closed", telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", id), "session_id", sess.sessionID), map[string]any{
+					"reason": "signal_missing",
+					"listen_only": sess.listenOnly,
+				})
 			}
 			delete(st.sessions, id)
 		}
@@ -693,12 +771,18 @@ func (st *Streamer) CloseAll() {
 		if !sess.listenOnly {
 			closeSession(sess, &st.policy)
 		}
+		if st.telemetry != nil {
+			st.telemetry.IncCounter("streamer.session.close", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", id), "session_id", sess.sessionID))
+		}
 		delete(st.sessions, id)
 	}
 	for _, pl := range st.pendingListens {
 		close(pl.ch)
 	}
 	st.pendingListens = nil
+	if st.telemetry != nil {
+		st.telemetry.Event("streamer_close_all", "info", "all stream sessions closed", nil, nil)
+	}
 }
 
 // ActiveSessions returns the number of open streaming sessions.
@@ -755,6 +839,9 @@ func (st *Streamer) SubscribeAudio(freq float64, bw float64, mode string) (int64
 		if audioDumpEnabled {
 			log.Printf("STREAM: debug dump armed signal=%d start=%s until=%s", bestSess.signalID, bestSess.debugDumpStart.Format(time.RFC3339), bestSess.debugDumpUntil.Format(time.RFC3339))
 		}
+		if st.telemetry != nil {
+			st.telemetry.IncCounter("streamer.listener.attach", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", bestSess.signalID), "session_id", bestSess.sessionID))
+		}
 		return subID, ch, info, nil
 	}
 
@@ -768,6 +855,10 @@ func (st *Streamer) SubscribeAudio(freq float64, bw float64, mode string) (int64
 	info := defaultAudioInfoForMode(mode)
 	log.Printf("STREAM: subscriber %d pending (freq=%.1fMHz)", subID, freq/1e6)
 	log.Printf("LIVEAUDIO MATCH: subscriber=%d pending req=%.3fMHz bw=%.0f mode=%s", subID, freq/1e6, bw, mode)
+	if st.telemetry != nil {
+		st.telemetry.IncCounter("streamer.listener.pending", 1, nil)
+		st.telemetry.SetGauge("streamer.pending_listeners", float64(len(st.pendingListens)), nil)
+	}
 	return subID, ch, info, nil
 }
 
@@ -779,6 +870,10 @@ func (st *Streamer) UnsubscribeAudio(subID int64) {
 	if pl, ok := st.pendingListens[subID]; ok {
 		close(pl.ch)
 		delete(st.pendingListens, subID)
+		if st.telemetry != nil {
+			st.telemetry.IncCounter("streamer.listener.unsubscribe", 1, telemetry.TagsFromPairs("kind", "pending"))
+			st.telemetry.SetGauge("streamer.pending_listeners", float64(len(st.pendingListens)), nil)
+		}
 		return
 	}
 
@@ -787,6 +882,9 @@ func (st *Streamer) UnsubscribeAudio(subID int64) {
 			if sub.id == subID {
 				close(sub.ch)
 				sess.audioSubs = append(sess.audioSubs[:i], sess.audioSubs[i+1:]...)
+				if st.telemetry != nil {
+					st.telemetry.IncCounter("streamer.listener.unsubscribe", 1, telemetry.TagsFromPairs("kind", "active", "session_id", sess.sessionID))
+				}
 				return
 			}
 		}
@@ -800,9 +898,12 @@ func (st *Streamer) UnsubscribeAudio(subID int64) {
 // processSnippet takes a pre-extracted IQ snippet and demodulates it with
 // persistent state. Uses stateful FIR + polyphase resampler for exact 48kHz
 // output with zero transient artifacts.
-func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]float32, int) {
+func (sess *streamSession) processSnippet(snippet []complex64, snipRate int, coll *telemetry.Collector) ([]float32, int) {
 	if len(snippet) == 0 || snipRate <= 0 {
 		return nil, 0
+	}
+	if coll != nil {
+		coll.SetGauge("iq.stage.snippet.length", float64(len(snippet)), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
 	}
 
 	isWFMStereo := sess.demodName == "WFM_STEREO"
@@ -899,11 +1000,24 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 			sess.preDemodCutoff = cutoff
 			sess.preDemodDecim = decim1
 			sess.preDemodDecimPhase = 0
+			if coll != nil {
+				coll.IncCounter("dsp.pre_demod.init", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+				coll.Event("prefir_reinit", "info", "pre-demod decimator reinitialized", telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID), map[string]any{
+					"snip_rate": snipRate,
+					"cutoff_hz": cutoff,
+					"decim":     decim1,
+				})
+			}
 		}
 
 		decimPhaseBefore := sess.preDemodDecimPhase
 		filtered := sess.preDemodFIR.ProcessInto(fullSnip, sess.growIQ(len(fullSnip)))
 		dec = sess.preDemodDecimator.Process(fullSnip)
+		sess.preDemodDecimPhase = sess.preDemodDecimator.Phase()
+		if coll != nil {
+			coll.Observe("dsp.pre_demod.decimation_factor", float64(decim1), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+			coll.SetGauge("iq.stage.pre_demod.length", float64(len(dec)), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+		}
 		logging.Debug("boundary", "snippet_path", "signal", sess.signalID, "overlap_applied", overlapApplied, "snip_len", len(snippet), "full_len", len(fullSnip), "filtered_len", len(filtered), "dec_len", len(dec), "decim1", decim1, "phase_before", decimPhaseBefore, "phase_after", sess.preDemodDecimPhase)
 	} else {
 		logging.Debug("boundary", "snippet_path", "signal", sess.signalID, "overlap_applied", overlapApplied, "snip_len", len(snippet), "full_len", len(fullSnip), "filtered_len", len(fullSnip), "dec_len", len(fullSnip), "decim1", decim1, "phase_before", 0, "phase_after", 0)
@@ -913,6 +1027,9 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	if decHeadTrimSamples > 0 && decHeadTrimSamples < len(dec) {
 		logging.Warn("boundary", "dec_head_trim_applied", "signal", sess.signalID, "trim", decHeadTrimSamples, "before_len", len(dec))
 		dec = dec[decHeadTrimSamples:]
+		if coll != nil {
+			coll.IncCounter("dsp.pre_demod.head_trim", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID)))
+		}
 	}
 
 	if logging.EnabledCategory("boundary") && len(dec) > 0 {
@@ -923,6 +1040,10 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 			d2Mag := math.Hypot(d2Re, d2Im)
 			if d2Mag > 0.15 {
 				logging.Warn("boundary", "dec_iq_boundary", "signal", sess.signalID, "d2", d2Mag)
+				if coll != nil {
+					coll.IncCounter("iq.dec.boundary.count", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+					coll.Observe("iq.dec.boundary.d2", d2Mag, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID)))
+				}
 			}
 		}
 
@@ -968,6 +1089,9 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 			if ratio < 0.75 || ratio > 1.25 {
 				logging.Warn("boundary", "dec_iq_head_tail_skew", "signal", sess.signalID, "head_avg", headAvg, "tail_avg", tailAvg, "ratio", ratio)
 			}
+			if coll != nil {
+				coll.Observe("iq.dec.head_tail_ratio", ratio, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+			}
 		}
 
 		probeN := 64
@@ -1003,6 +1127,11 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 		if maxHeadStep > 1.5 {
 			logging.Warn("boundary", "dec_iq_head_step", "signal", sess.signalID, "probe_len", probeN, "max_step", maxHeadStep, "max_step_idx", maxHeadStepIdx, "min_mag", minHeadMag, "min_idx", minHeadIdx)
 		}
+		if coll != nil {
+			coll.Observe("iq.dec.magnitude.min", minMag, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+			coll.Observe("iq.dec.magnitude.max", maxMag, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+			coll.Observe("iq.dec.phase_step.max", maxHeadStep, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+		}
 
 		if len(dec) >= 2 {
 			sess.prevDecIQ = dec[len(dec)-2]
@@ -1019,6 +1148,9 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 	if len(audio) == 0 {
 		return nil, 0
 	}
+	if coll != nil {
+		coll.SetGauge("audio.stage.demod.length", float64(len(audio)), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+	}
 	if logging.EnabledCategory("boundary") {
 		stride := d.Channels()
 		if stride < 1 {
@@ -1031,6 +1163,10 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 				d2 := math.Abs(2*float64(sess.lastDemodL) - sess.prevDemodL - first)
 				if d2 > 0.15 {
 					logging.Warn("boundary", "demod_boundary", "signal", sess.signalID, "d2", d2)
+					if coll != nil {
+						coll.IncCounter("audio.demod_boundary.count", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+						coll.Observe("audio.demod_boundary.d2", d2, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID)))
+					}
 				}
 			}
 			if nFrames >= 2 {
@@ -1099,6 +1235,12 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 				logging.Info("resample", "reset", "mode", "stereo", "rate", actualDemodRate)
 				sess.stereoResampler = dsp.NewStereoResampler(actualDemodRate, streamAudioRate, resamplerTaps)
 				sess.stereoResamplerRate = actualDemodRate
+				if coll != nil {
+					coll.Event("resampler_reset", "info", "stereo resampler reset", telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID), map[string]any{
+						"mode": "stereo",
+						"rate": actualDemodRate,
+					})
+				}
 			}
 			audio = sess.stereoResampler.Process(audio)
 		} else {
@@ -1106,9 +1248,18 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int) ([]
 				logging.Info("resample", "reset", "mode", "mono", "rate", actualDemodRate)
 				sess.monoResampler = dsp.NewResampler(actualDemodRate, streamAudioRate, resamplerTaps)
 				sess.monoResamplerRate = actualDemodRate
+				if coll != nil {
+					coll.Event("resampler_reset", "info", "mono resampler reset", telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID), map[string]any{
+						"mode": "mono",
+						"rate": actualDemodRate,
+					})
+				}
 			}
 			audio = sess.monoResampler.Process(audio)
 		}
+	}
+	if coll != nil {
+		coll.SetGauge("audio.stage.output.length", float64(len(audio)), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
 	}
 
 	// --- De-emphasis (configurable: 50µs Europe, 75µs US/Japan, 0=disabled) ---
@@ -1429,6 +1580,7 @@ func (st *Streamer) openRecordingSession(sig *detector.Signal, now time.Time) (*
 	playbackMode, stereoState := initialPlaybackState(demodName)
 
 	sess := &streamSession{
+		sessionID:    fmt.Sprintf("%d-%d-r", sig.ID, now.UnixMilli()),
 		signalID:     sig.ID,
 		centerHz:     sig.CenterHz,
 		bwHz:         sig.BWHz,
@@ -1473,6 +1625,7 @@ func (st *Streamer) openListenSession(sig *detector.Signal, now time.Time) *stre
 	playbackMode, stereoState := initialPlaybackState(demodName)
 
 	sess := &streamSession{
+		sessionID:    fmt.Sprintf("%d-%d-l", sig.ID, now.UnixMilli()),
 		signalID:     sig.ID,
 		centerHz:     sig.CenterHz,
 		bwHz:         sig.BWHz,
@@ -1677,10 +1830,16 @@ func (st *Streamer) fanoutPCM(sess *streamSession, pcm []byte, pcmLen int) {
 		default:
 			st.droppedPCM++
 			logging.Warn("drop", "pcm_drop", "count", st.droppedPCM)
+			if st.telemetry != nil {
+				st.telemetry.IncCounter("streamer.pcm.drop", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+			}
 		}
 		alive = append(alive, sub)
 	}
 	sess.audioSubs = alive
+	if st.telemetry != nil {
+		st.telemetry.SetGauge("streamer.subscribers.count", float64(len(alive)), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
+	}
 }
 
 func (st *Streamer) classAllowed(cls *classifier.Classification) bool {
@@ -1770,6 +1929,10 @@ func fixStreamWAVHeader(f *os.File, totalSamples int64, sampleRate int, channels
 func (st *Streamer) ResetStreams() {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	if st.telemetry != nil {
+		st.telemetry.IncCounter("streamer.reset.count", 1, nil)
+		st.telemetry.Event("stream_reset", "warn", "stream DSP state reset", nil, map[string]any{"sessions": len(st.sessions)})
+	}
 	for _, sess := range st.sessions {
 		sess.preDemodFIR = nil
 		sess.preDemodDecimator = nil

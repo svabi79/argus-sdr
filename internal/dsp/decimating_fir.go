@@ -11,6 +11,20 @@ type StatefulDecimatingFIRComplex struct {
 	phase  int // number of input samples until next output sample (0 => emit now)
 }
 
+func (f *StatefulDecimatingFIRComplex) Phase() int {
+	if f == nil {
+		return 0
+	}
+	return f.phase
+}
+
+func (f *StatefulDecimatingFIRComplex) TapsLen() int {
+	if f == nil {
+		return 0
+	}
+	return len(f.taps)
+}
+
 func NewStatefulDecimatingFIRComplex(taps []float64, factor int) *StatefulDecimatingFIRComplex {
 	if factor < 1 {
 		factor = 1

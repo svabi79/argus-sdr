@@ -251,6 +251,18 @@ decoder:
 debug:
   audio_dump_enabled: false
   cpu_monitoring: false
+  telemetry:
+    enabled: true
+    heavy_enabled: false
+    heavy_sample_every: 12
+    metric_sample_every: 2
+    metric_history_max: 12000
+    event_history_max: 4000
+    retention_seconds: 900
+    persist_enabled: true
+    persist_dir: debug/telemetry
+    rotate_mb: 16
+    keep_files: 8
 logging:
   level: debug
   categories: [gap, prefir, boundary]

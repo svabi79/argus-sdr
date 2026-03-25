@@ -23,6 +23,7 @@ import (
 	"sdr-wideband-suite/internal/runtime"
 	"sdr-wideband-suite/internal/sdr"
 	"sdr-wideband-suite/internal/sdrplay"
+	"sdr-wideband-suite/internal/telemetry"
 )
 
 func main() {
@@ -51,6 +52,25 @@ func main() {
 
 	cfgManager := runtime.New(cfg)
 	gpuState := &gpuStatus{Available: gpufft.Available()}
+	telemetryCfg := telemetry.Config{
+		Enabled:           cfg.Debug.Telemetry.Enabled,
+		HeavyEnabled:      cfg.Debug.Telemetry.HeavyEnabled,
+		HeavySampleEvery:  cfg.Debug.Telemetry.HeavySampleEvery,
+		MetricSampleEvery: cfg.Debug.Telemetry.MetricSampleEvery,
+		MetricHistoryMax:  cfg.Debug.Telemetry.MetricHistoryMax,
+		EventHistoryMax:   cfg.Debug.Telemetry.EventHistoryMax,
+		Retention:         time.Duration(cfg.Debug.Telemetry.RetentionSeconds) * time.Second,
+		PersistEnabled:    cfg.Debug.Telemetry.PersistEnabled,
+		PersistDir:        cfg.Debug.Telemetry.PersistDir,
+		RotateMB:          cfg.Debug.Telemetry.RotateMB,
+		KeepFiles:         cfg.Debug.Telemetry.KeepFiles,
+	}
+	telemetryCollector, err := telemetry.New(telemetryCfg)
+	if err != nil {
+		log.Fatalf("telemetry init failed: %v", err)
+	}
+	defer telemetryCollector.Close()
+	telemetryCollector.SetStatus("build", "sdrd")
 
 	newSource := func(cfg config.Config) (sdr.Source, error) {
 		if mockFlag {
@@ -74,7 +94,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("sdrplay init failed: %v (try --mock or build with -tags sdrplay)", err)
 	}
-	srcMgr := newSourceManager(src, newSource)
+	srcMgr := newSourceManagerWithTelemetry(src, newSource, telemetryCollector)
 	if err := srcMgr.Start(); err != nil {
 		log.Fatalf("source start: %v", err)
 	}
@@ -118,7 +138,7 @@ func main() {
 		DeemphasisUs:     cfg.Recorder.DeemphasisUs,
 		ExtractionTaps:   cfg.Recorder.ExtractionTaps,
 		ExtractionBwMult: cfg.Recorder.ExtractionBwMult,
-	}, cfg.CenterHz, decodeMap)
+	}, cfg.CenterHz, decodeMap, telemetryCollector)
 	defer recMgr.Close()
 
 	sigSnap := &signalSnapshot{}
@@ -126,9 +146,9 @@ func main() {
 	defer extractMgr.reset()
 
 	phaseSnap := &phaseSnapshot{}
-	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr, sigSnap, extractMgr, phaseSnap)
+	go runDSP(ctx, srcMgr, cfg, det, window, h, eventFile, eventMu, dspUpdates, gpuState, recMgr, sigSnap, extractMgr, phaseSnap, telemetryCollector)
 
-	server := newHTTPServer(cfg.WebAddr, cfg.WebRoot, h, cfgPath, cfgManager, srcMgr, dspUpdates, gpuState, recMgr, sigSnap, eventMu, phaseSnap)
+	server := newHTTPServer(cfg.WebAddr, cfg.WebRoot, h, cfgPath, cfgManager, srcMgr, dspUpdates, gpuState, recMgr, sigSnap, eventMu, phaseSnap, telemetryCollector)
 	go func() {
 		log.Printf("web listening on %s", cfg.WebAddr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

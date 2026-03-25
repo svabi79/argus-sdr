@@ -14,6 +14,7 @@ import (
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
 	"sdr-wideband-suite/internal/logging"
+	"sdr-wideband-suite/internal/telemetry"
 )
 
 func mustParseDuration(raw string, fallback time.Duration) time.Duration {
@@ -381,6 +382,7 @@ func extractForStreaming(
 				}
 				if i == 0 {
 					logging.Debug("boundary", "extract_trim", "path", "gpu", "raw_len", rawLen, "trim", trimSamples, "out_len", len(iq), "overlap_len", overlapLen, "allIQ_len", len(allIQ), "gpuIQ_len", len(gpuIQ), "outRate", outRate, "signal", signals[i].ID)
+					logExtractorHeadComparison(signals[i].ID, "gpu", overlapLen, res.IQ, trimSamples, iq)
 				}
 				out[i] = iq
 				rates[i] = res.Rate
@@ -453,8 +455,149 @@ func extractForStreaming(
 		}
 		if i == 0 {
 			logging.Debug("boundary", "extract_trim", "path", "cpu", "raw_len", rawLen, "trim", trimSamples, "out_len", len(decimated), "overlap_len", overlapLen, "allIQ_len", len(allIQ), "gpuIQ_len", len(gpuIQ), "outRate", outRate, "signal", signals[i].ID)
+			logExtractorHeadComparison(signals[i].ID, "cpu", overlapLen, decimated, trimSamples, decimated)
 		}
 		out[i] = decimated
 	}
 	return out, rates
+}
+
+type iqHeadStats struct {
+	length      int
+	minMag      float64
+	maxMag      float64
+	meanMag     float64
+	lowMag      int
+	maxStep     float64
+	maxStepIdx  int
+	p95Step     float64
+	headTail    float64
+	headMinIdx  int
+	stepSamples []float64
+}
+
+func computeIQHeadStats(iq []complex64, headLen int) iqHeadStats {
+	stats := iqHeadStats{minMag: math.MaxFloat64, headMinIdx: -1, maxStepIdx: -1}
+	if len(iq) == 0 {
+		stats.minMag = 0
+		return stats
+	}
+	n := len(iq)
+	if headLen > 0 && headLen < n {
+		n = headLen
+	}
+	stats.length = n
+	stats.stepSamples = make([]float64, 0, max(0, n-1))
+	sumMag := 0.0
+	headSum := 0.0
+	tailSum := 0.0
+	tailCount := 0
+	for i := 0; i < n; i++ {
+		v := iq[i]
+		mag := math.Hypot(float64(real(v)), float64(imag(v)))
+		if mag < stats.minMag {
+			stats.minMag = mag
+			stats.headMinIdx = i
+		}
+		if mag > stats.maxMag {
+			stats.maxMag = mag
+		}
+		sumMag += mag
+		if mag < 0.05 {
+			stats.lowMag++
+		}
+		if i < min(16, n) {
+			headSum += mag
+		}
+		if i >= max(0, n-16) {
+			tailSum += mag
+			tailCount++
+		}
+		if i > 0 {
+			p := iq[i-1]
+			num := float64(real(p))*float64(imag(v)) - float64(imag(p))*float64(real(v))
+			den := float64(real(p))*float64(real(v)) + float64(imag(p))*float64(imag(v))
+			step := math.Abs(math.Atan2(num, den))
+			if step > stats.maxStep {
+				stats.maxStep = step
+				stats.maxStepIdx = i - 1
+			}
+			stats.stepSamples = append(stats.stepSamples, step)
+		}
+	}
+	stats.meanMag = sumMag / float64(n)
+	if len(stats.stepSamples) > 0 {
+		sorted := append([]float64(nil), stats.stepSamples...)
+		sort.Float64s(sorted)
+		idx := int(float64(len(sorted)-1) * 0.95)
+		stats.p95Step = sorted[idx]
+	} else {
+		stats.p95Step = stats.maxStep
+	}
+	if headSum > 0 && tailCount > 0 {
+		headMean := headSum / float64(min(16, n))
+		tailMean := tailSum / float64(tailCount)
+		if tailMean > 0 {
+			stats.headTail = headMean / tailMean
+		}
+	}
+	return stats
+}
+
+func observeIQStats(coll *telemetry.Collector, stage string, iq []complex64, tags telemetry.Tags) {
+	if coll == nil || len(iq) == 0 {
+		return
+	}
+	stats := computeIQHeadStats(iq, len(iq))
+	stageTags := telemetry.TagsWith(tags, "stage", stage)
+	coll.Observe("iq.magnitude.min", stats.minMag, stageTags)
+	coll.Observe("iq.magnitude.max", stats.maxMag, stageTags)
+	coll.Observe("iq.magnitude.mean", stats.meanMag, stageTags)
+	coll.Observe("iq.phase_step.max", stats.maxStep, stageTags)
+	coll.Observe("iq.phase_step.p95", stats.p95Step, stageTags)
+	coll.Observe("iq.low_magnitude.count", float64(stats.lowMag), stageTags)
+	coll.SetGauge("iq.length", float64(stats.length), stageTags)
+}
+
+func logExtractorHeadComparison(signalID int64, path string, overlapLen int, raw []complex64, trimSamples int, out []complex64) {
+	rawStats := computeIQHeadStats(raw, 96)
+	trimmedStats := computeIQHeadStats(out, 96)
+	logging.Debug("boundary", "extract_head_compare",
+		"signal", signalID,
+		"path", path,
+		"raw_len", len(raw),
+		"trim", trimSamples,
+		"out_len", len(out),
+		"overlap_len", overlapLen,
+		"raw_min_mag", rawStats.minMag,
+		"raw_min_idx", rawStats.headMinIdx,
+		"raw_max_step", rawStats.maxStep,
+		"raw_max_step_idx", rawStats.maxStepIdx,
+		"raw_head_tail", rawStats.headTail,
+		"trimmed_min_mag", trimmedStats.minMag,
+		"trimmed_min_idx", trimmedStats.headMinIdx,
+		"trimmed_max_step", trimmedStats.maxStep,
+		"trimmed_max_step_idx", trimmedStats.maxStepIdx,
+		"trimmed_head_tail", trimmedStats.headTail,
+	)
+	for _, off := range []int{2, 4, 8, 16} {
+		if len(out) <= off+8 {
+			continue
+		}
+		offStats := computeIQHeadStats(out[off:], 96)
+		logging.Debug("boundary", "extract_head_offset_compare",
+			"signal", signalID,
+			"path", path,
+			"offset", off,
+			"base_min_mag", trimmedStats.minMag,
+			"base_min_idx", trimmedStats.headMinIdx,
+			"base_max_step", trimmedStats.maxStep,
+			"base_max_step_idx", trimmedStats.maxStepIdx,
+			"offset_min_mag", offStats.minMag,
+			"offset_min_idx", offStats.headMinIdx,
+			"offset_max_step", offStats.maxStep,
+			"offset_max_step_idx", offStats.maxStepIdx,
+			"offset_head_tail", offStats.headTail,
+		)
+	}
 }

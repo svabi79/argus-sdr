@@ -11,6 +11,7 @@ import (
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/sdr"
+	"sdr-wideband-suite/internal/telemetry"
 )
 
 type SpectrumDebug struct {
@@ -110,6 +111,7 @@ type sourceManager struct {
 	mu        sync.RWMutex
 	src       sdr.Source
 	newSource func(cfg config.Config) (sdr.Source, error)
+	telemetry *telemetry.Collector
 }
 
 type extractionManager struct {

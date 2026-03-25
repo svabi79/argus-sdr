@@ -21,6 +21,7 @@ import (
 	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/rds"
 	"sdr-wideband-suite/internal/recorder"
+	"sdr-wideband-suite/internal/telemetry"
 )
 
 type rdsState struct {
@@ -66,6 +67,7 @@ type dspRuntime struct {
 	arbiter          *pipeline.Arbiter
 	arbitration      pipeline.ArbitrationState
 	gotSamples       bool
+	telemetry        *telemetry.Collector
 }
 
 type spectrumArtifacts struct {
@@ -109,7 +111,7 @@ type surveillancePlan struct {
 
 const derivedIDBlock = int64(1_000_000_000)
 
-func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, gpuState *gpuStatus) *dspRuntime {
+func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, gpuState *gpuStatus, coll *telemetry.Collector) *dspRuntime {
 	detailFFT := cfg.Refinement.DetailFFTSize
 	if detailFFT <= 0 {
 		detailFFT = cfg.FFTSize
@@ -134,6 +136,7 @@ func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, 
 		streamPhaseState: map[int64]*streamExtractState{},
 		streamOverlap:    &streamIQOverlap{},
 		arbiter:          pipeline.NewArbiter(),
+		telemetry:        coll,
 	}
 	if rt.useGPU && gpuState != nil {
 		snap := gpuState.snapshot()
@@ -230,6 +233,15 @@ func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *rec
 		} else if gpuState != nil {
 			gpuState.set(false, nil)
 		}
+	}
+	if rt.telemetry != nil {
+		rt.telemetry.Event("dsp_config_update", "info", "dsp runtime configuration updated", nil, map[string]any{
+			"fft_size":     rt.cfg.FFTSize,
+			"sample_rate":  rt.cfg.SampleRate,
+			"use_gpu_fft":  rt.cfg.UseGPUFFT,
+			"detail_fft":   rt.detailFFT,
+			"surv_strategy": rt.cfg.Surveillance.Strategy,
+		})
 	}
 }
 
@@ -350,12 +362,19 @@ func (rt *dspRuntime) decimateSurveillanceIQ(iq []complex64, factor int) []compl
 }
 
 func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manager, dcBlocker *dsp.DCBlocker, gpuState *gpuStatus) (*spectrumArtifacts, error) {
+	start := time.Now()
 	required := rt.cfg.FFTSize
 	if rt.detailFFT > required {
 		required = rt.detailFFT
 	}
 	available := required
 	st := srcMgr.Stats()
+	if rt.telemetry != nil {
+		rt.telemetry.SetGauge("source.buffer_samples", float64(st.BufferSamples), nil)
+		rt.telemetry.SetGauge("source.last_sample_ago_ms", float64(st.LastSampleAgoMs), nil)
+		rt.telemetry.SetGauge("source.dropped", float64(st.Dropped), nil)
+		rt.telemetry.SetGauge("source.resets", float64(st.Resets), nil)
+	}
 	if forceFixedStreamReadSamples > 0 {
 		available = forceFixedStreamReadSamples
 		if available < required {
@@ -373,12 +392,24 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 		}
 	}
 	logging.Debug("capture", "read_iq", "required", required, "available", available, "buf", st.BufferSamples, "reset", st.Resets, "drop", st.Dropped)
+	readStart := time.Now()
 	allIQ, err := srcMgr.ReadIQ(available)
 	if err != nil {
+		if rt.telemetry != nil {
+			rt.telemetry.IncCounter("capture.read.error", 1, nil)
+		}
 		return nil, err
 	}
+	if rt.telemetry != nil {
+		rt.telemetry.Observe("capture.read.duration_ms", float64(time.Since(readStart).Microseconds())/1000.0, nil)
+		rt.telemetry.Observe("capture.read.samples", float64(len(allIQ)), nil)
+	}
 	if rec != nil {
+		ingestStart := time.Now()
 		rec.Ingest(time.Now(), allIQ)
+		if rt.telemetry != nil {
+			rt.telemetry.Observe("capture.ingest.duration_ms", float64(time.Since(ingestStart).Microseconds())/1000.0, nil)
+		}
 	}
 	// Cap allIQ for downstream extraction to prevent buffer bloat.
 	// Without this cap, buffer accumulation during processing stalls causes
@@ -395,6 +426,13 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	if len(allIQ) > maxStreamSamples {
 		allIQ = allIQ[len(allIQ)-maxStreamSamples:]
 		streamDropped = true
+		if rt.telemetry != nil {
+			rt.telemetry.IncCounter("capture.stream_drop.count", 1, nil)
+			rt.telemetry.Event("iq_dropped", "warn", "capture IQ dropped before extraction", nil, map[string]any{
+				"max_stream_samples": maxStreamSamples,
+				"required":           required,
+			})
+		}
 	}
 	logging.Debug("capture", "iq_len", "len", len(allIQ), "surv_fft", rt.cfg.FFTSize, "detail_fft", rt.detailFFT)
 	survIQ := allIQ
@@ -407,12 +445,26 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	}
 	if rt.dcEnabled {
 		dcBlocker.Apply(allIQ)
+		if rt.telemetry != nil {
+			rt.telemetry.IncCounter("dsp.dc_block.apply", 1, nil)
+		}
 	}
 	if rt.iqEnabled {
 		dsp.IQBalance(survIQ)
 		if !sameIQBuffer(detailIQ, survIQ) {
 			detailIQ = append([]complex64(nil), detailIQ...)
 			dsp.IQBalance(detailIQ)
+		}
+	}
+	if rt.telemetry != nil {
+		rt.telemetry.SetGauge("iq.stage.all.length", float64(len(allIQ)), nil)
+		rt.telemetry.SetGauge("iq.stage.surveillance.length", float64(len(survIQ)), nil)
+		rt.telemetry.SetGauge("iq.stage.detail.length", float64(len(detailIQ)), nil)
+		rt.telemetry.Observe("capture.total.duration_ms", float64(time.Since(start).Microseconds())/1000.0, nil)
+		if rt.telemetry.ShouldSampleHeavy() {
+			observeIQStats(rt.telemetry, "capture_all", allIQ, nil)
+			observeIQStats(rt.telemetry, "capture_surveillance", survIQ, nil)
+			observeIQStats(rt.telemetry, "capture_detail", detailIQ, nil)
 		}
 	}
 	survSpectrum := rt.spectrumFromIQ(survIQ, gpuState)
@@ -457,6 +509,10 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	}
 	now := time.Now()
 	finished, detected := rt.det.Process(now, survSpectrum, rt.cfg.CenterHz)
+	if rt.telemetry != nil {
+		rt.telemetry.SetGauge("signals.detected.count", float64(len(detected)), nil)
+		rt.telemetry.SetGauge("signals.finished.count", float64(len(finished)), nil)
+	}
 	return &spectrumArtifacts{
 		allIQ:                allIQ,
 		streamDropped:        streamDropped,

@@ -210,6 +210,12 @@ This should **not** be reintroduced casually.
 A temporary mechanism exists to force stable extraction block sizes.
 This is useful diagnostically because it removes one source of pipeline variability.
 
+**IMPORTANT DECISION / DO NOT LOSE:**
+- The fixed read-size path currently lives behind the environment variable `SDR_FORCE_FIXED_STREAM_READ_SAMPLES`.
+- The tested value `389120` clearly helps by making `allIQ`, `gpuIQ_len`, `raw_len`, and `out_len` much more stable and by reducing one major source of pipeline variability.
+- Current plan: **once the remaining click root cause is solved, promote this behavior into the normal code path instead of leaving it as an env-var-only debug switch.**
+- In other words: treat fixed read sizing as a likely permanent stabilization improvement, but do not bake it in blindly until the click investigation is complete.
+
 ### 3. FM discriminator metering exists
 `internal/demod/fm.go` now emits targeted discriminator stats under `discrim` logging, including:
 - min/max IQ magnitude
@@ -260,14 +266,17 @@ Interpretation:
 
 ### 8. Current architectural conclusion
 The likely clean fix is **not** to keep trimming samples away.
-Instead, the likely correct direction is:
-- replace the current “stateful FIR, then separate decimation” handoff with a **stateful decimating FIR / polyphase decimator**
-- preserve phase and delay state explicitly
-- ensure the first emitted decimated samples are already truly valid for demodulation
+The FIR/decimation section is still suspicious, but later tests showed it is likely not the sole origin.
 
 Important nuance:
 - the currently suspicious FIR + decimation section is already running in **Go/CPU** (`processSnippet`), not in CUDA
 - therefore the next correctness fix should be developed and validated in Go first
+
+Later update:
+- a stateful decimating FIR / polyphase-style replacement was implemented in Go and tested
+- it was architecturally cleaner than the old separated FIR->decimate handoff
+- but it did **not** remove the recurring hot spot / clicks
+- therefore the old handoff was not the whole root cause, even if the newer path is still cleaner
 
 ---
 
@@ -296,18 +305,21 @@ Crucially:
 
 This strongly suggests a **settling/transient zone at the beginning of the decimated IQ block**.
 
+Later refinements to this theory:
+- pre-FIR probing originally looked cleaner than post-FIR probing, which made FIR/decimation look like the main culprit
+- however, a temporary FIR bypass showed the clicks were still present, only somewhat quieter / less aggressive
+- this indicates the pre-demod FIR likely amplifies or sharpens an upstream issue, but is not the sole origin
+- a cleaner stateful decimating FIR implementation also failed to eliminate the recurring hot spot, further weakening the idea that the old FIR->decimate handoff alone caused the bug
+
 ---
 
 ## Recommended next steps
 
-1. Run with reduced logging only (`demod`, `gap`, `boundary`) unless discriminator logging is specifically needed again.
-2. Keep heavy dump features OFF unless explicitly needed.
-3. Treat the beginning of the `dec` block as the highest-priority investigation zone.
-4. Continue analysing whether the observed issue is:
-   - an expected FIR/decimation settling region being handled incorrectly, or
-   - evidence that corrupted IQ is already entering the pre-demod FIR
-5. When testing fixes, prefer low-overhead, theory-driven experiments over broad logging/dump spam.
-6. Only re-enable audio dump windows selectively and briefly.
+1. Run with reduced logging only and keep heavy dump features OFF unless explicitly needed.
+2. Continue investigating the extractor path and its immediate surroundings (`extractForStreaming`, signal parameter source, offset/BW stability, overlap/trim behavior).
+3. Treat FIR/decimation as a possible amplifier/focuser of the issue, but not the only suspect.
+4. When testing fixes, prefer low-overhead, theory-driven experiments over broad logging/dump spam.
+5. Only re-enable audio dump windows selectively and briefly.
 
 ---
 
