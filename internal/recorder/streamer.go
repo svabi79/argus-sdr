@@ -127,6 +127,13 @@ type streamSession struct {
 	pilotLPFHi       *dsp.StatefulFIRReal // ~21kHz LP for pilot bandpass high
 	pilotLPFLo       *dsp.StatefulFIRReal // ~17kHz LP for pilot bandpass low
 
+	// WFM 15kHz audio LPF — removes pilot (19kHz), L-R subcarrier (23-53kHz),
+	// and RDS (57kHz) from the FM discriminator output before resampling.
+	// Without this, the pilot leaks into the audio as a 19kHz tone (+55dB above
+	// noise floor) and L-R subcarrier energy causes audible click-like artifacts.
+	wfmAudioLPF     *dsp.StatefulFIRReal
+	wfmAudioLPFRate int
+
 	// Stateful pre-demod anti-alias FIR (eliminates cold-start transients
 	// and avoids per-frame FIR recomputation)
 	preDemodFIR       *dsp.StatefulFIRComplex
@@ -1348,6 +1355,11 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int, col
 			audio = stereoAudio
 		} else {
 			sess.stereoState = "mono-fallback"
+			// Apply 15kHz LPF before output: the raw discriminator contains
+			// the 19kHz pilot (+55dB), L-R subcarrier (23-53kHz), and RDS (57kHz).
+			// Without filtering, the pilot leaks into audio and subcarrier
+			// energy produces audible click-like artifacts.
+			audio = sess.wfmAudioFilter(audio, actualDemodRate)
 			dual := make([]float32, len(audio)*2)
 			for i, s := range audio {
 				dual[i*2] = s
@@ -1358,6 +1370,9 @@ func (sess *streamSession) processSnippet(snippet []complex64, snipRate int, col
 		if (prevPlayback != sess.playbackMode || prevStereo != sess.stereoState) && len(sess.audioSubs) > 0 {
 			sendAudioInfo(sess.audioSubs, sess.audioInfo())
 		}
+	} else if isWFM {
+		// Plain WFM (not stereo): also needs 15kHz LPF on discriminator output
+		audio = sess.wfmAudioFilter(audio, actualDemodRate)
 	}
 
 	// --- Polyphase resample to exact 48kHz ---
@@ -1458,6 +1473,20 @@ func pllCoefficients(loopBW, damping float64, sampleRate int) (float64, float64)
 	alpha := (4 * damping * theta) / d
 	beta := (4 * theta * theta) / d
 	return alpha, beta
+}
+
+// wfmAudioFilter applies a stateful 15kHz lowpass to WFM discriminator output.
+// Removes the 19kHz stereo pilot, L-R DSB-SC subcarrier (23-53kHz), and RDS (57kHz)
+// that would otherwise leak into the audio output as clicks and tonal artifacts.
+func (sess *streamSession) wfmAudioFilter(audio []float32, sampleRate int) []float32 {
+	if len(audio) == 0 || sampleRate <= 0 {
+		return audio
+	}
+	if sess.wfmAudioLPF == nil || sess.wfmAudioLPFRate != sampleRate {
+		sess.wfmAudioLPF = dsp.NewStatefulFIRReal(dsp.LowpassFIR(15000, sampleRate, 101))
+		sess.wfmAudioLPFRate = sampleRate
+	}
+	return sess.wfmAudioLPF.Process(audio)
 }
 
 // stereoDecodeStateful: pilot-locked 38kHz oscillator for L-R extraction.
@@ -1612,6 +1641,8 @@ type dspStateSnapshot struct {
 	preDemodRate        int
 	preDemodCutoff      float64
 	preDemodDecimPhase  int
+	wfmAudioLPF         *dsp.StatefulFIRReal
+	wfmAudioLPFRate     int
 }
 
 func (sess *streamSession) captureDSPState() dspStateSnapshot {
@@ -1645,6 +1676,8 @@ func (sess *streamSession) captureDSPState() dspStateSnapshot {
 		preDemodRate:        sess.preDemodRate,
 		preDemodCutoff:      sess.preDemodCutoff,
 		preDemodDecimPhase:  sess.preDemodDecimPhase,
+		wfmAudioLPF:         sess.wfmAudioLPF,
+		wfmAudioLPFRate:     sess.wfmAudioLPFRate,
 	}
 }
 
@@ -1678,6 +1711,8 @@ func (sess *streamSession) restoreDSPState(s dspStateSnapshot) {
 	sess.preDemodRate = s.preDemodRate
 	sess.preDemodCutoff = s.preDemodCutoff
 	sess.preDemodDecimPhase = s.preDemodDecimPhase
+	sess.wfmAudioLPF = s.wfmAudioLPF
+	sess.wfmAudioLPFRate = s.wfmAudioLPFRate
 }
 
 // ---------------------------------------------------------------------------
@@ -2071,5 +2106,6 @@ func (st *Streamer) ResetStreams() {
 		sess.preDemodDecimPhase = 0
 		sess.stereoResampler = nil
 		sess.monoResampler = nil
+		sess.wfmAudioLPF = nil
 	}
 }

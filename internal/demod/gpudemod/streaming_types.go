@@ -3,7 +3,6 @@ package gpudemod
 import (
 	"fmt"
 	"hash/fnv"
-	"math"
 )
 
 type StreamingExtractJob struct {
@@ -49,18 +48,17 @@ func ResetExtractStreamState(state *ExtractStreamState, cfgHash uint64) {
 }
 
 func StreamingConfigHash(signalID int64, offsetHz float64, bandwidth float64, outRate int, numTaps int, sampleRate int) uint64 {
-	// Quantize offset and bandwidth to 1 kHz resolution before hashing.
-	// The detector's exponential smoothing causes CenterHz (and therefore offsetHz)
-	// to jitter by fractions of a Hz every frame. With %.9f formatting, this
-	// produced a new hash every frame → full state reset (NCOPhase=0, History=[],
-	// PhaseCount=0) → FIR settling + phase discontinuity → audible clicks.
+	// Hash only structural parameters that change the FIR/decimation geometry.
+	// Offset is NOT included because the NCO phase_inc tracks it smoothly each frame.
+	// Bandwidth is NOT included because taps are rebuilt every frame in getOrInitExtractState.
+	// A state reset (zeroing NCO phase, history, phase count) is only needed when
+	// decimation factor, tap count, or sample rate changes — all of which affect
+	// buffer sizes and polyphase structure.
 	//
-	// The NCO phase_inc is computed from the exact offset each frame, so small
-	// frequency changes are tracked smoothly without a reset. Only structural
-	// changes (bandwidth affecting FIR taps, decimation, tap count) need a reset.
-	qOff := math.Round(offsetHz / 1000) * 1000
-	qBW := math.Round(bandwidth / 1000) * 1000
+	// Previous bug: offset and bandwidth were formatted at %.9f precision, causing
+	// a new hash (and full state reset) every single frame because the detector's
+	// exponential smoothing changes CenterHz by sub-Hz fractions each frame.
 	h := fnv.New64a()
-	_, _ = h.Write([]byte(fmt.Sprintf("sig=%d|off=%.0f|bw=%.0f|out=%d|taps=%d|sr=%d", signalID, qOff, qBW, outRate, numTaps, sampleRate)))
+	_, _ = h.Write([]byte(fmt.Sprintf("sig=%d|out=%d|taps=%d|sr=%d", signalID, outRate, numTaps, sampleRate)))
 	return h.Sum64()
 }
