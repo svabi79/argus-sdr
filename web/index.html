@@ -103,6 +103,10 @@
 
         <div class="rail-tabs" role="tablist" aria-label="Control tabs">
           <button class="rail-tab active" data-tab="radio" type="button">Radio</button>
+          <button class="rail-tab" data-tab="detect" type="button">Detect</button>
+          <button class="rail-tab" data-tab="record" type="button">Record</button>
+          <button class="rail-tab" data-tab="refine" type="button">Refine</button>
+          <button class="rail-tab" data-tab="policy" type="button">Policy</button>
           <button class="rail-tab" data-tab="signals" type="button">Signals</button>
           <button class="rail-tab" data-tab="events" type="button">Events</button>
           <button class="rail-tab" data-tab="health" type="button">Health</button>
@@ -174,8 +178,15 @@
               </div>
             </div>
 
+
+          </section>
+
+          <!-- ── Detect Tab ── -->
+          <section class="tab-panel" data-panel="detect">
+            <div class="config-grid">
             <div class="form-group">
               <div class="grp-title">Classifier</div>
+              <div class="form-hint">Signal classification behavior and switching thresholds.</div>
               <label class="field"><span>Classifier</span>
                 <select id="classifierModeSelect">
                   <option value="rule">Rule-Based</option>
@@ -187,6 +198,7 @@
 
             <div class="form-group">
               <div class="grp-title">Detector</div>
+              <div class="form-hint">Thresholding, CFAR, and temporal stability for live carrier detection.</div>
               <div class="slider-field">
                 <span>Threshold</span>
                 <div class="slider-row"><input id="thresholdRange" type="range" min="-120" max="0" step="1" class="range--warn" /><input id="thresholdInput" type="number" min="-120" max="0" step="1" class="slider-num" /><em>dB</em></div>
@@ -218,9 +230,15 @@
                 <label class="pill-toggle"><input id="cfarWrapToggle" type="checkbox" checked /><span class="pt"><span class="pk"></span></span><span class="pl">Wrap-Around</span></label>
               </div>
             </div>
+            </div>
+          </section>
 
+          <!-- ── Record Tab ── -->
+          <section class="tab-panel" data-panel="record">
+            <div class="config-grid">
             <div class="form-group">
               <div class="grp-title">Recorder</div>
+              <div class="form-hint">Recording enablement, media types, decoding, and retention limits.</div>
               <div class="toggle-grid">
                 <label class="pill-toggle"><input id="recEnableToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">Enabled</span></label>
                 <label class="pill-toggle"><input id="recIQToggle" type="checkbox" /><span class="pt"><span class="pk"></span></span><span class="pl">Record IQ</span></label>
@@ -232,9 +250,15 @@
               <label class="field"><span>Max Disk (MB)</span><input id="recMaxDisk" type="number" step="256" min="0" /></label>
               <label class="field"><span>Class Filter (CSV)</span><input id="recClassFilter" type="text" placeholder="e.g. NFM,USB" /></label>
             </div>
+            </div>
+          </section>
 
+          <!-- ── Refine Tab ── -->
+          <section class="tab-panel" data-panel="refine">
+            <div class="config-grid">
             <div class="form-group">
               <div class="grp-title">Resources</div>
+              <div class="form-hint">Concurrency and job-budget controls for refinement, recording, and decode.</div>
               <div class="field-pair">
                 <label class="field"><span>Max Refinement</span><input id="resMaxRefine" type="number" step="1" min="0" /></label>
                 <label class="field"><span>Max Record</span><input id="resMaxRecord" type="number" step="1" min="0" /></label>
@@ -246,6 +270,7 @@
 
             <div class="form-group">
               <div class="grp-title">Refinement Windows</div>
+              <div class="form-hint">Window sizing for refinement passes when candidate bandwidth is known or inferred.</div>
               <label class="field"><span>Auto Span</span>
                 <select id="refineAutoSpan" class="ctrl-select">
                   <option value="true">Auto</option>
@@ -258,12 +283,26 @@
               </div>
               <div class="panel-sub">Auto span uses modulation hints when candidate BW is missing. Min/Max clamp the final window.</div>
             </div>
+            </div>
+          </section>
+
+          <!-- ── Policy Tab ── -->
+          <section class="tab-panel" data-panel="policy">
+            <div class="form-group">
+              <div class="grp-title">Pipeline Policy</div>
+              <div class="ops-list" id="policySummaryList"><div class="ops-line ops-line--muted">Loading policy…</div></div>
+            </div>
+            <div class="form-group">
+              <div class="grp-title">Recommendations</div>
+              <div class="ops-list" id="policyRecommendationList"><div class="ops-line ops-line--muted">Loading recommendations…</div></div>
+            </div>
           </section>
 
           <!-- ── Signals Tab ── -->
           <section class="tab-panel" data-panel="signals">
             <div class="list-head"><span class="grp-title">Detected carriers</span><span class="count-pill" id="signalCountBadge">0 live</span></div>
             <div class="signal-list" id="signalList"><div class="empty-state">No live signals yet.</div></div>
+            <div class="panel-sub" id="signalSummaryLine">Visible: 0 · Strongest: - · Selected: -</div>
             <div class="panel-sub" id="signalDecisionSummary">Decision: -</div>
             <div class="panel-sub" id="signalQueueSummary">Queue: -</div>
             <div class="field-pair">
@@ -315,6 +354,25 @@
               <div class="health-card"><span class="health-lbl">Refine windows</span><span class="health-val" id="healthRefineWindows">-</span></div>
               <div class="health-card health-card--wide"><span class="health-lbl">GPU status</span><span class="health-val" id="healthGpu">-</span></div>
               <div class="health-card health-card--wide"><span class="health-lbl">Render rate</span><span class="health-val" id="healthFps">-</span></div>
+            </div>
+            <div class="health-status-card">
+              <div class="health-lbl">Operator Status</div>
+              <div class="status-grid">
+                <div class="status-row"><span class="status-key">WS</span><span class="status-val" id="healthWs">-</span></div>
+                <div class="status-row"><span class="status-key">API</span><span class="status-val" id="healthApi">-</span></div>
+                <div class="status-row"><span class="status-key">Config</span><span class="status-val" id="healthConfig">-</span></div>
+                <div class="status-row"><span class="status-key">Source</span><span class="status-val" id="healthSource">-</span></div>
+                <div class="status-row"><span class="status-key">Refinement</span><span class="status-val" id="healthRefine">-</span></div>
+                <div class="status-row"><span class="status-key">Telemetry</span><span class="status-val" id="healthTelemetry">-</span></div>
+              </div>
+            </div>
+            <div class="health-status-card">
+              <div class="health-lbl">Refinement Snapshot</div>
+              <div class="ops-list" id="refineDetails"><div class="ops-line ops-line--muted">Loading refinement snapshot...</div></div>
+            </div>
+            <div class="health-status-card">
+              <div class="health-lbl">Telemetry Recent Events</div>
+              <div class="ops-list" id="telemetryEventList"><div class="ops-line ops-line--muted">Loading telemetry events...</div></div>
             </div>
           </section>
 
@@ -391,6 +449,7 @@
         <div class="insp-note" id="recordingMeta">Recording: -</div>
         <div class="insp-note" id="decodeResult">Decode: -</div>
         <div class="insp-note" id="classifierScores">Classifier scores: -</div>
+        <div class="score-bars" id="classifierScoreBars"></div>
         <div class="insp-note">
           <a id="recordingMetaLink" href="#" target="_blank">meta.json</a> ·
           <a id="recordingIQLink" href="#" target="_blank">IQ</a> ·
@@ -417,6 +476,8 @@
     </div>
 
   </div>
+  <script src="api-client.js"></script>
+  <script src="operator-panel.js"></script>
   <script src="app.js"></script>
   <script>
     // Keyboard overlay toggle (new feature)

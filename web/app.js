@@ -69,14 +69,17 @@ const refineMaxSpan = qs('refineMaxSpan');
 const resMaxRefine = qs('resMaxRefine');
 const resMaxRecord = qs('resMaxRecord');
 const resMaxDecode = qs('resMaxDecode');
+const resDecisionHold = qs('resDecisionHold');
 
 const signalList = qs('signalList');
 const signalDecisionSummary = qs('signalDecisionSummary');
+const signalQueueSummary = qs('signalQueueSummary');
 const eventList = qs('eventList');
 const recordingList = qs('recordingList');
 const signalCountBadge = qs('signalCountBadge');
 const eventCountBadge = qs('eventCountBadge');
 const recordingCountBadge = qs('recordingCountBadge');
+const signalSummaryLine = qs('signalSummaryLine');
 
 const healthBuffer = qs('healthBuffer');
 const healthDropped = qs('healthDropped');
@@ -86,6 +89,16 @@ const healthGpu = qs('healthGpu');
 const healthFps = qs('healthFps');
 const healthRefinePlan = qs('healthRefinePlan');
 const healthRefineWindows = qs('healthRefineWindows');
+const healthWs = qs('healthWs');
+const healthApi = qs('healthApi');
+const healthConfig = qs('healthConfig');
+const healthRefine = qs('healthRefine');
+const healthTelemetry = qs('healthTelemetry');
+const healthSource = qs('healthSource');
+const refineDetails = qs('refineDetails');
+const telemetryEventList = qs('telemetryEventList');
+const policySummaryList = qs('policySummaryList');
+const policyRecommendationList = qs('policyRecommendationList');
 
 const drawerEl = qs('eventDrawer');
 const drawerCloseBtn = qs('drawerClose');
@@ -134,11 +147,35 @@ let latest = null;
 let currentConfig = null;
 let liveAudio = null;
 let liveListenWS = null; // WebSocket-based live listen
+let spectrumWS = null;
 let liveListenTarget = null; // { freq, bw, mode }
 let liveListenInfo = null;
 let stats = { buffer_samples: 0, dropped: 0, resets: 0, last_sample_ago_ms: -1 };
 let refinementInfo = {};
 let decisionIndex = new Map();
+let telemetryLive = null;
+let policyInfo = null;
+let policyRecommendations = null;
+let wsState = 'init';
+let wsLastMessageTs = 0;
+let wsCarriesSignals = false;
+let wsCarriesDebug = false;
+let apiState = { ok: false, latencyMs: null, lastOkTs: 0, lastError: '' };
+const apiClient = window.SpectreApi?.createClient
+  ? window.SpectreApi.createClient({ timeoutMs: 4500 })
+  : null;
+const operatorPanel = window.OperatorPanel?.create
+  ? window.OperatorPanel.create({
+    healthWs,
+    healthApi,
+    healthConfig,
+    healthRefine,
+    healthTelemetry,
+    healthSource,
+    refineDetails,
+    telemetryEvents: telemetryEventList
+  })
+  : null;
 
 // ---------------------------------------------------------------------------
 // LiveListenWS — WebSocket-based gapless audio streaming via /ws/audio
@@ -258,12 +295,25 @@ class LiveListenWS {
   }
 
   _onPCM(buf) {
+    const chunk = new Int16Array(buf);
+    const maxPendingFrames = Math.ceil(this.sampleRate * 0.25);
+    const maxPendingSamples = maxPendingFrames * Math.max(1, this.channels);
+
+    if (this._pendingLen + chunk.length > maxPendingSamples) {
+      this._pendingSamples = [chunk];
+      this._pendingLen = chunk.length;
+      if (this._flushTimer) {
+        clearTimeout(this._flushTimer);
+        this._flushTimer = 0;
+      }
+    } else {
+      this._pendingSamples.push(chunk);
+      this._pendingLen += chunk.length;
+    }
+
     // Coalesce small chunks: accumulate until we have >= 40ms or 50ms passes.
     // This reduces BufferSource scheduling overhead from ~12/sec to ~6/sec
     // and produces larger, more stable buffers.
-    this._pendingSamples.push(new Int16Array(buf));
-    this._pendingLen += buf.byteLength / 2; // Int16 = 2 bytes
-
     const minFrames = Math.ceil(this.sampleRate * 0.04); // 40ms worth
     const haveFrames = Math.floor(this._pendingLen / this.channels);
 
@@ -552,9 +602,26 @@ let dragStartPan = 0;
 let navDrag = false;
 let timelineFrozen = false;
 
+// Keep the browser path best-effort under load so audio work wins over paint churn.
+const TARGET_VISUAL_FPS = 24;
+const VISUAL_FRAME_INTERVAL_MS = 1000 / TARGET_VISUAL_FPS;
+const WATERFALL_FRAME_INTERVAL_MS = 1000 / 10;
+const LIST_RENDER_INTERVAL_MS = 250;
+const HERO_RENDER_INTERVAL_MS = 200;
+const STATUS_RENDER_INTERVAL_MS = 250;
+
 let renderFrames = 0;
 let renderFps = 0;
 let lastFpsTs = performance.now();
+let lastVisualRenderTs = 0;
+let lastWaterfallRenderTs = 0;
+let lastListRenderTs = 0;
+let lastHeroRenderTs = 0;
+let lastStatusRenderTs = 0;
+let pendingWaterfallRender = true;
+let pendingListRender = true;
+let pendingHeroRender = true;
+let pendingStatusRender = true;
 
 let wsReconnectTimer = null;
 let eventsFetchInFlight = false;
@@ -575,9 +642,11 @@ const timelineWindowMs = 5 * 60 * 1000;
 
 function setConfigStatus(text) {
   configStatusEl.textContent = text;
+  updateOperatorStatus();
 }
 
 function setWsBadge(text, kind = 'neutral') {
+  wsState = kind === 'ok' ? 'live' : (kind === 'bad' ? 'retrying' : 'connecting');
   wsBadge.textContent = text;
   wsBadge.style.borderColor = kind === 'ok'
     ? 'rgba(124, 251, 131, 0.35)'
@@ -586,6 +655,81 @@ function setWsBadge(text, kind = 'neutral') {
       : 'rgba(112, 150, 207, 0.18)';
 }
 
+function updateApiState(result) {
+  if (!result) return;
+  const latency = result.meta?.duration_ms;
+  if (Number.isFinite(latency)) apiState.latencyMs = latency;
+  if (result.ok) {
+    apiState.ok = true;
+    apiState.lastOkTs = Date.now();
+    apiState.lastError = '';
+  } else {
+    apiState.ok = false;
+    apiState.lastError = result.error || (result.status ? `HTTP ${result.status}` : 'request failed');
+  }
+}
+
+function fmtAgeShort(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '-';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`;
+  return `${Math.round(ms / 60000)} min`;
+}
+
+function renderOperatorStatusNow() {
+  if (operatorPanel) {
+    operatorPanel.updateStatus({
+      wsState,
+      wsLastMessageTs,
+      apiState,
+      configStatusText: configStatusEl?.textContent || '-',
+      refinementInfo,
+      telemetryLive,
+      sourceAgeMs: stats?.last_sample_ago_ms
+    });
+    return;
+  }
+  if (healthWs) {
+    const age = wsLastMessageTs > 0 ? fmtAgeShort(Date.now() - wsLastMessageTs) : '-';
+    healthWs.textContent = `${wsState} | last ${age}`;
+  }
+  if (healthApi) {
+    const latency = Number.isFinite(apiState.latencyMs) ? `${apiState.latencyMs} ms` : 'n/a';
+    healthApi.textContent = apiState.ok ? `ok | ${latency}` : `degraded | ${apiState.lastError || 'n/a'}`;
+  }
+  if (healthConfig) {
+    healthConfig.textContent = configStatusEl?.textContent || '-';
+  }
+  if (healthRefine) {
+    const plan = refinementInfo.plan || {};
+    const queue = refinementInfo.arbitration?.queue || {};
+    healthRefine.textContent = `${plan.selected?.length || 0}/${plan.budget || 0} | q ${queue.record_queued || 0}/${queue.decode_queued || 0}`;
+  }
+  if (healthTelemetry) {
+    if (!telemetryLive) {
+      healthTelemetry.textContent = 'unavailable';
+    } else {
+      const enabled = telemetryLive.enabled === false ? 'off' : 'on';
+      const collector = telemetryLive.collector || {};
+      const recent = Array.isArray(telemetryLive.recent_events) ? telemetryLive.recent_events.length : 0;
+      const heavy = collector.heavy_enabled ? 'heavy' : 'light';
+      healthTelemetry.textContent = `${enabled} | ${heavy} | events ${recent}`;
+    }
+  }
+}
+
+function flushOperatorStatus(now, force = false) {
+  if (!pendingStatusRender) return;
+  if (!force && now - lastStatusRenderTs < STATUS_RENDER_INTERVAL_MS) return;
+  pendingStatusRender = false;
+  lastStatusRenderTs = now;
+  renderOperatorStatusNow();
+}
+
+function updateOperatorStatus(force = false) {
+  pendingStatusRender = true;
+  if (force) flushOperatorStatus(performance.now(), true);
+}
 function toMHz(hz) { return hz / 1e6; }
 function fromMHz(mhz) { return mhz * 1e6; }
 function fmtMHz(hz, digits = 3) { return `${(hz / 1e6).toFixed(digits)} MHz`; }
@@ -642,6 +786,7 @@ function renderSignalPopover(rect, signal) {
   signalPopover.innerHTML = `<div class="signal-popover__title">${primaryMode}${signal.class?.pll?.rds_station ? ' · ' + signal.class.pll.rds_station : ''}</div><div class="signal-popover__meta">${fmtMHz(signal.class?.pll?.exact_hz || signal.center_hz, 5)} · ${fmtKHz(signal.bw_hz || 0)} · ${(signal.snr_db || 0).toFixed(1)} dB SNR${runtimeInfo ? ` · ${runtimeInfo}` : ''}${signal.class?.pll?.locked ? ` · PLL ${signal.class.pll.method} LOCK` : ''}${signal.class?.pll?.stereo ? ' · STEREO' : ''}</div><div class="signal-popover__scores">${rows || '<div class="signal-popover__meta">No classifier scores</div>'}</div>`;
   const popW = 220;
   const top = rect.y + 8;
+  const left = rect.x + (rect.w / 2) - (popW / 2);
   const maxLeft = Math.max(8, spectrumCanvas.width - popW - 8);
   signalPopover.style.left = `${Math.max(8, Math.min(maxLeft, left))}px`;
   signalPopover.style.top = `${Math.max(8, top)}px`;
@@ -738,6 +883,7 @@ function drawThresholdOverlay(ctx, w, h, minDb, maxDb) {
 
 function markSpectrumDirty() {
   processingDirty = true;
+  pendingWaterfallRender = true;
 }
 
 function processSpectrum(spectrum) {
@@ -797,6 +943,7 @@ function resizeCanvas(canvas) {
 
 function resizeAll() {
   [navCanvas, spectrumCanvas, waterfallCanvas, occupancyCanvas, timelineCanvas, detailSpectrogram].forEach(resizeCanvas);
+  pendingWaterfallRender = true;
 }
 window.addEventListener('resize', resizeAll);
 resizeAll();
@@ -883,78 +1030,143 @@ function applyConfigToUI(cfg) {
 }
 
 async function loadConfig() {
-  try {
-    const res = await fetch('/api/config');
-    if (!res.ok) throw new Error('config');
-    currentConfig = await res.json();
+  if (!apiClient) return;
+  const res = await apiClient.getConfig();
+  updateApiState(res);
+  if (res.ok && res.data) {
+    currentConfig = res.data;
     applyConfigToUI(currentConfig);
     setConfigStatus('Config synced');
-  } catch {
+  } else {
     setConfigStatus('Config offline');
   }
+  updateOperatorStatus();
 }
 
 async function loadSignals() {
-  try {
-    const res = await fetch('/api/signals');
-    if (!res.ok) return;
-    const sigs = await res.json();
-    if (Array.isArray(sigs)) {
-      latest = latest || {};
-      latest.signals = sigs;
-      renderLists();
-    }
-  } catch {}
+  if (!apiClient) return;
+  const res = await apiClient.getSignals();
+  updateApiState(res);
+  if (!res.ok || !Array.isArray(res.data)) return;
+  latest = latest || {};
+  latest.signals = res.data;
+  updateHeroMetrics();
+  renderLists();
 }
 
 async function loadDecoders() {
-  if (!decodeModeSelect) return;
-  try {
-    const res = await fetch('/api/decoders');
-    if (!res.ok) return;
-    const list = await res.json();
-    if (!Array.isArray(list)) return;
-    const current = decodeModeSelect.value;
-    decodeModeSelect.innerHTML = '';
-    list.forEach((mode) => {
-      const opt = document.createElement('option');
-      opt.value = mode;
-      opt.textContent = mode;
-      decodeModeSelect.appendChild(opt);
-    });
-    if (current) decodeModeSelect.value = current;
-  } catch {}
+  if (!decodeModeSelect || !apiClient) return;
+  const res = await apiClient.getDecoders();
+  updateApiState(res);
+  if (!res.ok || !Array.isArray(res.data)) return;
+  const current = decodeModeSelect.value;
+  decodeModeSelect.innerHTML = '';
+  res.data.forEach((mode) => {
+    const opt = document.createElement('option');
+    opt.value = mode;
+    opt.textContent = mode;
+    decodeModeSelect.appendChild(opt);
+  });
+  if (current) decodeModeSelect.value = current;
 }
 
 async function loadStats() {
-  try {
-    const res = await fetch('/api/stats');
-    if (!res.ok) return;
-    stats = await res.json();
-  } catch {}
+  if (!apiClient) return;
+  const res = await apiClient.getStats();
+  updateApiState(res);
+  if (res.ok && res.data) stats = res.data;
+  updateHeroMetrics();
+  updateOperatorStatus();
 }
 
 async function loadGPU() {
-  try {
-    const res = await fetch('/api/gpu');
-    if (!res.ok) return;
-    gpuInfo = await res.json();
-  } catch {}
+  if (!apiClient) return;
+  const res = await apiClient.getGPU();
+  updateApiState(res);
+  if (res.ok && res.data) gpuInfo = res.data;
+  updateHeroMetrics();
+  updateOperatorStatus();
 }
 
 async function loadRefinement() {
-  try {
-    const res = await fetch('/api/refinement');
-    if (!res.ok) return;
-    refinementInfo = await res.json();
-    decisionIndex = new Map();
-    const items = Array.isArray(refinementInfo.arbitration?.decision_items) ? refinementInfo.arbitration.decision_items : [];
-    items.forEach(item => {
-      if (item && item.id != null) decisionIndex.set(String(item.id), item);
-    });
-    updateSignalDecisionSummary(window._selectedSignal?.id);
-    updateSignalQueueSummary();
-  } catch {}
+  if (!apiClient) return;
+  const res = await apiClient.getRefinement();
+  updateApiState(res);
+  if (!res.ok || !res.data) return;
+  refinementInfo = res.data;
+  decisionIndex = new Map();
+  const items = Array.isArray(refinementInfo.arbitration?.decision_items) ? refinementInfo.arbitration.decision_items : [];
+  items.forEach(item => {
+    if (item && item.id != null) decisionIndex.set(String(item.id), item);
+  });
+  updateSignalDecisionSummary(window._selectedSignal?.id);
+  updateSignalQueueSummary();
+  updateHeroMetrics();
+  updateOperatorStatus();
+}
+
+async function loadTelemetryLive() {
+  if (!apiClient) return;
+  const res = await apiClient.getTelemetryLive();
+  updateApiState(res);
+  if (!res.ok) {
+    telemetryLive = null;
+    updateOperatorStatus();
+    return;
+  }
+  telemetryLive = res.data;
+  updateOperatorStatus();
+}
+
+function renderKvList(root, rows, emptyText) {
+  if (!root) return;
+  if (!rows || !rows.length) {
+    root.innerHTML = `<div class="ops-line ops-line--muted">${emptyText}</div>`;
+    return;
+  }
+  root.innerHTML = rows.map(({ key, value }) => `<div class="kv-row"><div class="kv-key">${key}</div><div class="kv-val">${value}</div></div>`).join('');
+}
+
+function renderPolicyLists() {
+  if (policySummaryList) {
+    if (!policyInfo) {
+      renderKvList(policySummaryList, [], 'Policy unavailable.');
+    } else {
+      renderKvList(policySummaryList, [
+        { key: 'Profile', value: policyInfo.profile || 'n/a' },
+        { key: 'Mode', value: policyInfo.mode || 'n/a' },
+        { key: 'Intent', value: policyInfo.intent || 'n/a' },
+        { key: 'Surveillance', value: policyInfo.surveillance_strategy || 'n/a' },
+        { key: 'Refinement', value: policyInfo.refinement_strategy || 'n/a' }
+      ], 'Policy unavailable.');
+    }
+  }
+  if (policyRecommendationList) {
+    if (!policyRecommendations) {
+      renderKvList(policyRecommendationList, [], 'Recommendations unavailable.');
+    } else {
+      renderKvList(policyRecommendationList, [
+        { key: 'Monitor span', value: Number.isFinite(policyRecommendations.monitor_span_hz) ? fmtHz(policyRecommendations.monitor_span_hz) : 'n/a' },
+        { key: 'Refine jobs', value: policyRecommendations.refinement_jobs ?? 'n/a' },
+        { key: 'Detail FFT', value: policyRecommendations.refinement_detail_fft ?? 'n/a' },
+        { key: 'Auto span', value: policyRecommendations.refinement_auto_span ?? 'n/a' },
+        { key: 'Auto record', value: Array.isArray(policyRecommendations.auto_record_classes) && policyRecommendations.auto_record_classes.length ? policyRecommendations.auto_record_classes.join(', ') : 'n/a' },
+        { key: 'Auto decode', value: Array.isArray(policyRecommendations.auto_decode_classes) && policyRecommendations.auto_decode_classes.length ? policyRecommendations.auto_decode_classes.join(', ') : 'n/a' }
+      ], 'Recommendations unavailable.');
+    }
+  }
+}
+
+async function loadPolicy() {
+  if (!apiClient) return;
+  const [policyRes, recRes] = await Promise.all([
+    apiClient.getPolicy(),
+    apiClient.getRecommendations()
+  ]);
+  updateApiState(policyRes.ok ? policyRes : recRes);
+  policyInfo = policyRes.ok ? policyRes.data : null;
+  policyRecommendations = recRes.ok ? recRes.data : null;
+  renderPolicyLists();
 }
 
 function formatLevelSummary(level) {
@@ -989,17 +1201,14 @@ async function sendConfigUpdate() {
   if (!pendingConfigUpdate) return;
   const payload = pendingConfigUpdate;
   pendingConfigUpdate = null;
-  try {
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error('apply');
-    currentConfig = await res.json();
+  if (!apiClient) return;
+  const res = await apiClient.postConfig(payload);
+  updateApiState(res);
+  if (res.ok && res.data) {
+    currentConfig = res.data;
     applyConfigToUI(currentConfig);
     setConfigStatus('Config applied');
-  } catch {
+  } else {
     setConfigStatus('Config apply failed');
   }
 }
@@ -1008,22 +1217,19 @@ async function sendSettingsUpdate() {
   if (!pendingSettingsUpdate) return;
   const payload = pendingSettingsUpdate;
   pendingSettingsUpdate = null;
-  try {
-    const res = await fetch('/api/sdr/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error('apply');
-    currentConfig = await res.json();
+  if (!apiClient) return;
+  const res = await apiClient.postSettings(payload);
+  updateApiState(res);
+  if (res.ok && res.data) {
+    currentConfig = res.data;
     applyConfigToUI(currentConfig);
     setConfigStatus('Settings applied');
-  } catch {
+  } else {
     setConfigStatus('Settings apply failed');
   }
 }
 
-function updateHeroMetrics() {
+function renderHeroMetricsNow() {
   if (!latest) return;
   const span = latest.sample_rate / zoom;
   const binHz = latest.sample_rate / Math.max(1, latest.spectrum_db?.length || latest.fft_size || 1);
@@ -1093,6 +1299,19 @@ function updateHeroMetrics() {
       }
     }
   }
+}
+
+function flushHeroMetrics(now, force = false) {
+  if (!pendingHeroRender) return;
+  if (!force && now - lastHeroRenderTs < HERO_RENDER_INTERVAL_MS) return;
+  pendingHeroRender = false;
+  lastHeroRenderTs = now;
+  renderHeroMetricsNow();
+}
+
+function updateHeroMetrics(force = false) {
+  pendingHeroRender = true;
+  if (force) flushHeroMetrics(performance.now(), true);
 }
 
 function renderBandNavigator() {
@@ -1570,6 +1789,35 @@ function updateSignalDecisionSummary(id) {
   signalDecisionSummary.textContent = `Decision: ${flags}${reason}`;
 }
 
+function updateSignalQueueSummary() {
+  if (!signalQueueSummary) return;
+  const queue = refinementInfo?.arbitration?.queue;
+  if (!queue) {
+    signalQueueSummary.textContent = 'Queue: -';
+    return;
+  }
+  signalQueueSummary.textContent = `Queue: rec ${queue.record_queued || 0} / dec ${queue.decode_queued || 0}`;
+}
+
+function setSelectedSignal(sel) {
+  window._selectedSignal = sel || null;
+  signalList.querySelectorAll('.signal-item').forEach((el) => {
+    const active = !!sel && ((sel.key && el.dataset.key === sel.key) || (!sel.key && sel.id && el.dataset.id === String(sel.id)));
+    el.classList.toggle('active', active);
+  });
+  updateSignalDecisionSummary(window._selectedSignal?.id);
+  updateSignalQueueSummary();
+}
+
+function getSignalDomKey(s) {
+  if (s?.id != null && s.id !== '') return `id:${s.id}`;
+  const center = Math.round(Number(s?.center_hz || 0));
+  const bw = Math.round(Number(s?.bw_hz || 0));
+  const mode = getSignalPrimaryMode(s) || s?.class?.mod_type || 'UNK';
+  const rds = s?.class?.pll?.rds_station || '';
+  return `sig:${center}:${bw}:${mode}:${rds}`;
+}
+
 function _createSignalItem(s) {
   const btn = document.createElement('button');
   btn.className = 'list-item signal-item';
@@ -1577,7 +1825,8 @@ function _createSignalItem(s) {
   btn.dataset.center = s.center_hz;
   btn.dataset.bw = s.bw_hz || 0;
   btn.dataset.class = s.class?.mod_type || '';
-  btn.dataset.id = s.id || 0;
+  btn.dataset.id = s.id ?? '';
+  btn.dataset.key = getSignalDomKey(s);
   const primaryMode = getSignalPrimaryMode(s);
   const runtimeInfo = getSignalRuntimeSummary(s);
   const mc = modColor(primaryMode);
@@ -1632,51 +1881,64 @@ function _patchSignalItem(el, s) {
   el.dataset.center = s.center_hz;
   el.dataset.bw = s.bw_hz || 0;
   el.dataset.class = mod;
+  el.dataset.id = s.id ?? '';
+  el.dataset.key = getSignalDomKey(s);
   el.style.borderLeftColor = mc.label;
   el.classList.toggle('listening', matchesListenTarget(s));
 }
 
-function renderLists() {
+function renderListsNow() {
   const signals = Array.isArray(latest?.signals) ? [...latest.signals] : [];
   signals.sort((a, b) => (b.snr_db || 0) - (a.snr_db || 0));
   signalCountBadge.textContent = `${signals.length} live`;
   metricSignals.textContent = String(signals.length);
 
   const displaySigs = signals.slice(0, 24);
-  const wantIds = new Set(displaySigs.map(s => String(s.id || 0)));
-
-  // Remove empty-state placeholder if signals exist
-  const emptyEl = signalList.querySelector('.empty-state');
-  if (emptyEl && displaySigs.length > 0) emptyEl.remove();
-
-  // Remove DOM items whose signal ID is no longer present
-  signalList.querySelectorAll('.signal-item').forEach(el => {
-    if (!wantIds.has(el.dataset.id)) el.remove();
-  });
+  const strongest = displaySigs[0] || null;
+  const selectedSignal = window._selectedSignal || null;
+  if (signalSummaryLine) {
+    const strongestText = strongest
+      ? `${fmtMHz(strongest.center_hz, 4)} · ${(strongest.snr_db || 0).toFixed(1)} dB`
+      : '-';
+    const selectedText = selectedSignal && Number.isFinite(selectedSignal.freq)
+      ? `${fmtMHz(selectedSignal.freq, 4)}${selectedSignal.mode ? ` · ${selectedSignal.mode}` : ''}`
+      : '-';
+    signalSummaryLine.textContent = `Visible: ${displaySigs.length} · Strongest: ${strongestText} · Selected: ${selectedText}`;
+  }
 
   if (displaySigs.length === 0) {
-    if (!signalList.querySelector('.empty-state')) {
-      signalList.innerHTML = '<div class="empty-state">No live signals yet.</div>';
-    }
+    signalList.innerHTML = '<div class="empty-state">No live signals yet.</div>';
   } else {
-    // Build map of existing DOM items
-    const domById = new Map();
-    signalList.querySelectorAll('.signal-item').forEach(el => domById.set(el.dataset.id, el));
+    const existing = new Map();
+    signalList.querySelectorAll('.signal-item').forEach((el) => existing.set(el.dataset.key, el));
+    const frag = document.createDocumentFragment();
 
-    displaySigs.forEach(s => {
-      const id = String(s.id || 0);
-      const existing = domById.get(id);
-      if (existing) {
-        _patchSignalItem(existing, s);
+    displaySigs.forEach((s) => {
+      const key = getSignalDomKey(s);
+      let el = existing.get(key);
+      if (el) {
+        _patchSignalItem(el, s);
       } else {
-        const el = _createSignalItem(s);
-        // Auto-select if it matches the user's last selection
-        if (window._selectedSignal && Math.abs(s.center_hz - window._selectedSignal.freq) < 50000) {
-          el.classList.add('active');
-        }
-        signalList.appendChild(el);
+        el = _createSignalItem(s);
       }
+
+      if (window._selectedSignal) {
+        const selectedKey = window._selectedSignal.key;
+        const selectedId = window._selectedSignal.id;
+        const sameKey = selectedKey && key === selectedKey;
+        const sameId = !selectedKey && selectedId && s.id != null && String(s.id) === String(selectedId);
+        const nearFreq = !selectedKey && !selectedId && Number.isFinite(window._selectedSignal.freq) && Math.abs(s.center_hz - window._selectedSignal.freq) < 2500;
+        el.classList.toggle('active', !!(sameKey || sameId || nearFreq));
+      } else {
+        el.classList.remove('active');
+      }
+
+      frag.appendChild(el);
+      existing.delete(key);
     });
+
+    signalList.innerHTML = '';
+    signalList.appendChild(frag);
   }
 
   const recent = [...events].sort((a, b) => b.end_ms - a.end_ms);
@@ -1726,6 +1988,19 @@ function renderLists() {
   updateSignalDecisionSummary(window._selectedSignal?.id);
 }
 
+function flushLists(now, force = false) {
+  if (!pendingListRender) return;
+  if (!force && now - lastListRenderTs < LIST_RENDER_INTERVAL_MS) return;
+  pendingListRender = false;
+  lastListRenderTs = now;
+  renderListsNow();
+}
+
+function renderLists(force = false) {
+  pendingListRender = true;
+  if (force) flushLists(performance.now(), true);
+}
+
 function normalizeEvent(ev) {
   const startMs = new Date(ev.start).getTime();
   const endMs = new Date(ev.end).getTime();
@@ -1756,33 +2031,33 @@ function upsertEvents(list, replace = false) {
     events.splice(0, drop);
   }
   if (events.length > 0) lastEventEndMs = events[events.length - 1].end_ms;
+  updateHeroMetrics();
   renderLists();
 }
 
 async function fetchEvents(initial) {
-  if (eventsFetchInFlight || timelineFrozen) return;
+  if (eventsFetchInFlight || timelineFrozen || !apiClient) return;
   eventsFetchInFlight = true;
   try {
-    let url = '/api/events?limit=1000';
-    if (!initial && lastEventEndMs > 0) url = `/api/events?since=${lastEventEndMs - 1}`;
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const data = await res.json();
-    if (Array.isArray(data)) upsertEvents(data, initial);
+    const query = initial
+      ? { limit: 1000 }
+      : (lastEventEndMs > 0 ? { since: lastEventEndMs - 1 } : { limit: 200 });
+    const res = await apiClient.getEvents(query);
+    updateApiState(res);
+    if (res.ok && Array.isArray(res.data)) upsertEvents(res.data, initial);
   } finally {
     eventsFetchInFlight = false;
   }
 }
 
 async function fetchRecordings() {
-  if (recordingsFetchInFlight || !recordingList) return;
+  if (recordingsFetchInFlight || !recordingList || !apiClient) return;
   recordingsFetchInFlight = true;
   try {
-    const res = await fetch('/api/recordings');
-    if (!res.ok) return;
-    const data = await res.json();
-    if (Array.isArray(data)) {
-      recordings = data;
+    const res = await apiClient.getRecordings();
+    updateApiState(res);
+    if (res.ok && Array.isArray(res.data)) {
+      recordings = res.data;
       renderLists();
     }
   } finally {
@@ -1838,14 +2113,14 @@ function openDrawer(ev) {
   drawerEl.classList.add('open');
   drawerEl.setAttribute('aria-hidden', 'false');
   renderDetailSpectrogram();
-  renderLists();
+  renderLists(true);
 }
 
 function closeDrawer() {
   drawerEl.classList.remove('open');
   drawerEl.setAttribute('aria-hidden', 'true');
   selectedEventId = null;
-  renderLists();
+  renderLists(true);
 }
 
 function fitView() {
@@ -1859,6 +2134,29 @@ function tuneToFrequency(centerHz) {
   followLive = true;
   centerInput.value = (centerHz / 1e6).toFixed(6);
   queueConfigUpdate({ center_hz: centerHz });
+}
+
+function applyLiveFrame(frame) {
+  if (!frame) return;
+  const next = frame;
+  if (!wsCarriesSignals && Array.isArray(latest?.signals)) {
+    next.signals = latest.signals;
+  }
+  if (!wsCarriesDebug) {
+    next.debug = null;
+  }
+  latest = next;
+  pendingWaterfallRender = true;
+  updateHeroMetrics();
+}
+
+function sendSpectrumWSConfig(update) {
+  if (!spectrumWS || spectrumWS.readyState !== WebSocket.OPEN) return;
+  try {
+    spectrumWS.send(JSON.stringify(update));
+  } catch (err) {
+    console.warn('ws config update failed:', err);
+  }
 }
 
 function connect() {
@@ -1877,40 +2175,54 @@ function connect() {
   const wantBinary = params.get('binary') === '1' || !isLocal;
   const bins = parseInt(params.get('bins') || (isLocal ? '0' : '2048'), 10);
   const fps = parseInt(params.get('fps') || (isLocal ? '0' : '10'), 10);
+  const wantSignals = params.get('signals') === '1';
+  const wantDebug = params.get('debug') === '1' || showDebugOverlay;
+  wsCarriesSignals = wantSignals;
+  wsCarriesDebug = wantDebug;
 
   let wsUrl = `${proto}://${location.host}/ws`;
-  if (wantBinary || bins > 0 || fps > 0) {
+  if (wantBinary || bins > 0 || fps > 0 || wantDebug || !wantSignals) {
     const qp = [];
     if (wantBinary) qp.push('binary=1');
     if (bins > 0) qp.push(`bins=${bins}`);
     if (fps > 0) qp.push(`fps=${fps}`);
+    if (wantDebug) qp.push('debug=1');
+    if (!wantSignals) qp.push('signals=0');
     wsUrl += '?' + qp.join('&');
   }
 
   const ws = new WebSocket(wsUrl);
+  spectrumWS = ws;
   ws.binaryType = 'arraybuffer';
   setWsBadge('Connecting', 'neutral');
 
-  ws.onopen = () => setWsBadge('Live', 'ok');
+  ws.onopen = () => {
+    setWsBadge('Live', 'ok');
+    wsLastMessageTs = Date.now();
+    updateOperatorStatus(true);
+  };
   ws.onmessage = (ev) => {
     if (ev.data instanceof ArrayBuffer) {
       try {
         const decoded = decodeBinaryFrame(ev.data);
-        if (decoded) latest = decoded;
+        applyLiveFrame(decoded);
       } catch (e) {
         console.warn('binary frame decode error:', e);
         return;
       }
     } else {
-      latest = JSON.parse(ev.data);
+      applyLiveFrame(JSON.parse(ev.data));
     }
+    wsLastMessageTs = Date.now();
+    updateOperatorStatus();
     markSpectrumDirty();
     if (followLive) pan = 0;
-    updateHeroMetrics();
     renderLists();
   };
   ws.onclose = () => {
+    if (spectrumWS === ws) spectrumWS = null;
     setWsBadge('Retrying', 'bad');
+    updateOperatorStatus(true);
     wsReconnectTimer = setTimeout(connect, 1000);
   };
   ws.onerror = () => ws.close();
@@ -1969,24 +2281,32 @@ function decodeBinaryFrame(buf) {
   };
 }
 
-function renderLoop() {
-  renderFrames += 1;
-  const now = performance.now();
-  if (now - lastFpsTs >= 1000) {
-    renderFps = (renderFrames * 1000) / (now - lastFpsTs);
-    renderFrames = 0;
-    lastFpsTs = now;
-  }
+function renderLoop(now) {
+  flushOperatorStatus(now);
+  flushHeroMetrics(now);
+  flushLists(now);
 
-  if (latest) {
+  if (latest && (lastVisualRenderTs === 0 || now - lastVisualRenderTs >= VISUAL_FRAME_INTERVAL_MS)) {
+    lastVisualRenderTs = now;
+    renderFrames += 1;
+    if (now - lastFpsTs >= 1000) {
+      renderFps = (renderFrames * 1000) / (now - lastFpsTs);
+      renderFrames = 0;
+      lastFpsTs = now;
+      updateHeroMetrics();
+    }
+
     renderBandNavigator();
     renderSpectrum();
-    renderWaterfall();
+    if (pendingWaterfallRender && (lastWaterfallRenderTs === 0 || now - lastWaterfallRenderTs >= WATERFALL_FRAME_INTERVAL_MS)) {
+      renderWaterfall();
+      pendingWaterfallRender = false;
+      lastWaterfallRenderTs = now;
+    }
     renderOccupancy();
     renderTimeline();
     if (drawerEl.classList.contains('open')) renderDetailSpectrogram();
   }
-  updateHeroMetrics();
   requestAnimationFrame(renderLoop);
 }
 
@@ -2003,11 +2323,12 @@ function handleSpectrumClick(ev) {
       const bw = sig.bw_hz || 12000;
       const mode = sig.class?.mod_type || '';
       startLiveListen(freq, bw, mode);
-      window._selectedSignal = { freq, bw, mode };
-      // Update selected signal in list
-      signalList.querySelectorAll('.signal-item').forEach(el => {
-        const elFreq = parseFloat(el.dataset.center || '0');
-        el.classList.toggle('active', Math.abs(elFreq - freq) < Math.max(500, bw * 0.5));
+      setSelectedSignal({
+        key: getSignalDomKey(sig),
+        id: sig.id ?? null,
+        freq,
+        bw,
+        mode
       });
       return;
     }
@@ -2276,9 +2597,12 @@ maxHoldToggle.addEventListener('change', () => {
 });
 if (debugOverlayToggle) debugOverlayToggle.addEventListener('change', () => {
   showDebugOverlay = debugOverlayToggle.checked;
+  wsCarriesDebug = showDebugOverlay;
   localStorage.setItem('spectre.debugOverlay', showDebugOverlay ? '1' : '0');
+  if (!showDebugOverlay && latest) latest.debug = null;
+  sendSpectrumWSConfig({ debug: showDebugOverlay });
   markSpectrumDirty();
-  updateHeroMetrics();
+  updateHeroMetrics(true);
 });
 resetMaxBtn.addEventListener('click', () => {
   maxSpectrum = null;
@@ -2299,12 +2623,25 @@ presetButtons.forEach((btn) => {
   });
 });
 
-railTabs.forEach((tab) => {
-  tab.addEventListener('click', () => {
-    railTabs.forEach(t => t.classList.toggle('active', t === tab));
-    tabPanels.forEach(panel => panel.classList.toggle('active', panel.dataset.panel === tab.dataset.tab));
+function activateRailTab(tabName) {
+  railTabs.forEach((t) => {
+    const active = t.dataset.tab === tabName;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', active ? 'true' : 'false');
   });
+  tabPanels.forEach((panel) => {
+    const active = panel.dataset.panel === tabName;
+    panel.classList.toggle('active', active);
+    panel.hidden = !active;
+    panel.setAttribute('aria-hidden', active ? 'false' : 'true');
+  });
+}
+
+railTabs.forEach((tab) => {
+  tab.addEventListener('click', () => activateRailTab(tab.dataset.tab));
 });
+
+activateRailTab((railTabs.find((t) => t.classList.contains('active')) || railTabs[0])?.dataset.tab || 'radio');
 
 
 drawerCloseBtn.addEventListener('click', closeDrawer);
@@ -2337,13 +2674,17 @@ if (decodeEventBtn) {
       return;
     }
     const mode = decodeModeSelect?.value || ev.class?.mod_type || 'FT8';
-    const res = await fetch(`/api/recordings/${rec.id}/decode?mode=${mode}`);
-    if (!res.ok) {
+    if (!apiClient) {
       decodeResultEl.textContent = 'Decode: failed';
       return;
     }
-    const data = await res.json();
-    decodeResultEl.textContent = `Decode: ${String(data.stdout || '').slice(0, 80)}`;
+    const res = await apiClient.decodeRecording(rec.id, mode);
+    updateApiState(res);
+    if (!res.ok || !res.data) {
+      decodeResultEl.textContent = 'Decode: failed';
+      return;
+    }
+    decodeResultEl.textContent = `Decode: ${String(res.data.stdout || '').slice(0, 80)}`;
   });
 }
 jumpToEventBtn.addEventListener('click', () => {
@@ -2369,18 +2710,13 @@ signalList.addEventListener('click', (ev) => {
   const target = ev.target.closest('.signal-item');
   if (!target) return;
   // Select this signal for live listening — don't retune the SDR
-  const allItems = signalList.querySelectorAll('.signal-item');
-  allItems.forEach(el => el.classList.remove('active'));
-  target.classList.add('active');
-  // Store selected signal data for Live Listen button
-  window._selectedSignal = {
+  setSelectedSignal({
+    key: target.dataset.key || null,
     id: target.dataset.id || null,
     freq: parseFloat(target.dataset.center),
     bw: parseFloat(target.dataset.bw || '12000'),
     mode: target.dataset.class || ''
-  };
-  updateSignalDecisionSummary(window._selectedSignal.id);
-  updateSignalQueueSummary();
+  });
 });
 
 if (liveListenBtn) {
@@ -2431,9 +2767,11 @@ if (recordingList) {
       recordingAudioLink.href = `/api/recordings/${id}/audio`;
     }
     try {
-      const res = await fetch(`/api/recordings/${id}`);
-      if (!res.ok) return;
-      const meta = await res.json();
+      if (!apiClient) return;
+      const res = await apiClient.getRecording(id);
+      updateApiState(res);
+      if (!res.ok || !res.data) return;
+      const meta = res.data;
       if (decodeResultEl) {
         const rds = meta.rds_ps ? `RDS: ${meta.rds_ps}` : '';
         decodeResultEl.textContent = `Decode: ${rds}`;
@@ -2486,11 +2824,14 @@ window.addEventListener('keydown', (ev) => {
   }
 });
 
+updateOperatorStatus(true);
 loadConfig();
 resetLiveListenMeta();
 loadStats();
 loadGPU();
 loadRefinement();
+loadTelemetryLive();
+loadPolicy();
 fetchEvents(true);
 fetchRecordings();
 loadDecoders();
@@ -2499,12 +2840,9 @@ requestAnimationFrame(renderLoop);
 setInterval(loadStats, 1000);
 setInterval(loadGPU, 1000);
 setInterval(loadRefinement, 1500);
+setInterval(loadTelemetryLive, 3000);
+setInterval(loadPolicy, 10000);
 setInterval(() => fetchEvents(false), 2000);
 setInterval(fetchRecordings, 5000);
 setInterval(loadSignals, 1500);
 setInterval(loadDecoders, 10000);
-
-
-
-
-
