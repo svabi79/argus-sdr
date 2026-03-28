@@ -10,9 +10,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
-	"sort"
 	"sync"
 	"time"
 
@@ -46,8 +46,8 @@ type streamSession struct {
 	debugDumpUntil time.Time
 	debugDumpBase  string
 
-	demodDump []float32
-	finalDump []float32
+	demodDump    []float32
+	finalDump    []float32
 	lastAudioL   float32
 	lastAudioR   float32
 	prevAudioL   float64 // second-to-last L sample for boundary transient detection
@@ -136,12 +136,12 @@ type streamSession struct {
 
 	// Stateful pre-demod anti-alias FIR (eliminates cold-start transients
 	// and avoids per-frame FIR recomputation)
-	preDemodFIR       *dsp.StatefulFIRComplex
-	preDemodDecimator *dsp.StatefulDecimatingFIRComplex
-	preDemodDecim     int     // cached decimation factor
-	preDemodRate      int     // cached snipRate this FIR was built for
-	preDemodCutoff    float64 // cached cutoff
-	preDemodDecimPhase int    // retained for backward compatibility in snapshots/debug
+	preDemodFIR        *dsp.StatefulFIRComplex
+	preDemodDecimator  *dsp.StatefulDecimatingFIRComplex
+	preDemodDecim      int     // cached decimation factor
+	preDemodRate       int     // cached snipRate this FIR was built for
+	preDemodCutoff     float64 // cached cutoff
+	preDemodDecimPhase int     // retained for backward compatibility in snapshots/debug
 
 	// AQ-2: De-emphasis config (µs, 0 = disabled)
 	deemphasisUs float64
@@ -244,8 +244,8 @@ type streamFeedItem struct {
 }
 
 type streamFeedMsg struct {
-	traceID uint64
-	items   []streamFeedItem
+	traceID    uint64
+	items      []streamFeedItem
 	enqueuedAt time.Time
 }
 
@@ -267,6 +267,16 @@ type Streamer struct {
 	// pendingListens are subscribers waiting for a matching session.
 	pendingListens map[int64]*pendingListen
 	telemetry      *telemetry.Collector
+
+	debugSummary *audioStutterDebugLogger
+	summaryStop  chan struct{}
+	summaryWG    sync.WaitGroup
+
+	// Stream summary counters (cheap to maintain, sampled every ~5s)
+	producedPCMFrames uint64
+	processLoopCount  uint64
+	processLoopSumMs  float64
+	processLoopMaxMs  float64
 }
 
 type pendingListen struct {
@@ -285,8 +295,12 @@ func newStreamer(policy Policy, centerHz float64, coll *telemetry.Collector) *St
 		done:           make(chan struct{}),
 		pendingListens: make(map[int64]*pendingListen),
 		telemetry:      coll,
+		debugSummary:   newAudioStutterDebugLogger(),
+		summaryStop:    make(chan struct{}),
 	}
 	go st.worker()
+	st.summaryWG.Add(1)
+	go st.summaryWorker()
 	return st
 }
 
@@ -386,7 +400,7 @@ func (st *Streamer) FeedSnippets(items []streamFeedItem, traceID uint64) {
 		if st.telemetry != nil {
 			st.telemetry.IncCounter("streamer.feed.drop", 1, nil)
 			st.telemetry.Event("stream_feed_drop", "warn", "feed queue full", nil, map[string]any{
-				"trace_id": traceID,
+				"trace_id":  traceID,
 				"queue_len": len(st.feedCh),
 			})
 		}
@@ -415,8 +429,14 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 	st.lastProcTS = now
 	defer st.mu.Unlock()
 	defer func() {
+		procMs := float64(time.Since(procStart).Microseconds()) / 1000.0
+		st.processLoopCount++
+		st.processLoopSumMs += procMs
+		if procMs > st.processLoopMaxMs {
+			st.processLoopMaxMs = procMs
+		}
 		if st.telemetry != nil {
-			st.telemetry.Observe("streamer.process.total_ms", float64(time.Since(procStart).Microseconds())/1000.0, nil)
+			st.telemetry.Observe("streamer.process.total_ms", procMs, nil)
 			st.telemetry.Observe("streamer.lock_wait_ms", float64(lockWait.Microseconds())/1000.0, telemetry.TagsFromPairs("lock", "process"))
 		}
 	}()
@@ -538,6 +558,11 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 			}
 		}
 		if len(audio) > 0 {
+			ch := sess.channels
+			if ch <= 0 {
+				ch = 1
+			}
+			st.producedPCMFrames += uint64(len(audio) / ch)
 			if sess.wavSamples == 0 && audioRate > 0 {
 				sess.sampleRate = audioRate
 			}
@@ -691,7 +716,7 @@ func (st *Streamer) processFeed(msg streamFeedMsg) {
 			if st.telemetry != nil {
 				st.telemetry.IncCounter("streamer.session.close", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", id), "session_id", sess.sessionID))
 				st.telemetry.Event("session_close", "info", "stream session closed", telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", id), "session_id", sess.sessionID), map[string]any{
-					"reason": "signal_missing",
+					"reason":      "signal_missing",
 					"listen_only": sess.listenOnly,
 				})
 			}
@@ -775,6 +800,8 @@ func (st *Streamer) RuntimeInfoBySignalID() map[int64]RuntimeSignalInfo {
 }
 
 func (st *Streamer) CloseAll() {
+	close(st.summaryStop)
+	st.summaryWG.Wait()
 	close(st.feedCh)
 	<-st.done
 
@@ -799,6 +826,9 @@ func (st *Streamer) CloseAll() {
 	st.pendingListens = nil
 	if st.telemetry != nil {
 		st.telemetry.Event("streamer_close_all", "info", "all stream sessions closed", nil, nil)
+	}
+	if st.debugSummary != nil {
+		st.debugSummary.Close()
 	}
 }
 
@@ -2007,6 +2037,84 @@ func (st *Streamer) fanoutPCM(sess *streamSession, pcm []byte, pcmLen int) {
 	if st.telemetry != nil {
 		st.telemetry.SetGauge("streamer.subscribers.count", float64(len(alive)), telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
 	}
+}
+
+func (st *Streamer) summaryWorker() {
+	defer st.summaryWG.Done()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			st.writePeriodicSummary()
+		case <-st.summaryStop:
+			return
+		}
+	}
+}
+
+func (st *Streamer) writePeriodicSummary() {
+	st.mu.Lock()
+	activeSubscribers := 0
+	for _, sess := range st.sessions {
+		activeSubscribers += len(sess.audioSubs)
+	}
+	processAvg := 0.0
+	if st.processLoopCount > 0 {
+		processAvg = st.processLoopSumMs / float64(st.processLoopCount)
+	}
+	summary := map[string]any{
+		"ts":                    time.Now().UTC().Format(time.RFC3339Nano),
+		"feed_drop_total":       st.droppedFeed,
+		"pcm_drop_total":        st.droppedPCM,
+		"active_subscribers":    activeSubscribers,
+		"pending_listeners":     len(st.pendingListens),
+		"active_sessions":       len(st.sessions),
+		"produced_pcm_frames":   st.producedPCMFrames,
+		"process_loop_ms_avg":   processAvg,
+		"process_loop_ms_max":   st.processLoopMaxMs,
+		"feed_queue_len":        len(st.feedCh),
+		"feed_queue_cap":        cap(st.feedCh),
+		"feed_queue_fill_ratio": safeRatio(float64(len(st.feedCh)), float64(cap(st.feedCh))),
+		"backpressure_hint":     st.backpressureHintLocked(),
+	}
+	st.processLoopCount = 0
+	st.processLoopSumMs = 0
+	st.processLoopMaxMs = 0
+	st.mu.Unlock()
+
+	if st.debugSummary != nil {
+		_ = st.debugSummary.WriteServerSummary(summary)
+	}
+}
+
+func (st *Streamer) backpressureHintLocked() string {
+	queueLen := len(st.feedCh)
+	queueCap := cap(st.feedCh)
+	if queueCap > 0 && float64(queueLen)/float64(queueCap) >= 0.8 {
+		return "feed_queue_high"
+	}
+	if st.droppedFeed > 0 || st.droppedPCM > 0 {
+		return "drops_seen"
+	}
+	if len(st.pendingListens) > 0 {
+		return "pending_listeners"
+	}
+	return "ok"
+}
+
+func safeRatio(a float64, b float64) float64 {
+	if b <= 0 {
+		return 0
+	}
+	return a / b
+}
+
+func (st *Streamer) AppendBrowserAudioSummary(v any) error {
+	if st == nil || st.debugSummary == nil {
+		return nil
+	}
+	return st.debugSummary.WriteBrowserSummary(v)
 }
 
 func (st *Streamer) classAllowed(cls *classifier.Classification) bool {

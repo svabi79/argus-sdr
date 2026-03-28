@@ -218,6 +218,20 @@ class LiveListenWS {
     this._flushTimer = 0;
     // Fade state for soft resync
     this._lastEndSample = null; // last sample value per channel for crossfade
+    this._summaryTimer = 0;
+    this._stats = {
+      startedAtMs: performance.now(),
+      pcmChunksRx: 0,
+      pcmSamplesRx: 0,
+      acceptedChunks: 0,
+      droppedMaxBuffered: 0,
+      underruns: 0,
+      resyncs: 0,
+      lastAcceptedChunkAtMs: 0,
+      lastLeadMs: 0,
+      maxLeadMs: Number.NEGATIVE_INFINITY,
+      minLeadMs: Number.POSITIVE_INFINITY
+    };
   }
 
   start() {
@@ -226,6 +240,7 @@ class LiveListenWS {
     this.ws = new WebSocket(url);
     this.ws.binaryType = 'arraybuffer';
     this.playing = true;
+    this._startSummaryTicker();
 
     this.ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
@@ -248,15 +263,20 @@ class LiveListenWS {
         return;
       }
       if (!this.audioCtx || !this.playing) return;
+      this._stats.pcmChunksRx++;
       this._onPCM(ev.data);
     };
 
     this.ws.onclose = () => {
       this.playing = false;
+      this._emitSummary('ws_close');
+      this._stopSummaryTicker();
       if (this._onStop) this._onStop();
     };
     this.ws.onerror = () => {
       this.playing = false;
+      this._emitSummary('ws_error');
+      this._stopSummaryTicker();
       if (this._onStop) this._onStop();
     };
 
@@ -266,6 +286,8 @@ class LiveListenWS {
   }
 
   stop() {
+    this._emitSummary('stop');
+    this._stopSummaryTicker();
     this.playing = false;
     if (this.ws) { this.ws.close(); this.ws = null; }
     this._teardownAudio();
@@ -283,6 +305,21 @@ class LiveListenWS {
     this._lastEndSample = null;
   }
 
+  _startSummaryTicker() {
+    this._stopSummaryTicker();
+    this._summaryTimer = setInterval(() => {
+      if (!this.playing) return;
+      this._emitSummary('periodic');
+    }, 5000);
+  }
+
+  _stopSummaryTicker() {
+    if (this._summaryTimer) {
+      clearInterval(this._summaryTimer);
+      this._summaryTimer = 0;
+    }
+  }
+
   _initAudio() {
     if (this.audioCtx) return;
     this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({
@@ -296,6 +333,7 @@ class LiveListenWS {
 
   _onPCM(buf) {
     const chunk = new Int16Array(buf);
+    this._stats.pcmSamplesRx += chunk.length;
     const maxPendingFrames = Math.ceil(this.sampleRate * 0.25);
     const maxPendingSamples = maxPendingFrames * Math.max(1, this.channels);
 
@@ -365,6 +403,10 @@ class LiveListenWS {
     }
 
     const now = ctx.currentTime;
+    const leadMsBefore = (this.nextTime - now) * 1000;
+    this._stats.lastLeadMs = leadMsBefore;
+    if (leadMsBefore > this._stats.maxLeadMs) this._stats.maxLeadMs = leadMsBefore;
+    if (leadMsBefore < this._stats.minLeadMs) this._stats.minLeadMs = leadMsBefore;
 
     // Target latency: 400ms. This means we schedule audio to play 400ms
     // from now. Even if the main thread hangs for 300ms, the already-
@@ -377,6 +419,10 @@ class LiveListenWS {
     if (!this.started || this.nextTime < now) {
       // First chunk or underrun.
       // Apply fade-in to avoid click at resync point.
+      if (this.started && this.nextTime < now) {
+        this._stats.underruns++;
+        this._stats.resyncs++;
+      }
       const fadeIn = Math.min(64, nFrames);
       for (let ch = 0; ch < this.channels; ch++) {
         const data = audioBuffer.getChannelData(ch);
@@ -390,6 +436,7 @@ class LiveListenWS {
 
     if (this.nextTime > now + maxBuffered) {
       // Too much buffered — drop to cap latency
+      this._stats.droppedMaxBuffered++;
       return;
     }
 
@@ -397,8 +444,53 @@ class LiveListenWS {
     source.buffer = audioBuffer;
     source.connect(ctx.destination);
     source.start(this.nextTime);
+    this._stats.acceptedChunks++;
+    this._stats.lastAcceptedChunkAtMs = performance.now();
     this.nextTime += audioBuffer.duration;
   }
+
+  _emitSummary(reason) {
+    const nowMs = performance.now();
+    const audioNow = this.audioCtx ? this.audioCtx.currentTime : null;
+    const leadMs = this.audioCtx ? (this.nextTime - this.audioCtx.currentTime) * 1000 : null;
+    const sinceAcceptedMs = this._stats.lastAcceptedChunkAtMs > 0
+      ? nowMs - this._stats.lastAcceptedChunkAtMs
+      : -1;
+    const payload = {
+      ts_client: new Date().toISOString(),
+      reason,
+      freq_hz: this.freq,
+      bw_hz: this.bw,
+      mode: this.mode,
+      sample_rate: this.sampleRate,
+      channels: this.channels,
+      playing: this.playing,
+      audio_current_time: audioNow,
+      audio_next_time: this.nextTime,
+      lead_ms: leadMs,
+      lead_ms_last: this._stats.lastLeadMs,
+      lead_ms_max: Number.isFinite(this._stats.maxLeadMs) ? this._stats.maxLeadMs : null,
+      lead_ms_min: Number.isFinite(this._stats.minLeadMs) ? this._stats.minLeadMs : null,
+      pcm_chunks_rx: this._stats.pcmChunksRx,
+      pcm_samples_rx: this._stats.pcmSamplesRx,
+      accepted_chunks: this._stats.acceptedChunks,
+      max_buffered_drops: this._stats.droppedMaxBuffered,
+      underruns: this._stats.underruns,
+      resyncs: this._stats.resyncs,
+      ms_since_last_accepted_chunk: sinceAcceptedMs,
+      uptime_ms: nowMs - this._stats.startedAtMs
+    };
+    postBrowserAudioSummary(payload);
+  }
+}
+
+function postBrowserAudioSummary(payload) {
+  fetch('/api/debug/audio-stutter/browser-summary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    keepalive: true
+  }).catch(() => {});
 }
 
 const liveListenDefaults = {
