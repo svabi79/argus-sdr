@@ -17,23 +17,23 @@ pipeline:
   profile: wideband-balanced
   goals:
     intent: broadcast-monitoring
-    monitor_start_hz: 88.0e6
+    monitor_start_hz: 87.5e6
     monitor_end_hz: 108.0e6
-    monitor_span_hz: 20000000
+    monitor_span_hz: 20500000
     monitor_windows:
       - name: fm-focus
         start_hz: 87.5e6
         end_hz: 108.0e6
-        priority: 1.25
+        priority: 1.4
         zone: focus
       - name: fm-rds
         start_hz: 87.5e6
         end_hz: 108.0e6
-        priority: 1.35
+        priority: 1.55
         zone: decode
-    signal_priorities: ["wfm", "rds", "broadcast"]
+    signal_priorities: ["wfm_stereo", "wfm", "rds", "broadcast"]
     auto_record_classes: ["WFM", "WFM_STEREO"]
-    auto_decode_classes: ["WFM", "WFM_STEREO", "RDS"]
+    auto_decode_classes: ["RDS"]
 surveillance:
   analysis_fft_size: 4096
   frame_rate: 12
@@ -43,18 +43,18 @@ surveillance:
   derived_detection: auto
 refinement:
   enabled: true
-  max_concurrent: 24
+  max_concurrent: 16
   detail_fft_size: 4096
   min_candidate_snr_db: -3
-  min_span_hz: 60000
-  max_span_hz: 250000
+  min_span_hz: 80000
+  max_span_hz: 220000
   auto_span: true
 resources:
   prefer_gpu: true
-  max_refinement_jobs: 24
-  max_recording_streams: 32
-  max_decode_jobs: 16
-  decision_hold_ms: 2500
+  max_refinement_jobs: 16
+  max_recording_streams: 16
+  max_decode_jobs: 8
+  decision_hold_ms: 3200
 profiles:
   - name: legacy
     description: Current single-band pipeline behavior
@@ -91,9 +91,9 @@ profiles:
       profile: wideband-balanced
       goals:
         intent: broadcast-monitoring
-        signal_priorities: ["wfm", "rds", "broadcast"]
+        signal_priorities: ["wfm_stereo", "wfm", "rds", "broadcast"]
         auto_record_classes: ["WFM", "WFM_STEREO"]
-        auto_decode_classes: ["WFM", "WFM_STEREO", "RDS"]
+        auto_decode_classes: ["RDS"]
     surveillance:
       analysis_fft_size: 4096
       frame_rate: 12
@@ -103,17 +103,17 @@ profiles:
       derived_detection: auto
     resources:
       prefer_gpu: true
-      max_refinement_jobs: 24
-      max_recording_streams: 32
-      max_decode_jobs: 16
-      decision_hold_ms: 2500
+      max_refinement_jobs: 16
+      max_recording_streams: 16
+      max_decode_jobs: 8
+      decision_hold_ms: 3200
     refinement:
       enabled: true
-      max_concurrent: 24
+      max_concurrent: 16
       detail_fft_size: 4096
       min_candidate_snr_db: -3
-      min_span_hz: 60000
-      max_span_hz: 250000
+      min_span_hz: 80000
+      max_span_hz: 220000
       auto_span: true
   - name: wideband-aggressive
     description: Higher surveillance/refinement budgets for dense wideband monitoring
@@ -226,9 +226,9 @@ detector:
 recorder:
   enabled: true
   min_snr_db: 0
-  min_duration: 500ms
+  min_duration: 800ms
   max_duration: 300s
-  preroll_ms: 500
+  preroll_ms: 750
   record_iq: false
   record_audio: true
   auto_demod: true
@@ -236,10 +236,10 @@ recorder:
   max_disk_mb: 0
   output_dir: data/recordings
   class_filter: ["WFM", "WFM_STEREO"]
-  ring_seconds: 12
+  ring_seconds: 8
   deemphasis_us: 50
   extraction_fir_taps: 101
-  extraction_bw_mult: 1.35
+  extraction_bw_mult: 1.25
   debug_live_audio: false
 decoder:
   ft8_cmd: C:/WSJT/wsjtx-2.7.0-rc6/bin/jt9.exe -8 {audio}
