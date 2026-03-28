@@ -14,9 +14,9 @@ type iqBlock struct {
 type Ring struct {
 	mu         sync.RWMutex
 	blocks     []iqBlock
-	maxBlocks  int
+	maxSamples int
+	total      int
 	sampleRate int
-	blockSize  int
 }
 
 func NewRing(sampleRate int, blockSize int, seconds int) *Ring {
@@ -29,15 +29,15 @@ func NewRing(sampleRate int, blockSize int, seconds int) *Ring {
 	if blockSize <= 0 {
 		blockSize = 2048
 	}
-	blocksPerSec := sampleRate / blockSize
-	if blocksPerSec <= 0 {
-		blocksPerSec = 1
+	maxSamples := sampleRate * seconds
+	minSamples := blockSize * 2
+	if minSamples < blockSize {
+		minSamples = blockSize
 	}
-	maxBlocks := blocksPerSec * seconds
-	if maxBlocks < 2 {
-		maxBlocks = 2
+	if maxSamples < minSamples {
+		maxSamples = minSamples
 	}
-	return &Ring{maxBlocks: maxBlocks, sampleRate: sampleRate, blockSize: blockSize}
+	return &Ring{maxSamples: maxSamples, sampleRate: sampleRate}
 }
 
 func (r *Ring) Reset(sampleRate int, blockSize int, seconds int) {
@@ -50,11 +50,33 @@ func (r *Ring) Push(t0 time.Time, samples []complex64) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.blocks = append(r.blocks, iqBlock{t0: t0, samples: append([]complex64(nil), samples...)})
-	if len(r.blocks) > r.maxBlocks {
-		drop := len(r.blocks) - r.maxBlocks
-		r.blocks = r.blocks[drop:]
+	cp := append([]complex64(nil), samples...)
+	r.blocks = append(r.blocks, iqBlock{t0: t0, samples: cp})
+	r.total += len(cp)
+	for r.total > r.maxSamples && len(r.blocks) > 0 {
+		overflow := r.total - r.maxSamples
+		head := r.blocks[0]
+		if overflow >= len(head.samples) {
+			r.total -= len(head.samples)
+			r.blocks = r.blocks[1:]
+			continue
+		}
+		trim := overflow
+		advance := time.Duration(float64(trim) / float64(r.sampleRate) * float64(time.Second))
+		head.t0 = head.t0.Add(advance)
+		head.samples = head.samples[trim:]
+		r.blocks[0] = head
+		r.total -= trim
 	}
+}
+
+func (r *Ring) MaxSamples() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.maxSamples
 }
 
 // Slice returns IQ samples between [start,end] (best-effort).

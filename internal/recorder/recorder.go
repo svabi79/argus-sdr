@@ -86,11 +86,12 @@ func New(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeC
 func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz float64, decodeCommands map[string]string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	prevRingSeconds := m.policy.RingSeconds
 	m.policy = policy
 	m.centerHz = centerHz
 	m.decodeCommands = decodeCommands
 	// Only reset ring and GPU engine if sample parameters actually changed
-	needRingReset := m.sampleRate != sampleRate || m.blockSize != blockSize
+	needRingReset := m.sampleRate != sampleRate || m.blockSize != blockSize || prevRingSeconds != policy.RingSeconds
 	m.sampleRate = sampleRate
 	m.blockSize = blockSize
 	if needRingReset {
@@ -116,16 +117,38 @@ func (m *Manager) Update(sampleRate int, blockSize int, policy Policy, centerHz 
 }
 
 func (m *Manager) Ingest(t0 time.Time, samples []complex64) {
-	if m == nil {
+	if m == nil || len(samples) == 0 {
 		return
 	}
 	m.mu.RLock()
 	ring := m.ring
+	sampleRate := m.sampleRate
+	blockSize := m.blockSize
 	m.mu.RUnlock()
-	if ring == nil {
+	if ring == nil || sampleRate <= 0 {
 		return
 	}
-	ring.Push(t0, samples)
+
+	chunkSamples := blockSize * 16
+	if chunkSamples < 65_536 {
+		chunkSamples = 65_536
+	}
+	maxRingSamples := ring.MaxSamples()
+	if maxRingSamples > 0 && chunkSamples > maxRingSamples {
+		chunkSamples = maxRingSamples
+	}
+	if chunkSamples <= 0 {
+		chunkSamples = len(samples)
+	}
+	for off := 0; off < len(samples); off += chunkSamples {
+		end := off + chunkSamples
+		if end > len(samples) {
+			end = len(samples)
+		}
+		chunkStart := t0.Add(time.Duration(float64(off) / float64(sampleRate) * float64(time.Second)))
+		ring.Push(chunkStart, samples[off:end])
+	}
+
 	if m.telemetry != nil {
 		m.telemetry.SetGauge("recorder.ring.push_samples", float64(len(samples)), nil)
 	}
