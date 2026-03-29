@@ -5,21 +5,38 @@ class RingPlayerProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
     const ch = options.processorOptions?.channels || 1;
+    const ringSeconds = options.processorOptions?.ringSeconds || 1.0;
+    const startThresholdSeconds = options.processorOptions?.startThresholdSeconds || 0.2;
     this._channels = ch;
-    // 500ms ring buffer at sampleRate
-    this._ringSize = Math.ceil(sampleRate * ch * 0.5);
+    this._underruns = 0;
+    this._overruns = 0;
+    this._lastStatsFrame = 0;
+    // Ring buffer duration at sampleRate.
+    this._ringSize = Math.ceil(sampleRate * ch * ringSeconds);
     this._ring = new Float32Array(this._ringSize);
     this._writePos = 0;
     this._readPos = 0;
     this._started = false;
     this._fadeGain = 1.0;
-    this._startThreshold = Math.ceil(sampleRate * ch * 0.2); // 200ms
+    this._startThreshold = Math.ceil(sampleRate * ch * startThresholdSeconds);
 
     this.port.onmessage = (e) => {
       if (e.data.type === 'pcm') {
-        this._pushSamples(e.data.samples);
+        this._pushSamples(new Float32Array(e.data.samples));
       }
     };
+  }
+
+  _postStats(force = false) {
+    const frame = currentFrame;
+    if (!force && frame - this._lastStatsFrame < sampleRate) return;
+    this._lastStatsFrame = frame;
+    this.port.postMessage({
+      type: 'stats',
+      underruns: this._underruns,
+      overruns: this._overruns,
+      availableFrames: Math.floor(this._available() / Math.max(1, this._channels))
+    });
   }
 
   _available() {
@@ -35,6 +52,7 @@ class RingPlayerProcessor extends AudioWorkletProcessor {
     const used = this._available();
     const free = size - used - 1;
     if (n > free) {
+      this._overruns++;
       this._readPos = (this._readPos + (n - free)) % size;
     }
 
@@ -67,6 +85,7 @@ class RingPlayerProcessor extends AudioWorkletProcessor {
 
     if (!this._started) {
       for (let c = 0; c < output.length; c++) output[c].fill(0);
+      this._postStats();
       return true;
     }
 
@@ -74,6 +93,7 @@ class RingPlayerProcessor extends AudioWorkletProcessor {
     const avail = this._available();
 
     if (avail < need) {
+      this._underruns++;
       // Underrun: play what we have with fade-out, fill rest with silence
       const have = avail;
       const haveFrames = Math.floor(have / ch);
@@ -100,6 +120,7 @@ class RingPlayerProcessor extends AudioWorkletProcessor {
         for (let c = 0; c < output.length; c++) output[c][i] = 0;
       }
       this._fadeGain = 0;
+      this._postStats(true);
       return true;
     }
 
@@ -121,6 +142,7 @@ class RingPlayerProcessor extends AudioWorkletProcessor {
     }
     this._readPos = r;
     this._fadeGain = 1.0;
+    this._postStats();
     return true;
   }
 }

@@ -2,16 +2,16 @@ bands:
     - name: uk-fm-broadcast
       start_hz: 8.75e+07
       end_hz: 1.08e+08
-center_hz: 1.02e+08
+center_hz: 1.0114876073619634e+08
 sample_rate: 4096000
-fft_size: 512
+fft_size: 16384
 gain_db: 32
 tuner_bw_khz: 5000
 use_gpu_fft: true
 classifier_mode: combined
 agc: true
-dc_block: true
-iq_balance: true
+dc_block: false
+iq_balance: false
 pipeline:
     mode: wideband-balanced
     profile: wideband-balanced
@@ -51,7 +51,7 @@ pipeline:
             - WFM_STEREO
             - RDS
 surveillance:
-    analysis_fft_size: 512
+    analysis_fft_size: 16384
     frame_rate: 12
     strategy: multi-resolution
     display_bins: 2048
@@ -274,7 +274,7 @@ detector:
     min_stable_frames: 4
     gap_tolerance_ms: 2000
     cfar_mode: GOSCA
-    cfar_guard_hz: 200000
+    cfar_guard_hz: 250000
     cfar_train_hz: 100000
     cfar_guard_cells: 3
     cfar_train_cells: 24

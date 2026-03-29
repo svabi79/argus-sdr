@@ -180,24 +180,12 @@ const operatorPanel = window.OperatorPanel?.create
 // ---------------------------------------------------------------------------
 // LiveListenWS — WebSocket-based gapless audio streaming via /ws/audio
 // ---------------------------------------------------------------------------
-// v4: Jank-resistant scheduled playback.
+// v5: AudioWorklet-first playback.
 //
-// Problem: Main-thread Canvas rendering blocks for 150-250ms, starving
-// ScriptProcessorNode callbacks and causing audio underruns.
-// AudioWorklet would fix this but requires Secure Context (HTTPS/localhost).
-//
-// Solution: Use BufferSource scheduling (like v1) but with a much larger
-// jitter budget. We pre-schedule audio 400ms into the future so that even
-// a 300ms main-thread hang doesn't cause a gap. The AudioContext's internal
-// scheduling is sample-accurate and runs on a system thread — once a
-// BufferSource is scheduled, it plays regardless of main-thread state.
-//
-// Key differences from v1:
-//   - 400ms target latency (was 100ms) — survives observed 250ms hangs
-//   - Soft resync: on underrun, schedule next chunk with a short crossfade
-//     gap instead of hard jump
-//   - Overrun cap at 800ms (was 500ms)
-//   - Chunk coalescing: merge small chunks to reduce scheduling overhead
+// - Audio is pushed into an AudioWorklet ring buffer when available, so
+//   canvas/DOM jank on the main thread no longer directly starves playback.
+// - Fallback remains scheduled BufferSource playback for environments where
+//   AudioWorklet is unavailable.
 // ---------------------------------------------------------------------------
 class LiveListenWS {
   constructor(freq, bw, mode) {
@@ -212,26 +200,17 @@ class LiveListenWS {
     this.nextTime = 0;
     this.started = false;
     this._onStop = null;
-    // Chunk coalescing buffer
+    this._audioInitPromise = null;
+    this._workletNode = null;
+    this._workletReady = false;
+    this._useWorklet = false;
+    this._workletStats = { underruns: 0, overruns: 0, availableFrames: 0, lastTs: 0 };
+    this._pendingWorkletChunks = [];
+    this._pendingWorkletSamples = 0;
+    // Fallback chunk coalescing buffer
     this._pendingSamples = [];
     this._pendingLen = 0;
     this._flushTimer = 0;
-    // Fade state for soft resync
-    this._lastEndSample = null; // last sample value per channel for crossfade
-    this._summaryTimer = 0;
-    this._stats = {
-      startedAtMs: performance.now(),
-      pcmChunksRx: 0,
-      pcmSamplesRx: 0,
-      acceptedChunks: 0,
-      droppedMaxBuffered: 0,
-      underruns: 0,
-      resyncs: 0,
-      lastAcceptedChunkAtMs: 0,
-      lastLeadMs: 0,
-      maxLeadMs: Number.NEGATIVE_INFINITY,
-      minLeadMs: Number.POSITIVE_INFINITY
-    };
   }
 
   start() {
@@ -240,7 +219,6 @@ class LiveListenWS {
     this.ws = new WebSocket(url);
     this.ws.binaryType = 'arraybuffer';
     this.playing = true;
-    this._startSummaryTicker();
 
     this.ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
@@ -262,21 +240,16 @@ class LiveListenWS {
         } catch (e) { /* ignore */ }
         return;
       }
-      if (!this.audioCtx || !this.playing) return;
-      this._stats.pcmChunksRx++;
+      if (!this.playing) return;
       this._onPCM(ev.data);
     };
 
     this.ws.onclose = () => {
       this.playing = false;
-      this._emitSummary('ws_close');
-      this._stopSummaryTicker();
       if (this._onStop) this._onStop();
     };
     this.ws.onerror = () => {
       this.playing = false;
-      this._emitSummary('ws_error');
-      this._stopSummaryTicker();
       if (this._onStop) this._onStop();
     };
 
@@ -286,8 +259,6 @@ class LiveListenWS {
   }
 
   stop() {
-    this._emitSummary('stop');
-    this._stopSummaryTicker();
     this.playing = false;
     if (this.ws) { this.ws.close(); this.ws = null; }
     this._teardownAudio();
@@ -298,42 +269,78 @@ class LiveListenWS {
   _teardownAudio() {
     if (this._flushTimer) { clearTimeout(this._flushTimer); this._flushTimer = 0; }
     if (this.audioCtx) { this.audioCtx.close().catch(() => {}); this.audioCtx = null; }
+    this._audioInitPromise = null;
+    this._workletNode = null;
+    this._workletReady = false;
+    this._useWorklet = false;
+    this._pendingWorkletChunks = [];
+    this._pendingWorkletSamples = 0;
     this.nextTime = 0;
     this.started = false;
     this._pendingSamples = [];
     this._pendingLen = 0;
-    this._lastEndSample = null;
   }
 
-  _startSummaryTicker() {
-    this._stopSummaryTicker();
-    this._summaryTimer = setInterval(() => {
-      if (!this.playing) return;
-      this._emitSummary('periodic');
-    }, 5000);
-  }
-
-  _stopSummaryTicker() {
-    if (this._summaryTimer) {
-      clearInterval(this._summaryTimer);
-      this._summaryTimer = 0;
-    }
+  _canUseWorklet() {
+    return !!(window.AudioWorkletNode && window.AudioContext && (window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1'));
   }
 
   _initAudio() {
-    if (this.audioCtx) return;
+    if (this.audioCtx) return this._audioInitPromise || Promise.resolve();
     this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({
-      sampleRate: this.sampleRate
+      sampleRate: this.sampleRate,
+      latencyHint: 'interactive'
     });
     this.audioCtx.resume().catch(() => {});
     this.nextTime = 0;
     this.started = false;
-    this._lastEndSample = null;
+    this._useWorklet = this._canUseWorklet();
+
+    if (!this._useWorklet) {
+      this._audioInitPromise = Promise.resolve();
+      return this._audioInitPromise;
+    }
+
+    this._audioInitPromise = this.audioCtx.audioWorklet.addModule('ring-player-processor.js')
+      .then(() => {
+        if (!this.audioCtx) return;
+        this._workletNode = new AudioWorkletNode(this.audioCtx, 'ring-player-processor', {
+          numberOfInputs: 0,
+          numberOfOutputs: 1,
+          outputChannelCount: [this.channels],
+          processorOptions: {
+            channels: this.channels,
+            startThresholdSeconds: 0.22,
+            ringSeconds: 1.0
+          }
+        });
+        this._workletNode.connect(this.audioCtx.destination);
+        this._workletNode.port.onmessage = (ev) => {
+          if (!ev?.data || ev.data.type !== 'stats') return;
+          this._workletStats = {
+            underruns: ev.data.underruns || 0,
+            overruns: ev.data.overruns || 0,
+            availableFrames: ev.data.availableFrames || 0,
+            lastTs: performance.now()
+          };
+        };
+        this._workletReady = true;
+        if (this._pendingLen > 0) this._flushPending();
+      })
+      .catch((err) => {
+        console.warn('audio_worklet_init_failed', err);
+        this._useWorklet = false;
+        if (this._pendingLen > 0) this._flushPending();
+      });
+
+    return this._audioInitPromise;
   }
 
   _onPCM(buf) {
+    this._initAudio();
+    if (!this.audioCtx) return;
+
     const chunk = new Int16Array(buf);
-    this._stats.pcmSamplesRx += chunk.length;
     const maxPendingFrames = Math.ceil(this.sampleRate * 0.25);
     const maxPendingSamples = maxPendingFrames * Math.max(1, this.channels);
 
@@ -349,28 +356,24 @@ class LiveListenWS {
       this._pendingLen += chunk.length;
     }
 
-    // Coalesce small chunks: accumulate until we have >= 40ms or 50ms passes.
-    // This reduces BufferSource scheduling overhead from ~12/sec to ~6/sec
-    // and produces larger, more stable buffers.
-    const minFrames = Math.ceil(this.sampleRate * 0.04); // 40ms worth
-    const haveFrames = Math.floor(this._pendingLen / this.channels);
+    const minFrames = Math.ceil(this.sampleRate * 0.04);
+    const haveFrames = Math.floor(this._pendingLen / Math.max(1, this.channels));
 
     if (haveFrames >= minFrames) {
       this._flushPending();
     } else if (!this._flushTimer) {
-      // Flush after 50ms even if we don't have enough (prevents stale data)
       this._flushTimer = setTimeout(() => {
         this._flushTimer = 0;
         if (this._pendingLen > 0) this._flushPending();
-      }, 50);
+      }, 40);
     }
   }
 
   _flushPending() {
     if (this._flushTimer) { clearTimeout(this._flushTimer); this._flushTimer = 0; }
-    if (this._pendingSamples.length === 0) return;
+    if (this._pendingSamples.length === 0 || !this.audioCtx) return;
+    if (this._useWorklet && !this._workletReady) return;
 
-    // Merge all pending into one Int16Array
     const total = this._pendingLen;
     const merged = new Int16Array(total);
     let off = 0;
@@ -381,10 +384,17 @@ class LiveListenWS {
     this._pendingSamples = [];
     this._pendingLen = 0;
 
-    this._scheduleChunk(merged);
+    if (this._useWorklet && this._workletNode) {
+      const floatSamples = new Float32Array(merged.length);
+      for (let i = 0; i < merged.length; i++) floatSamples[i] = merged[i] / 32768;
+      this._workletNode.port.postMessage({ type: 'pcm', samples: floatSamples.buffer }, [floatSamples.buffer]);
+      return;
+    }
+
+    this._scheduleChunkFallback(merged);
   }
 
-  _scheduleChunk(samples) {
+  _scheduleChunkFallback(samples) {
     const ctx = this.audioCtx;
     if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -393,8 +403,6 @@ class LiveListenWS {
     if (nFrames === 0) return;
 
     const audioBuffer = ctx.createBuffer(this.channels, nFrames, this.sampleRate);
-
-    // Decode interleaved s16le → per-channel float32
     for (let ch = 0; ch < this.channels; ch++) {
       const data = audioBuffer.getChannelData(ch);
       for (let i = 0; i < nFrames; i++) {
@@ -403,40 +411,20 @@ class LiveListenWS {
     }
 
     const now = ctx.currentTime;
-    const leadMsBefore = (this.nextTime - now) * 1000;
-    this._stats.lastLeadMs = leadMsBefore;
-    if (leadMsBefore > this._stats.maxLeadMs) this._stats.maxLeadMs = leadMsBefore;
-    if (leadMsBefore < this._stats.minLeadMs) this._stats.minLeadMs = leadMsBefore;
-
-    // Target latency: 400ms. This means we schedule audio to play 400ms
-    // from now. Even if the main thread hangs for 300ms, the already-
-    // scheduled BufferSources continue playing on the system audio thread.
     const targetLatency = 0.4;
-
-    // Max buffered: 900ms. Drop chunks if we're too far ahead.
     const maxBuffered = 0.9;
 
     if (!this.started || this.nextTime < now) {
-      // First chunk or underrun.
-      // Apply fade-in to avoid click at resync point.
-      if (this.started && this.nextTime < now) {
-        this._stats.underruns++;
-        this._stats.resyncs++;
-      }
       const fadeIn = Math.min(64, nFrames);
       for (let ch = 0; ch < this.channels; ch++) {
         const data = audioBuffer.getChannelData(ch);
-        for (let i = 0; i < fadeIn; i++) {
-          data[i] *= i / fadeIn;
-        }
+        for (let i = 0; i < fadeIn; i++) data[i] *= i / fadeIn;
       }
       this.nextTime = now + targetLatency;
       this.started = true;
     }
 
     if (this.nextTime > now + maxBuffered) {
-      // Too much buffered — drop to cap latency
-      this._stats.droppedMaxBuffered++;
       return;
     }
 
@@ -444,53 +432,8 @@ class LiveListenWS {
     source.buffer = audioBuffer;
     source.connect(ctx.destination);
     source.start(this.nextTime);
-    this._stats.acceptedChunks++;
-    this._stats.lastAcceptedChunkAtMs = performance.now();
     this.nextTime += audioBuffer.duration;
   }
-
-  _emitSummary(reason) {
-    const nowMs = performance.now();
-    const audioNow = this.audioCtx ? this.audioCtx.currentTime : null;
-    const leadMs = this.audioCtx ? (this.nextTime - this.audioCtx.currentTime) * 1000 : null;
-    const sinceAcceptedMs = this._stats.lastAcceptedChunkAtMs > 0
-      ? nowMs - this._stats.lastAcceptedChunkAtMs
-      : -1;
-    const payload = {
-      ts_client: new Date().toISOString(),
-      reason,
-      freq_hz: this.freq,
-      bw_hz: this.bw,
-      mode: this.mode,
-      sample_rate: this.sampleRate,
-      channels: this.channels,
-      playing: this.playing,
-      audio_current_time: audioNow,
-      audio_next_time: this.nextTime,
-      lead_ms: leadMs,
-      lead_ms_last: this._stats.lastLeadMs,
-      lead_ms_max: Number.isFinite(this._stats.maxLeadMs) ? this._stats.maxLeadMs : null,
-      lead_ms_min: Number.isFinite(this._stats.minLeadMs) ? this._stats.minLeadMs : null,
-      pcm_chunks_rx: this._stats.pcmChunksRx,
-      pcm_samples_rx: this._stats.pcmSamplesRx,
-      accepted_chunks: this._stats.acceptedChunks,
-      max_buffered_drops: this._stats.droppedMaxBuffered,
-      underruns: this._stats.underruns,
-      resyncs: this._stats.resyncs,
-      ms_since_last_accepted_chunk: sinceAcceptedMs,
-      uptime_ms: nowMs - this._stats.startedAtMs
-    };
-    postBrowserAudioSummary(payload);
-  }
-}
-
-function postBrowserAudioSummary(payload) {
-  fetch('/api/debug/audio-stutter/browser-summary', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    keepalive: true
-  }).catch(() => {});
 }
 
 const liveListenDefaults = {
@@ -698,9 +641,21 @@ let timelineFrozen = false;
 const TARGET_VISUAL_FPS = 24;
 const VISUAL_FRAME_INTERVAL_MS = 1000 / TARGET_VISUAL_FPS;
 const WATERFALL_FRAME_INTERVAL_MS = 1000 / 10;
+const DETAIL_RENDER_INTERVAL_MS = 1000 / 6;
 const LIST_RENDER_INTERVAL_MS = 250;
 const HERO_RENDER_INTERVAL_MS = 200;
 const STATUS_RENDER_INTERVAL_MS = 250;
+const MAX_RENDER_DPR = 1.25;
+const WATERFALL_MIN_INTERNAL_WIDTH = 640;
+const DETAIL_MIN_INTERNAL_WIDTH = 480;
+const COLOR_LUT_SIZE = 1024;
+const COLOR_LUT = new Uint8ClampedArray(COLOR_LUT_SIZE * 3);
+for (let i = 0; i < COLOR_LUT_SIZE; i++) {
+  const x = i / (COLOR_LUT_SIZE - 1);
+  COLOR_LUT[i * 3] = Math.floor(255 * Math.pow(x, 0.55));
+  COLOR_LUT[i * 3 + 1] = Math.floor(255 * Math.pow(x, 1.08));
+  COLOR_LUT[i * 3 + 2] = Math.floor(220 * Math.pow(1 - x, 1.15));
+}
 
 let renderFrames = 0;
 let renderFps = 0;
@@ -714,6 +669,13 @@ let pendingWaterfallRender = true;
 let pendingListRender = true;
 let pendingHeroRender = true;
 let pendingStatusRender = true;
+let lastDetailRenderTs = 0;
+let waterfallRowImageData = null;
+let detailRowImageData = null;
+let detailRowCanvas = null;
+let detailRowCtx = null;
+let waterfallRangeCache = null;
+let detailRangeCache = null;
 
 let wsReconnectTimer = null;
 let eventsFetchInFlight = false;
@@ -725,7 +687,7 @@ let timelineRects = [];
 let liveSignalRects = [];
 let recordings = [];
 let recordingsFetchInFlight = false;
-let showDebugOverlay = localStorage.getItem('spectre.debugOverlay') !== '0';
+let showDebugOverlay = localStorage.getItem('spectre.debugOverlay') === '1';
 let hoveredSignal = null;
 let popoverHideTimer = null;
 
@@ -886,12 +848,93 @@ function renderSignalPopover(rect, signal) {
   signalPopover.setAttribute('aria-hidden', 'false');
 }
 
+
+function getLutColor(v) {
+  const idx = Math.max(0, Math.min(COLOR_LUT_SIZE - 1, Math.round(v * (COLOR_LUT_SIZE - 1))));
+  const base = idx * 3;
+  return [COLOR_LUT[base], COLOR_LUT[base + 1], COLOR_LUT[base + 2]];
+}
+
+function fillSpectrumRowRGBA(target, width, rangeCache, display, centerHz, sampleRate, minDb = -120, maxDb = 0) {
+  if (!target || !display || width <= 0) return;
+  const spanMap = rangeCache?.map;
+  const bins = display.length;
+  const dbSpan = Math.max(1e-6, maxDb - minDb);
+  for (let x = 0; x < width; x++) {
+    let start = 0;
+    let end = bins - 1;
+    if (spanMap) {
+      start = spanMap[x * 2];
+      end = spanMap[x * 2 + 1];
+    }
+    let v = -1e9;
+    for (let i = start; i <= end; i++) {
+      const cur = display[i];
+      if (cur > v) v = cur;
+    }
+    const norm = Math.max(0, Math.min(1, (v - minDb) / dbSpan));
+    const lutBase = Math.max(0, Math.min(COLOR_LUT_SIZE - 1, Math.round(norm * (COLOR_LUT_SIZE - 1)))) * 3;
+    const di = x * 4;
+    target[di] = COLOR_LUT[lutBase];
+    target[di + 1] = COLOR_LUT[lutBase + 1];
+    target[di + 2] = COLOR_LUT[lutBase + 2];
+    target[di + 3] = 255;
+  }
+}
+
+function getRangeCache(prevCache, width, startHz, endHz, centerHz, sampleRate, n) {
+  const key = `${width}|${startHz.toFixed(3)}|${endHz.toFixed(3)}|${centerHz.toFixed(3)}|${sampleRate}|${n}`;
+  if (prevCache && prevCache.key === key) return prevCache;
+  const map = new Int32Array(width * 2);
+  for (let x = 0; x < width; x++) {
+    const f1 = startHz + (x / width) * (endHz - startHz);
+    const f2 = startHz + ((x + 1) / width) * (endHz - startHz);
+    let b0 = binForFreq(f1, centerHz, sampleRate, n);
+    let b1 = binForFreq(f2, centerHz, sampleRate, n);
+    if (b1 < b0) [b0, b1] = [b1, b0];
+    map[x * 2] = Math.max(0, Math.min(n - 1, b0));
+    map[x * 2 + 1] = Math.max(0, Math.min(n - 1, b1));
+  }
+  return { key, map };
+}
+
+function getCanvas2DContext(canvas, opts = {}) {
+  if (!canvas) return null;
+  if (!canvas.__ctx2d) {
+    canvas.__ctx2d = canvas.getContext('2d', {
+      alpha: false,
+      desynchronized: true,
+      willReadFrequently: !!opts.willReadFrequently
+    }) || canvas.getContext('2d');
+  }
+  return canvas.__ctx2d;
+}
+
+function ensureDetailRowCanvas(width) {
+  if (!detailRowCanvas) {
+    detailRowCanvas = document.createElement('canvas');
+    detailRowCanvas.width = Math.max(1, width);
+    detailRowCanvas.height = 1;
+    detailRowCtx = detailRowCanvas.getContext('2d', { alpha: false, desynchronized: true }) || detailRowCanvas.getContext('2d');
+  }
+  if (detailRowCanvas.width !== width) {
+    detailRowCanvas.width = Math.max(1, width);
+    detailRowCanvas.height = 1;
+    detailRowCtx = detailRowCanvas.getContext('2d', { alpha: false, desynchronized: true }) || detailRowCanvas.getContext('2d');
+    detailRowImageData = null;
+  }
+}
+
+function getWaterfallInternalWidth(canvas) {
+  return Math.max(WATERFALL_MIN_INTERNAL_WIDTH, Math.min(canvas.width, Math.floor(canvas.width * 0.85)));
+}
+
+function getDetailInternalWidth(canvas) {
+  return Math.max(DETAIL_MIN_INTERNAL_WIDTH, Math.min(canvas.width, Math.floor(canvas.width * 0.9)));
+}
+
 function colorMap(v) {
-  const x = Math.max(0, Math.min(1, v));
-  const r = Math.floor(255 * Math.pow(x, 0.55));
-  const g = Math.floor(255 * Math.pow(x, 1.08));
-  const b = Math.floor(220 * Math.pow(1 - x, 1.15));
-  return [r, g, b];
+  return getLutColor(Math.max(0, Math.min(1, v)));
 }
 
 function snrColor(snr) {
@@ -1024,12 +1067,23 @@ function getProcessedSpectrum() {
 function resizeCanvas(canvas) {
   if (!canvas) return;
   const rect = canvas.getBoundingClientRect();
-  const dpr = window.devicePixelRatio || 1;
-  const width = Math.max(1, Math.floor(rect.width * dpr));
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_RENDER_DPR);
+  let width = Math.max(1, Math.floor(rect.width * dpr));
   const height = Math.max(1, Math.floor(rect.height * dpr));
+  if (canvas === waterfallCanvas) width = getWaterfallInternalWidth({ width });
+  if (canvas === detailSpectrogram) width = getDetailInternalWidth({ width });
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
+    if (canvas === waterfallCanvas) {
+      waterfallRowImageData = null;
+      waterfallRangeCache = null;
+      pendingWaterfallRender = true;
+    }
+    if (canvas === detailSpectrogram) {
+      detailRowImageData = null;
+      detailRangeCache = null;
+    }
   }
 }
 
@@ -1647,12 +1701,10 @@ function renderSpectrum() {
 
 function renderWaterfall() {
   if (!latest) return;
-  const ctx = waterfallCanvas.getContext('2d');
+  const ctx = getCanvas2DContext(waterfallCanvas);
   const w = waterfallCanvas.width;
   const h = waterfallCanvas.height;
-
-  const prev = ctx.getImageData(0, 0, w, h - 1);
-  ctx.putImageData(prev, 0, 1);
+  if (!ctx || w <= 0 || h <= 0) return;
 
   const display = getProcessedSpectrum();
   if (!display) return;
@@ -1660,33 +1712,30 @@ function renderWaterfall() {
   const span = latest.sample_rate / zoom;
   const startHz = latest.center_hz - span / 2 + pan * span;
   const endHz = latest.center_hz + span / 2 + pan * span;
-  const minDb = -120;
-  const maxDb = 0;
 
-  const row = ctx.createImageData(w, 1);
-  for (let x = 0; x < w; x++) {
-    const f1 = startHz + (x / w) * (endHz - startHz);
-    const f2 = startHz + ((x + 1) / w) * (endHz - startHz);
-    const b0 = binForFreq(f1, latest.center_hz, latest.sample_rate, n);
-    const b1 = binForFreq(f2, latest.center_hz, latest.sample_rate, n);
-    const v = maxInBinRange(display, b0, b1);
-    const norm = Math.max(0, Math.min(1, (v - minDb) / (maxDb - minDb)));
-    const [r, g, b] = colorMap(norm);
-    row.data[x * 4] = r;
-    row.data[x * 4 + 1] = g;
-    row.data[x * 4 + 2] = b;
-    row.data[x * 4 + 3] = 255;
+  waterfallRangeCache = getRangeCache(waterfallRangeCache, w, startHz, endHz, latest.center_hz, latest.sample_rate, n);
+  if (!waterfallRowImageData || waterfallRowImageData.width !== w) {
+    waterfallRowImageData = ctx.createImageData(w, 1);
   }
-  ctx.putImageData(row, 0, 0);
+
+  fillSpectrumRowRGBA(waterfallRowImageData.data, w, waterfallRangeCache, display, latest.center_hz, latest.sample_rate);
+
+  if (h > 1) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'copy';
+    ctx.drawImage(waterfallCanvas, 0, 0, w, h - 1, 0, 1, w, h - 1);
+    ctx.restore();
+  }
+  ctx.putImageData(waterfallRowImageData, 0, 0);
+
   drawCfarEdgeOverlay(ctx, w, h, startHz, endHz);
 
-  // Waterfall signal markers: thin vertical lines at signal center frequencies
   if (Array.isArray(latest.signals)) {
-    latest.signals.forEach(s => {
-      if (!s.center_hz) return;
-      const xc = ((s.center_hz - startHz) / (endHz - startHz)) * w;
-      if (xc < 0 || xc > w) return;
-      const mod = s.class?.mod_type || '';
+    for (const sig of latest.signals) {
+      if (!sig.center_hz) continue;
+      const xc = ((sig.center_hz - startHz) / (endHz - startHz)) * w;
+      if (xc < 0 || xc > w) continue;
+      const mod = sig.class?.mod_type || '';
       ctx.strokeStyle = modColorStr(mod, 0.35);
       ctx.lineWidth = 1;
       ctx.setLineDash([2, 3]);
@@ -1694,8 +1743,8 @@ function renderWaterfall() {
       ctx.moveTo(xc, 0);
       ctx.lineTo(xc, h);
       ctx.stroke();
-      ctx.setLineDash([]);
-    });
+    }
+    ctx.setLineDash([]);
   }
 }
 
@@ -1820,9 +1869,10 @@ function renderTimeline() {
 
 function renderDetailSpectrogram() {
   const ev = eventsById.get(selectedEventId);
-  const ctx = detailSpectrogram.getContext('2d');
+  const ctx = getCanvas2DContext(detailSpectrogram);
   const w = detailSpectrogram.width;
   const h = detailSpectrogram.height;
+  if (!ctx || w <= 0 || h <= 0) return;
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#071018';
   ctx.fillRect(0, 0, w, h);
@@ -1834,25 +1884,16 @@ function renderDetailSpectrogram() {
   const localSpan = Math.min(latest.sample_rate, Math.max(ev.bandwidth_hz * 4, latest.sample_rate / 10));
   const startHz = ev.center_hz - localSpan / 2;
   const endHz = ev.center_hz + localSpan / 2;
-  const minDb = -120;
-  const maxDb = 0;
 
-  const row = ctx.createImageData(w, 1);
-  for (let x = 0; x < w; x++) {
-    const f1 = startHz + (x / w) * (endHz - startHz);
-    const f2 = startHz + ((x + 1) / w) * (endHz - startHz);
-    const b0 = binForFreq(f1, latest.center_hz, latest.sample_rate, n);
-    const b1 = binForFreq(f2, latest.center_hz, latest.sample_rate, n);
-    const v = maxInBinRange(display, b0, b1);
-    const norm = Math.max(0, Math.min(1, (v - minDb) / (maxDb - minDb)));
-    const [r, g, b] = colorMap(norm);
-    row.data[x * 4] = r;
-    row.data[x * 4 + 1] = g;
-    row.data[x * 4 + 2] = b;
-    row.data[x * 4 + 3] = 255;
+  detailRangeCache = getRangeCache(detailRangeCache, w, startHz, endHz, latest.center_hz, latest.sample_rate, n);
+  ensureDetailRowCanvas(w);
+  if (!detailRowImageData || detailRowImageData.width !== w) {
+    detailRowImageData = detailRowCtx.createImageData(w, 1);
   }
-
-  for (let y = 0; y < h; y++) ctx.putImageData(row, 0, y);
+  fillSpectrumRowRGBA(detailRowImageData.data, w, detailRangeCache, display, latest.center_hz, latest.sample_rate);
+  detailRowCtx.putImageData(detailRowImageData, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(detailRowCanvas, 0, 0, w, 1, 0, 0, w, h);
 
   const centerX = w / 2;
   ctx.strokeStyle = 'rgba(255,255,255,0.65)';
@@ -2374,6 +2415,10 @@ function decodeBinaryFrame(buf) {
 }
 
 function renderLoop(now) {
+  if (document.hidden) {
+    requestAnimationFrame(renderLoop);
+    return;
+  }
   flushOperatorStatus(now);
   flushHeroMetrics(now);
   flushLists(now);
@@ -2397,7 +2442,10 @@ function renderLoop(now) {
     }
     renderOccupancy();
     renderTimeline();
-    if (drawerEl.classList.contains('open')) renderDetailSpectrogram();
+    if (drawerEl.classList.contains('open') && (lastDetailRenderTs === 0 || now - lastDetailRenderTs >= DETAIL_RENDER_INTERVAL_MS)) {
+      renderDetailSpectrogram();
+      lastDetailRenderTs = now;
+    }
   }
   requestAnimationFrame(renderLoop);
 }
