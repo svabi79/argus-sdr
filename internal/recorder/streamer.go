@@ -2024,6 +2024,7 @@ func (st *Streamer) fanoutPCM(sess *streamSession, pcm []byte, pcmLen int) {
 	for _, sub := range sess.audioSubs {
 		select {
 		case sub.ch <- tagged:
+			alive = append(alive, sub)
 		default:
 			st.droppedPCM++
 			logging.Warn("drop", "pcm_drop", "count", st.droppedPCM)
@@ -2031,7 +2032,6 @@ func (st *Streamer) fanoutPCM(sess *streamSession, pcm []byte, pcmLen int) {
 				st.telemetry.IncCounter("streamer.pcm.drop", 1, telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", sess.signalID), "session_id", sess.sessionID))
 			}
 		}
-		alive = append(alive, sub)
 	}
 	sess.audioSubs = alive
 	if st.telemetry != nil {
