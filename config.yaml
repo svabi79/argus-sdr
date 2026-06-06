@@ -41,6 +41,9 @@ surveillance:
   display_bins: 2048
   display_fps: 12
   derived_detection: auto
+  # Welch averaging of the surveillance spectrum (R2): averages N overlapping FFT
+  # segments to cut noise variance for better low-SNR detection. 0/1 = single FFT.
+  welch_segments: 8
 refinement:
   enabled: true
   max_concurrent: 16

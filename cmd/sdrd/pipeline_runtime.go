@@ -250,6 +250,27 @@ func (rt *dspRuntime) spectrumFromIQ(iq []complex64, gpuState *gpuStatus) []floa
 	return rt.spectrumFromIQWithPlan(iq, rt.window, rt.plan, gpuState, true)
 }
 
+// surveillanceSpectrumFromIQ computes the surveillance spectrum, using Welch
+// averaging over the longer allIQ buffer when configured (R2.4) to cut noise
+// variance. Falls back to the single-FFT (GPU-capable) path otherwise.
+func (rt *dspRuntime) surveillanceSpectrumFromIQ(allIQ, survIQ []complex64, gpuState *gpuStatus) []float64 {
+	segs := rt.cfg.Surveillance.WelchSegments
+	n := rt.cfg.FFTSize
+	if segs > 1 && n > 0 {
+		need := n + (segs-1)*n/2 // segs segments at 50% overlap
+		if len(allIQ) >= need {
+			src := append([]complex64(nil), allIQ[len(allIQ)-need:]...)
+			if rt.iqEnabled {
+				dsp.IQBalance(src) // allIQ is already DC-blocked in place
+			}
+			if psd := fftutil.WelchPSD(src, n, 0.5, rt.window); len(psd) == n {
+				return psd
+			}
+		}
+	}
+	return rt.spectrumFromIQ(survIQ, gpuState)
+}
+
 func (rt *dspRuntime) spectrumFromIQWithPlan(iq []complex64, window []float64, plan *fftutil.CmplxPlan, gpuState *gpuStatus, allowGPU bool) []float64 {
 	if len(iq) == 0 {
 		return nil
@@ -557,7 +578,7 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 		}
 	}
 	rt.lastAllIQTail = tailWindowComplex(allIQ, 32)
-	survSpectrum := rt.spectrumFromIQ(survIQ, gpuState)
+	survSpectrum := rt.surveillanceSpectrumFromIQ(allIQ, survIQ, gpuState)
 	sanitizeSpectrum(survSpectrum)
 	detailSpectrum := survSpectrum
 	if !sameIQBuffer(detailIQ, survIQ) {

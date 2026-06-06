@@ -140,6 +140,10 @@ type SurveillanceConfig struct {
 	DisplayBins      int    `yaml:"display_bins" json:"display_bins"`
 	DisplayFPS       int    `yaml:"display_fps" json:"display_fps"`
 	DerivedDetection string `yaml:"derived_detection" json:"derived_detection"`
+	// WelchSegments averages this many overlapping FFT segments (Welch's method)
+	// for the surveillance spectrum, cutting noise variance for better low-SNR
+	// detection/bandwidth. 0/1 = single FFT (legacy, GPU-capable).
+	WelchSegments int `yaml:"welch_segments" json:"welch_segments"`
 }
 
 type RefinementConfig struct {
