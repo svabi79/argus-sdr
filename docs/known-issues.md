@@ -120,7 +120,7 @@ Status values used here:
 ---
 
 ### OI-19 — Waterfall shows only the newest (top) row, no history scroll
-- Status: `fix-pending-verification` (fix `f561688`, awaiting live UI check)
+- Status: `resolved` (fix `f561688`, verified in live UI 2026-06-06: waterfall scrolls)
 - Severity: Medium
 - Category: ui-rendering
 - File: `web/app.js` (`renderWaterfall`, ~L1702-1729), `web/style.css` (`.viz-stack`)
