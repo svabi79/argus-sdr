@@ -671,6 +671,13 @@ let pendingHeroRender = true;
 let pendingStatusRender = true;
 let lastDetailRenderTs = 0;
 let waterfallRowImageData = null;
+// Double-buffer (ping-pong) for the waterfall scroll. Drawing a canvas onto
+// itself under globalCompositeOperation='copy' is browser-dependent and could
+// leave the shifted region blank (OI-19: only the newest top row was visible).
+// Cross-canvas blits between two offscreen buffers avoid that entirely.
+let waterfallBufA = null;
+let waterfallBufB = null;
+let waterfallFront = null; // buffer currently holding the displayed history
 let detailRowImageData = null;
 let detailRowCanvas = null;
 let detailRowCtx = null;
@@ -1078,6 +1085,9 @@ function resizeCanvas(canvas) {
     if (canvas === waterfallCanvas) {
       waterfallRowImageData = null;
       waterfallRangeCache = null;
+      waterfallBufA = null;
+      waterfallBufB = null;
+      waterfallFront = null;
       pendingWaterfallRender = true;
     }
     if (canvas === detailSpectrogram) {
@@ -1720,13 +1730,32 @@ function renderWaterfall() {
 
   fillSpectrumRowRGBA(waterfallRowImageData.data, w, waterfallRangeCache, display, latest.center_hz, latest.sample_rate);
 
-  if (h > 1) {
-    ctx.save();
-    ctx.globalCompositeOperation = 'copy';
-    ctx.drawImage(waterfallCanvas, 0, 0, w, h - 1, 0, 1, w, h - 1);
-    ctx.restore();
+  // Ping-pong scroll: shift the front buffer's history down by one row into the
+  // back buffer (cross-canvas, no self-draw), stamp the new row at the top, then
+  // blit to the visible canvas and swap. See OI-19.
+  if (!waterfallBufA || waterfallBufA.width !== w || waterfallBufA.height !== h) {
+    waterfallBufA = document.createElement('canvas');
+    waterfallBufB = document.createElement('canvas');
+    waterfallBufA.width = waterfallBufB.width = w;
+    waterfallBufA.height = waterfallBufB.height = h;
+    waterfallFront = waterfallBufA;
   }
-  ctx.putImageData(waterfallRowImageData, 0, 0);
+  const back = (waterfallFront === waterfallBufA) ? waterfallBufB : waterfallBufA;
+  const backCtx = back.getContext('2d');
+  backCtx.globalCompositeOperation = 'copy'; // replace dest; safe cross-canvas
+  if (h > 1) {
+    backCtx.drawImage(waterfallFront, 0, 1); // history shifted down one row
+  } else {
+    backCtx.clearRect(0, 0, w, h);
+  }
+  backCtx.globalCompositeOperation = 'source-over';
+  backCtx.putImageData(waterfallRowImageData, 0, 0); // newest row at top
+  waterfallFront = back;
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'copy';
+  ctx.drawImage(back, 0, 0);
+  ctx.restore();
 
   drawCfarEdgeOverlay(ctx, w, h, startHz, endHz);
 
