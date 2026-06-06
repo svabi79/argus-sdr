@@ -119,6 +119,41 @@ Status values used here:
 
 ---
 
+### OI-19 — Waterfall shows only the newest (top) row, no history scroll
+- Status: `open`
+- Severity: Medium
+- Category: ui-rendering
+- File: `web/app.js` (`renderWaterfall`, ~L1702-1729), `web/style.css` (`.viz-stack`)
+- Summary: the waterfall only displays the most recent row at the top; rows below
+  stay blank/black, so there is no scrolling history. Each frame is expected to
+  (1) shift existing canvas content down by one row, then (2) draw the new row at
+  `y=0`. The downward shift does not persist, so only the `putImageData` top row
+  survives.
+- Suspected root cause (ranked):
+  1. Self-canvas scroll via `ctx.drawImage(waterfallCanvas, 0,0,w,h-1, 0,1,w,h-1)`
+     under `globalCompositeOperation='copy'`. Drawing a canvas onto itself with
+     `copy` is browser-dependent and can yield a blank shifted region, leaving
+     only the freshly written top row.
+  2. (Less likely) waterfall canvas internal `height` collapsing to ~1px — but
+     `.viz-stack` grid (`minmax(150px,0.72fr)`) gives the card a real height, so
+     this should not happen; still worth confirming `h > 1` at runtime.
+  3. `waterfallRowImageData` width mismatch forcing a per-frame reset
+     (`waterfallRowImageData.width !== w`), which would also wipe accumulation.
+- Diagnostics:
+  - log `w`/`h` inside `renderWaterfall` and confirm `h > 1`
+  - temporarily replace the `copy` self-blit with a double-buffer (offscreen
+    canvas) or a plain `source-over` `ctx.drawImage(canvas, 0, 1)` shift and see
+    if history accumulates
+  - check `git log -- web/app.js` for a recent change to the scroll/composite path
+    (possible regression)
+- Recommended fix: double-buffer the scroll via an offscreen canvas (draw shifted
+  history + new row there, then blit back), or drop `globalCompositeOperation='copy'`
+  for the self-shift. The detail spectrogram path (`detailRowImageData`,
+  `putImageData` at ~L1894) may share the same pattern — verify it too.
+- Source: reported 2026-06-06 (live UI observation).
+
+---
+
 ## Lower Priority / Nice-to-Have
 
 ### OI-01 — `DCBlocker.Apply(allIQ)` still mutates extraction input in-place
