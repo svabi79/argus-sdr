@@ -53,6 +53,12 @@ Prefer current code, current docs in `docs/`, and current branch state over hist
   - telemetry/debug operating guide
 - `docs/audio-click-debug-notes-2026-03-24.md`
   - historical incident record and final resolution notes for the audio-click investigation
+- `docs/architecture-review-2026-06-06.md`
+  - architecture/implementation review: strengths, ausbau-schieflage (arbitration > perception),
+    prioritized findings (B-1..B-6) and recommended execution order
+- `docs/classifier-ml-plan-2026-06-06.md`
+  - detailed plan for adding ML to the classifier (data+benchmark first → Stage A trees → Stage B CNN),
+    including automated data collection strategy
 
 ### Treat as historical / contextual docs
 Anything in `docs/` that reads like an incident log, deep debug note, or one-off investigation should be treated as supporting context, not automatic source of truth.
