@@ -17,6 +17,7 @@ import (
 
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
+	"sdr-wideband-suite/internal/estimate"
 	fftutil "sdr-wideband-suite/internal/fft"
 	"sdr-wideband-suite/internal/synth"
 )
@@ -179,6 +180,108 @@ func TestDetectionBaseline(t *testing.T) {
 		g := got[best]
 		t.Logf("%-8s %10.0f %10.0f %10.1f", tr.Kind, tr.BandwidthHz, g.BWHz,
 			math.Abs(g.BWHz-tr.BandwidthHz)/tr.BandwidthHz*100)
+	}
+}
+
+// refTruthBW measures a signal's true occupied bandwidth from a near-noiseless,
+// wide-region generation. This is the fair ground truth (the nominal Carson
+// value overstates the 99%-occupied band for FM), used to score both the
+// geometric and the refined estimate on equal footing.
+func refTruthBW(kind synth.Kind, nominalBw float64) float64 {
+	binWidth := float64(benchFs) / float64(benchN)
+	scene := synth.Scene{
+		SampleRate: benchFs, Seed: 7, NoiseStd: 1.0,
+		Signals: []synth.SignalSpec{{Kind: kind, CenterHz: 0, BandwidthHz: nominalBw, SNRdB: 50}},
+	}
+	spec := fftutil.Spectrum(scene.Generate(benchN), fftutil.Hann(benchN))
+	center := benchN / 2
+	half := int(math.Max(4*nominalBw, 60e3) / binWidth)
+	lo, hi := center-half, center+half
+	if lo < 0 {
+		lo = 0
+	}
+	if hi >= len(spec) {
+		hi = len(spec) - 1
+	}
+	occ := estimate.OccupiedBandwidthDb(spec[lo:hi+1], binWidth, 0.99)
+	return occ.BandwidthHz
+}
+
+// TestRefinedBandwidthVsGeometric proves R1: the occupied-bandwidth estimator
+// recovers the true occupied bandwidth far better than the detector's geometric
+// width, on the same scenes, scored against a noiseless reference truth.
+func TestRefinedBandwidthVsGeometric(t *testing.T) {
+	binWidth := float64(benchFs) / float64(benchN)
+	win := fftutil.Hann(benchN)
+	d := detector.New(detectorConfig(), benchFs, benchN)
+	scene := baseScene(30, 2000)
+
+	// Run frames; keep the final realization's spectrum for refinement.
+	var raw []detector.Signal
+	var spec []float64
+	now := time.Unix(0, 0)
+	for f := 0; f < benchFrames; f++ {
+		s := scene
+		s.Seed = scene.Seed + int64(f)
+		spec = fftutil.Spectrum(s.Generate(benchN), win)
+		now = now.Add(66 * time.Millisecond)
+		_, raw = d.Process(now, spec, 0)
+	}
+
+	t.Logf("Refined vs geometric bandwidth @ 30 dB SNR (vs noiseless reference truth):")
+	t.Logf("%-8s %9s %9s %9s %9s %9s", "kind", "refTruth", "geomBW", "geom%", "refBW", "ref%")
+	var geomErrs, refErrs []float64
+	var wfmRefErr float64
+	for _, tr := range scene.Signals {
+		best, bestD := -1, math.MaxFloat64
+		for i, g := range raw {
+			dd := math.Abs(g.CenterHz - tr.CenterHz)
+			if dd < bestD {
+				best, bestD = i, dd
+			}
+		}
+		if best < 0 || bestD > math.Max(tr.BandwidthHz, raw[best].BWHz)/2+4*binWidth {
+			t.Logf("%-8s %9s", tr.Kind, "MISS")
+			continue
+		}
+		truth := refTruthBW(tr.Kind, tr.BandwidthHz)
+		if truth <= 0 {
+			continue
+		}
+		g := raw[best]
+		ref := estimate.RefineFromSpectrum(spec, g.FirstBin, g.LastBin, binWidth, 0.99)
+		geomErr := math.Abs(g.BWHz-truth) / truth * 100
+		refErr := math.NaN()
+		refBW := math.NaN()
+		if ref.OK {
+			refBW = ref.BandwidthHz
+			refErr = math.Abs(ref.BandwidthHz-truth) / truth * 100
+		}
+		t.Logf("%-8s %9.0f %9.0f %9.1f %9.0f %9.1f", tr.Kind, truth, g.BWHz, geomErr, refBW, refErr)
+		// Exclude the sub-bin CW signal from aggregate bandwidth stats.
+		if tr.Kind != synth.KindCW {
+			geomErrs = append(geomErrs, geomErr)
+			if ref.OK {
+				refErrs = append(refErrs, refErr)
+			}
+		}
+		if tr.Kind == synth.KindWFM && ref.OK {
+			wfmRefErr = refErr
+		}
+	}
+
+	geomMed := medianf(geomErrs)
+	refMed := medianf(refErrs)
+	t.Logf("median bw error vs reference truth (excl. CW): geometric=%.1f%%  refined=%.1f%%", geomMed, refMed)
+
+	if refMed > 0.7*geomMed {
+		t.Errorf("refined median bw error %.1f%% should be substantially better than geometric %.1f%%", refMed, geomMed)
+	}
+	if refMed > 30 {
+		t.Errorf("refined median bw error %.1f%% should be under 30%%", refMed)
+	}
+	if wfmRefErr > 35 {
+		t.Errorf("refined WFM bw error %.1f%% should be under 35%% (geometric was ~48%%)", wfmRefErr)
 	}
 }
 

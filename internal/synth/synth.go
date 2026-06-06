@@ -117,15 +117,29 @@ func genSignal(s SignalSpec, fs float64, n int, rng *rand.Rand) []complex128 {
 		}
 
 	case KindAM:
-		// Carrier with a single audio tone -> energy at fc and fc±fa.
+		// Carrier with a multi-tone audio message (continuous double sideband,
+		// occupied ~ 2*fa = b), rather than a single tone's discrete sidebands.
 		fa := b / 2
 		if fa <= 0 {
 			fa = 1e3
 		}
-		const m = 0.7
+		const (
+			ktones = 10
+			m      = 0.7
+		)
+		af := make([]float64, ktones)
+		ap := make([]float64, ktones)
+		for k := 0; k < ktones; k++ {
+			af[k] = fa * float64(k+1) / float64(ktones)
+			ap[k] = rng.Float64() * twoPi
+		}
 		for i := 0; i < n; i++ {
 			t := float64(i) / fs
-			env := 1 + m*math.Cos(twoPi*fa*t)
+			var msg float64
+			for k := 0; k < ktones; k++ {
+				msg += math.Cos(twoPi*af[k]*t + ap[k])
+			}
+			env := 1 + m*msg/float64(ktones)
 			ph := twoPi * fc * t
 			out[i] = complex(env*math.Cos(ph), env*math.Sin(ph))
 		}
@@ -151,19 +165,46 @@ func genSignal(s SignalSpec, fs float64, n int, rng *rand.Rand) []complex128 {
 		}
 
 	case KindNFM, KindWFM:
-		// FM with deviation chosen so Carson bandwidth ~ b: b = 2(beta+1)fm.
-		beta := 2.0
-		if s.Kind == KindWFM {
-			beta = 5.0
+		// FM with a multi-tone audio message so the spectrum is continuous and
+		// fills the Carson bandwidth (real broadcast/voice FM), rather than the
+		// discrete Bessel lines a single tone would give. Peak deviation and
+		// message bandwidth are chosen so Carson 2*(dev+W) ~ b.
+		w := b / 6
+		if w <= 0 {
+			w = 1e3
 		}
-		fm := b / (2 * (beta + 1))
-		if fm <= 0 {
-			fm = 1e3
+		dev := b/2 - w
+		if dev < 0 {
+			dev = b / 2
 		}
+		const ktones = 12
+		mf := make([]float64, ktones)
+		mp := make([]float64, ktones)
+		for k := 0; k < ktones; k++ {
+			mf[k] = w * float64(k+1) / float64(ktones)
+			mp[k] = rng.Float64() * twoPi
+		}
+		msg := make([]float64, n)
+		peak := 0.0
 		for i := 0; i < n; i++ {
 			t := float64(i) / fs
-			ph := twoPi*fc*t + beta*math.Sin(twoPi*fm*t)
-			out[i] = complex(math.Cos(ph), math.Sin(ph))
+			var m float64
+			for k := 0; k < ktones; k++ {
+				m += math.Cos(twoPi*mf[k]*t + mp[k])
+			}
+			msg[i] = m
+			if a := math.Abs(m); a > peak {
+				peak = a
+			}
+		}
+		if peak <= 0 {
+			peak = 1
+		}
+		phase := 0.0
+		for i := 0; i < n; i++ {
+			inst := fc + dev*(msg[i]/peak) // peak deviation = dev
+			phase += twoPi * inst / fs
+			out[i] = complex(math.Cos(phase), math.Sin(phase))
 		}
 
 	default:

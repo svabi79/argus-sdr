@@ -20,6 +20,8 @@ const (
 	noiseMarginDb = 3.0
 	// minSignalDb is the minimum peak-over-noise for a region to hold a signal.
 	minSignalDb = 6.0
+	// smoothHz is the dB-domain smoothing width used for peak/blob detection.
+	smoothHz = 1800.0
 )
 
 // Occupancy holds the result of an occupied-bandwidth estimate over a local
@@ -29,6 +31,8 @@ type Occupancy struct {
 	CenterBin     float64 // power centroid, in bins relative to the region start
 	LowBin        float64 // lower occupancy edge (fractional bin, region-relative)
 	HighBin       float64 // upper occupancy edge (fractional bin, region-relative)
+	BlobLowBin    int     // lower edge of the signal blob (region-relative)
+	BlobHighBin   int     // upper edge of the signal blob (region-relative)
 	NoiseFloorDb  float64 // estimated noise pedestal in the region (dB)
 	SignalPowerDb float64 // total noise-subtracted in-band power (dB)
 	OK            bool
@@ -55,9 +59,15 @@ func OccupiedBandwidthDb(regionDb []float64, binWidthHz, fraction float64) Occup
 	noiseDb := edgeNoiseDb(regionDb)
 	noiseLin := dbToLin(noiseDb)
 
+	// Smooth the dB region for peak/blob detection only (power is measured on the
+	// raw spectrum). Smoothing fills the small dips of structured spectra (FM)
+	// while averaging down isolated noise spikes, so the blob neither fragments
+	// nor chains out into the noise.
+	smooth := boxSmoothDb(regionDb, smoothBins(binWidthHz))
+
 	// 1) Peak. A region with no bin clearly above noise carries no signal.
 	peakBin, peakDb := 0, math.Inf(-1)
-	for i, db := range regionDb {
+	for i, db := range smooth {
 		if db > peakDb {
 			peakDb, peakBin = db, i
 		}
@@ -66,25 +76,21 @@ func OccupiedBandwidthDb(regionDb []float64, binWidthHz, fraction float64) Occup
 		return Occupancy{NoiseFloorDb: noiseDb}
 	}
 
-	// 2) Contiguous signal blob around the peak: extend while bins stay above a
-	// small margin over noise, tolerating short dips (FM/structured spectra) up
-	// to gap bins. This bounds the estimate to the signal and excludes far
-	// scattered noise survivors that would otherwise inflate the bandwidth.
+	// 2) Contiguous signal blob around the peak on the smoothed spectrum: extend
+	// while bins stay above a small margin over noise, tolerating a couple of
+	// bins of dip. Bounds the estimate to the signal and excludes far noise.
 	thr := noiseDb + noiseMarginDb
-	gap := n / 100
-	if gap < 3 {
-		gap = 3
-	}
+	const gap = 2
 	blo, bhi := peakBin, peakBin
 	for i, miss := peakBin-1, 0; i >= 0; i-- {
-		if regionDb[i] > thr {
+		if smooth[i] > thr {
 			blo, miss = i, 0
 		} else if miss++; miss > gap {
 			break
 		}
 	}
 	for i, miss := peakBin+1, 0; i < n; i++ {
-		if regionDb[i] > thr {
+		if smooth[i] > thr {
 			bhi, miss = i, 0
 		} else if miss++; miss > gap {
 			break
@@ -127,6 +133,8 @@ func OccupiedBandwidthDb(regionDb []float64, binWidthHz, fraction float64) Occup
 		CenterBin:     centroid,
 		LowBin:        low,
 		HighBin:       high,
+		BlobLowBin:    blo,
+		BlobHighBin:   bhi,
 		NoiseFloorDb:  noiseDb,
 		SignalPowerDb: 10 * math.Log10(total+1e-30),
 		OK:            true,
@@ -182,4 +190,39 @@ func edgeNoiseDb(regionDb []float64) float64 {
 
 func dbToLin(db float64) float64 {
 	return math.Pow(10, db/10)
+}
+
+// smoothBins returns an odd box-filter width (>=3) corresponding to smoothHz.
+func smoothBins(binWidthHz float64) int {
+	w := int(math.Round(smoothHz / binWidthHz))
+	if w < 3 {
+		w = 3
+	}
+	if w%2 == 0 {
+		w++
+	}
+	return w
+}
+
+// boxSmoothDb returns a centered box-average of v with the given odd width.
+func boxSmoothDb(v []float64, width int) []float64 {
+	n := len(v)
+	out := make([]float64, n)
+	half := width / 2
+	for i := 0; i < n; i++ {
+		lo := i - half
+		hi := i + half
+		if lo < 0 {
+			lo = 0
+		}
+		if hi > n-1 {
+			hi = n - 1
+		}
+		var s float64
+		for j := lo; j <= hi; j++ {
+			s += v[j]
+		}
+		out[i] = s / float64(hi-lo+1)
+	}
+	return out
 }
