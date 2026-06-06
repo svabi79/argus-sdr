@@ -15,15 +15,14 @@ Status values used here:
 ## High Priority
 
 ### OI-20 — Refinement does not re-estimate bandwidth/SNR (copies coarse value)
-- Status: `mostly-resolved` (bandwidth+center re-estimation landed in Phase R/R1;
-  SNR re-estimation still open)
+- Status: `resolved` (Phase R / R1: bandwidth, center and SNR re-estimation landed)
 - Severity: High
 - Category: estimation-quality
 - File: `internal/pipeline/refiner.go`, `internal/estimate/`
-- Resolution: refinement now re-estimates occupied bandwidth + center via
-  `estimate.RefineFromSpectrum` (power containment), gated by
+- Resolution: refinement now re-estimates occupied bandwidth + center + SNR via
+  `estimate.RefineFromSpectrum` (power containment + peak-over-noise), gated by
   `refinement.occupied_bw_fraction`. Benchmark: refined median bw error ~24% vs
-  geometric ~49%. Remaining: SNR re-estimation (R1.3).
+  geometric ~49%; refined SNR tracks configured SNR ~1:1.
 - Summary: the refinement layer is documented (PLAN §4) to "stabilize center/bw/snr",
   but it copies the coarse detector bandwidth unchanged (`sig.BWHz = c.BandwidthHz`)
   and only attaches classification/PLL. The classifier's dominant feature (bandwidth)

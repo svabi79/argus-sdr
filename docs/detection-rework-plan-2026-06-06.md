@@ -85,11 +85,12 @@ Benchmark (`go test -tags bench`), Baseline in `docs/detection-baseline-2026-06-
   Damit ist B-5 erfüllt und wir wissen quantitativ, wo es hakt.
 - *Akzeptanz*: reproduzierbarer Benchmark, dokumentierte Baseline-Metriken.
 
-### R1 — Refinement schätzt belegte Bandbreite + SNR (höchster Hebel) — ✅ Bandbreite/Center erledigt; SNR offen
-Umgesetzt: `internal/estimate` (Occupied-Bandwidth per Blob+Containment),
+### R1 — Refinement schätzt belegte Bandbreite + SNR (höchster Hebel) — ✅ ERLEDIGT
+Umgesetzt: `internal/estimate` (Occupied-Bandwidth per Blob+Containment + Peak/SNR),
 in `refiner.go` verdrahtet (Flag `refinement.occupied_bw_fraction`). Beleg an der
 Benchmark: refined Median-bw-Fehler ~24 % vs geometrisch ~49 % (WFM 27 % vs 48 %,
-SSB 2 %, DIGITAL 1 %). Offen: SNR-Reestimation (R1.3) noch nicht verdrahtet.
+SSB 2 %, DIGITAL 1 %). SNR-Reestimation (R1.3): Peak-over-Noise, trackt die
+konfigurierte SNR ~1:1.
 - **R1.1** Lokale PSD pro Kandidat aus dem IQ-Snippet (Welch über das Snippet)
   bzw. dem High-Res-Detail-Spektrum bereitstellen.
 - **R1.2** Occupied-Bandwidth-Schätzer: Band um den Power-Schwerpunkt, das einen
