@@ -49,6 +49,11 @@ func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectr
 				if hi := int(math.Round(ref.HighBin)); hi >= sig.FirstBin && hi < len(spectrum) {
 					sig.LastBin = hi
 				}
+				// R1.3: refined peak-over-noise SNR from the same local estimate.
+				if ref.SNRDb > 0 {
+					sig.SNRDb = ref.SNRDb
+					sig.NoiseDb = ref.NoiseFloorDb
+				}
 			}
 		}
 		var snip []complex64

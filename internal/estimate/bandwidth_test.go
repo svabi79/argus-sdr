@@ -107,6 +107,26 @@ func TestOccupiedBandwidthNoiseRobust(t *testing.T) {
 	}
 }
 
+// Refined peak-over-noise SNR must track the configured signal SNR: a 10 dB
+// increase in signal power raises the peak ~10 dB while the noise floor is fixed.
+func TestOccupiedSNRTracksConfigured(t *testing.T) {
+	for _, kind := range []synth.Kind{synth.KindNFM, synth.KindDigital} {
+		s10 := estimateOne(kind, 12e3, 10)
+		s20 := estimateOne(kind, 12e3, 20)
+		s30 := estimateOne(kind, 12e3, 30)
+		if !s10.OK || !s20.OK || !s30.OK {
+			t.Fatalf("%s: not-ok", kind)
+		}
+		d1 := s20.SNRDb() - s10.SNRDb()
+		d2 := s30.SNRDb() - s20.SNRDb()
+		t.Logf("%-8s SNRdB: 10dB->%.1f 20dB->%.1f 30dB->%.1f (steps %.1f, %.1f)",
+			kind, s10.SNRDb(), s20.SNRDb(), s30.SNRDb(), d1, d2)
+		if d1 < 5 || d1 > 15 || d2 < 5 || d2 > 15 {
+			t.Errorf("%s: SNR steps (%.1f, %.1f) should be ~10 dB per 10 dB", kind, d1, d2)
+		}
+	}
+}
+
 func TestEmptyRegionNotOK(t *testing.T) {
 	flat := make([]float64, 256)
 	for i := range flat {

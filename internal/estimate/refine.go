@@ -9,6 +9,8 @@ type Refined struct {
 	LowBin       float64 // occupancy edges, absolute spectrum bins
 	HighBin      float64
 	NoiseFloorDb float64
+	PeakDb       float64
+	SNRDb        float64 // peak-over-noise
 	OK           bool
 }
 
@@ -55,6 +57,8 @@ func RefineFromSpectrum(specDb []float64, firstBin, lastBin int, binWidthHz, fra
 			LowBin:       float64(regStart) + occ.LowBin,
 			HighBin:      float64(regStart) + occ.HighBin,
 			NoiseFloorDb: occ.NoiseFloorDb,
+			PeakDb:       occ.PeakDb,
+			SNRDb:        occ.SNRDb(),
 			OK:           true,
 		}
 		// Converged if the signal blob has a noise margin on both sides and the

@@ -34,9 +34,13 @@ type Occupancy struct {
 	BlobLowBin    int     // lower edge of the signal blob (region-relative)
 	BlobHighBin   int     // upper edge of the signal blob (region-relative)
 	NoiseFloorDb  float64 // estimated noise pedestal in the region (dB)
+	PeakDb        float64 // raw peak power within the blob (dB)
 	SignalPowerDb float64 // total noise-subtracted in-band power (dB)
 	OK            bool
 }
+
+// SNRDb returns the peak-over-noise of the occupancy in dB.
+func (o Occupancy) SNRDb() float64 { return o.PeakDb - o.NoiseFloorDb }
 
 // OccupiedBandwidthDb estimates the fraction-occupied bandwidth of a signal
 // within a local dB power region (e.g. a slice of the surveillance spectrum
@@ -97,10 +101,14 @@ func OccupiedBandwidthDb(regionDb []float64, binWidthHz, fraction float64) Occup
 		}
 	}
 
-	// 3) Noise-subtracted power inside the blob only.
+	// 3) Noise-subtracted power inside the blob only; track the raw peak for SNR.
 	sig := make([]float64, n)
 	var total, wsum float64
+	rawPeakDb := math.Inf(-1)
 	for i := blo; i <= bhi; i++ {
+		if regionDb[i] > rawPeakDb {
+			rawPeakDb = regionDb[i]
+		}
 		if regionDb[i] <= thr {
 			continue
 		}
@@ -136,6 +144,7 @@ func OccupiedBandwidthDb(regionDb []float64, binWidthHz, fraction float64) Occup
 		BlobLowBin:    blo,
 		BlobHighBin:   bhi,
 		NoiseFloorDb:  noiseDb,
+		PeakDb:        rawPeakDb,
 		SignalPowerDb: 10 * math.Log10(total+1e-30),
 		OK:            true,
 	}
