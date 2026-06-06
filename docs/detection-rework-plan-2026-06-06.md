@@ -106,7 +106,13 @@ konfigurierte SNR ~1:1.
 - *Akzeptanz*: bw-MAE auf der Benchmark messbar besser als R0-Baseline; kein
   Regress bei Center/Detektion.
 
-### R2 — Stabiles Surveillance-Spektrum + robuster Noise-Floor
+### R2 — Stabiles Surveillance-Spektrum + robuster Noise-Floor — ✅ Kern erledigt (Welch); R2.2/R2.3 nachgelagert
+Umgesetzt: `fft.WelchPSD` (Rausch-Streuung 5.66→0.81 dB bei 16 Segmenten), live im
+Surveillance-Pfad verdrahtet (`surveillance.welch_segments`, Default 8). Beleg:
+Low-SNR-Bandbreite mit Welch näher an der Wahrheit (Mittel 81%→69%, WFM 96%→57%).
+Hinweis: R2.2 (ortsabhängiger Noise-Floor) ist für die Detektion großteils bereits
+durch die per-Bin-adaptiven CFAR-Schwellen (GOSCA) abgedeckt; der globale Median ist
+nur Fallback/Reporting. R2.3 (CFAR-Neubewertung auf der stabileren PSD) bei Bedarf.
 - **R2.1** Welch-gemittelte PSD für die Surveillance statt Einzel-FFT + EMA
   (overlap-add, konfigurierbare Mittelung); Display-Glättung getrennt halten.
 - **R2.2** Robuste, ortsabhängige Rauschschätzung (gleitendes Perzentil/Median je
