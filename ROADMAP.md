@@ -14,6 +14,33 @@ The project has progressed through four major milestones:
 
 This roadmap reflects the actual code state as of the latest landed Phase-4 work.
 
+### Reality check / correction (2026-06-06)
+
+A code+operations review found that the **perception layer is not yet load-bearing**,
+even though Phases 1-4 (which are mostly *policy/arbitration/orchestration*) are
+landed. Concretely:
+
+- Detection runs on a **single resolution** (`internal/detector/detector.go`) and
+  is not universal: it works for BC-FM when tuned for it, but over-/under-detects
+  elsewhere.
+- **Bandwidth is geometric** (threshold-crossing bins + heuristic edge-walk + fixed
+  merge gap), not the occupied bandwidth.
+- The **refinement layer does not re-estimate bandwidth/SNR** — `internal/pipeline/
+  refiner.go` copies the coarse detector value. The Phase-2 "multi-resolution
+  surveillance" is **scaffolded but not actually consumed by the detector** for real
+  estimation.
+- There is **no ground-truth benchmark**, so detection/estimation/classification
+  quality is unmeasured.
+
+Consequence: building more orchestration on top (Phase 5+) before fixing perception
+is the wrong order (the "arbitration > perception" imbalance, see
+`docs/architecture-review-2026-06-06.md`). The **immediate next priority is Phase R
+(Detection & Estimation Rework)**, not Phase 5. Phases 1-4 remain landed as
+policy/orchestration scaffolding; they are not removed, but the perception base under
+them must be made universal and measurable first.
+
+See `docs/detection-rework-plan-2026-06-06.md` for the detailed, step-wise plan.
+
 ---
 
 ## Phase 1 - Architecture Foundation (Complete)
@@ -51,6 +78,12 @@ Make surveillance genuinely multi-level and connect those levels to candidate be
 
 ### Meaning
 Phase 2 moved the system from a single-spectrum mentality toward a real multi-resolution surveillance engine.
+
+> **Correction (2026-06-06):** the multi-resolution *semantics, config and API surface*
+> landed, but the **detector does not yet consume multiple levels for real estimation**,
+> and refinement does not re-estimate bandwidth. Treat Phase 2 as the level/evidence
+> *model*, not as a delivered universal multi-resolution detector. The actual detection
+> engine work is Phase R.
 
 ---
 
@@ -104,6 +137,41 @@ Phase 4 delivered a practical operating model for multiple monitoring zones with
 ---
 
 # Next Planned Phases
+
+## Phase R - Detection & Estimation Rework (IMMEDIATE NEXT PRIORITY)
+
+### Core idea
+Make the **perception layer** (detection → bandwidth/center/SNR estimation →
+classification) universal and **measurable**, before adding more orchestration on top.
+This corrects the "arbitration > perception" imbalance.
+
+### Why before Phase 5
+Phases 5-8 add orchestration/QoS/scale/polish *on top of* detection. If detection and
+bandwidth estimation are unreliable, everything above inherits the noise. Perception is
+the foundation and must be fixed and proven first.
+
+### Target outcomes (each gated by a ground-truth benchmark)
+- a synthetic scene generator + benchmark with known ground truth (detection P/R,
+  bandwidth/center error, classification confusion) — the measurement spine
+- refinement that re-estimates **occupied bandwidth** + SNR per candidate
+- a stable surveillance PSD (Welch-averaged) + robust, location-aware noise floor
+- **multi-resolution detection** actually consuming multiple levels (universality
+  across CW … WFM), scale-aware merge instead of a fixed gap
+- classification re-validated on good features; data-driven heuristic-vs-ML decision
+- real-device validation closing the domain gap
+
+### Step-wise breakdown
+R0 measurement spine → R1 bandwidth/SNR re-estimation → R2 Welch PSD + noise →
+R3 multi-resolution detection → R4 classification on solid features → R5 real-device
+validation. See `docs/detection-rework-plan-2026-06-06.md` for the detailed steps,
+metrics, and acceptance criteria.
+
+### Important note
+R0 (ground truth) is a hard prerequisite. No DSP change lands without a benchmark
+number proving it better. This is explicitly "do it right, measured" rather than
+tuning magic numbers by eye.
+
+---
 
 ## Phase 5 - Span / Operating-Orchestration
 
@@ -188,11 +256,16 @@ Turn the powerful engine into a polished operator product.
 
 If a future agent resumes work, the recommended order is:
 
-1. **Start with Phase 5**, not Phase 6/7/8.
-2. Treat Phases 1-4 as completed milestones.
-3. Avoid reopening already-closed phase work unless there is a concrete bug or mismatch.
-4. Before starting a new major block, inspect the current repo state and confirm the roadmap still matches the code.
+1. **Start with Phase R (Detection & Estimation Rework)**, not Phase 5/6/7/8.
+   Perception is the current bottleneck; orchestration on top of it can wait.
+   Begin with R0 (ground-truth benchmark) — it is a hard prerequisite.
+2. Treat Phases 1-4 as landed *policy/orchestration* scaffolding, but do not assume
+   the perception layer under them is universal yet (see the 2026-06-06 correction).
+3. Defer Phase 5+ until Phase R has made detection/estimation universal and measurable.
+4. Before starting a new major block, inspect the current repo state and confirm the
+   roadmap still matches the code.
 5. Prefer milestone-sized coherent blocks over broad speculative redesigns.
+6. No DSP/detection change lands without a benchmark number proving it better.
 
 ---
 

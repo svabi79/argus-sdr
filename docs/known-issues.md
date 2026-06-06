@@ -14,6 +14,46 @@ Status values used here:
 
 ## High Priority
 
+### OI-20 — Refinement does not re-estimate bandwidth/SNR (copies coarse value)
+- Status: `open`
+- Severity: High
+- Category: estimation-quality
+- File: `internal/pipeline/refiner.go` (~L18)
+- Summary: the refinement layer is documented (PLAN §4) to "stabilize center/bw/snr",
+  but it copies the coarse detector bandwidth unchanged (`sig.BWHz = c.BandwidthHz`)
+  and only attaches classification/PLL. The classifier's dominant feature (bandwidth)
+  is therefore the noisy single-resolution geometric estimate, never refined.
+- Recommended fix: implement occupied-bandwidth (power-containment) + SNR
+  re-estimation per candidate from the local PSD/IQ snippet (Phase R, step R1).
+- Source: `docs/detection-rework-plan-2026-06-06.md`
+
+### OI-21 — Single-resolution detection is not universal (over/under detection)
+- Status: `open`
+- Severity: High
+- Category: detection-architecture
+- File: `internal/detector/detector.go`, `internal/cfar/`
+- Summary: detection runs on one FFT resolution with threshold-crossing + heuristic
+  edge expansion + a fixed `MergeGapHz`. One bin width cannot resolve both narrowband
+  (CW) and wideband (WFM) signals, so it over-/under-detects unless tuned for one band
+  (BC-FM). The Phase-2 multi-resolution surveillance scaffolding is not actually
+  consumed by the detector.
+- Recommended fix: multi-resolution detection consuming multiple levels + scale-aware
+  merge + candidate fusion (Phase R, step R3).
+- Source: `docs/detection-rework-plan-2026-06-06.md`
+
+### OI-22 — No ground-truth benchmark for detection/estimation/classification
+- Status: `open`
+- Severity: High
+- Category: test-coverage / measurability
+- File: `internal/mock/`, (new) benchmark/eval target
+- Summary: there is no measurement with known ground truth, so detection P/R,
+  bandwidth/center error, and classification accuracy are unquantified. Any tuning is
+  blind ("tinkering"). This blocks doing the rework correctly.
+- Recommended fix: parametric synthetic scene generator (extend mock) + ground-truth
+  benchmark harness as a tagged `go test` (Phase R, step R0). Also satisfies B-5 and
+  the classifier-ml-plan Phase 0.
+- Source: `docs/detection-rework-plan-2026-06-06.md`, `docs/architecture-review-2026-06-06.md`
+
 ### OI-02 — `lastDiscrimIQ` missing from `dspStateSnapshot`
 - Status: `open`
 - Severity: High

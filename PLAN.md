@@ -61,6 +61,12 @@ Verantwortung:
 - center/bw/snr stabilisieren
 - IQ-/Feature-Snippets für Classifier vorbereiten
 
+> **Status-Korrektur (2026-06-06):** Dieser Layer liefert aktuell IQ-/Feature-Snippets
+> + Klassifikation/PLL, **stabilisiert aber center/bw/snr noch nicht** —
+> `internal/pipeline/refiner.go` übernimmt die grobe Detektor-Bandbreite unverändert.
+> Die echte Reestimation (belegte Bandbreite + SNR) ist Phase R, Schritt R1.
+> Siehe `docs/detection-rework-plan-2026-06-06.md` und OI-20.
+
 ### 5. Classification + Decode Layer
 Verantwortung:
 - Signaltypen klassifizieren

@@ -16,6 +16,14 @@ Go-based SDR analysis engine and live spectrum/waterfall UI, evolved from the or
 - Phase-2 milestone complete: multi-resolution surveillance levels, derived detection governance, support levels, and fused candidate evidence summaries
 - Phase-3 milestone complete: conservative runtime prioritization/admission/pressure/hold/displacement/rebalance behavior across refinement, record, and decode
 
+> **Status note (2026-06-06):** Phases 1-4 are *policy/orchestration* scaffolding.
+> The **perception layer underneath is not yet universal**: detection is single-
+> resolution, bandwidth is geometric (not occupied-bandwidth), and refinement does
+> not re-estimate bandwidth/SNR. It works well for BC-FM when tuned for it, less so
+> elsewhere. The next priority is **Phase R — Detection & Estimation Rework**
+> (ground-truth benchmark first). See `docs/detection-rework-plan-2026-06-06.md`,
+> `docs/architecture-review-2026-06-06.md`, and `ROADMAP.md`.
+
 ---
 
 ## Requirements

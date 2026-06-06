@@ -59,6 +59,11 @@ Prefer current code, current docs in `docs/`, and current branch state over hist
 - `docs/classifier-ml-plan-2026-06-06.md`
   - detailed plan for adding ML to the classifier (data+benchmark first → Stage A trees → Stage B CNN),
     including automated data collection strategy
+- `docs/detection-rework-plan-2026-06-06.md`
+  - step-wise plan to make the perception layer universal and measurable
+    (R0 ground-truth benchmark → R1 occupied-bandwidth/SNR re-estimation →
+    R2 Welch PSD/noise → R3 multi-resolution detection → R4 classification → R5 real)
+  - this is the current IMMEDIATE NEXT PRIORITY (Phase R), ahead of ROADMAP Phase 5
 
 ### Treat as historical / contextual docs
 Anything in `docs/` that reads like an incident log, deep debug note, or one-off investigation should be treated as supporting context, not automatic source of truth.
