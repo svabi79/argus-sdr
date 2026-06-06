@@ -150,6 +150,9 @@ type RefinementConfig struct {
 	MinSpanHz         float64 `yaml:"min_span_hz" json:"min_span_hz"`
 	MaxSpanHz         float64 `yaml:"max_span_hz" json:"max_span_hz"`
 	AutoSpan          *bool   `yaml:"auto_span" json:"auto_span"`
+	// OccupiedBwFraction enables occupied-bandwidth re-estimation in refinement
+	// (power-containment fraction, e.g. 0.99). 0 = default (0.99); <0 disables.
+	OccupiedBwFraction float64 `yaml:"occupied_bw_fraction" json:"occupied_bw_fraction"`
 }
 
 type ResourceConfig struct {

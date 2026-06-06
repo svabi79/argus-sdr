@@ -865,7 +865,14 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 		centerHz = rt.cfg.CenterHz
 	}
 	snips, snipRates := extractSignalIQBatch(extractMgr, art.detailIQ, sampleRate, centerHz, selectedSignals)
-	refined := pipeline.RefineCandidates(selectedCandidates, input.Windows, art.detailSpectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode))
+	occBwFraction := rt.cfg.Refinement.OccupiedBwFraction
+	switch {
+	case occBwFraction == 0:
+		occBwFraction = 0.99 // default on
+	case occBwFraction < 0:
+		occBwFraction = 0 // explicitly disabled
+	}
+	refined := pipeline.RefineCandidates(selectedCandidates, input.Windows, art.detailSpectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode), occBwFraction)
 	signals := make([]detector.Signal, 0, len(refined))
 	decisions := make([]pipeline.SignalDecision, 0, len(refined))
 	for i, ref := range refined {

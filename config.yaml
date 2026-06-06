@@ -49,6 +49,9 @@ refinement:
   min_span_hz: 80000
   max_span_hz: 220000
   auto_span: true
+  # Occupied-bandwidth re-estimation in refinement (power-containment fraction).
+  # 0 = default (0.99); negative disables and keeps the coarse detector bandwidth.
+  occupied_bw_fraction: 0.99
 resources:
   prefer_gpu: true
   max_refinement_jobs: 16
