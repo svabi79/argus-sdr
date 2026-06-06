@@ -167,30 +167,29 @@ func genSignal(s SignalSpec, fs float64, n int, rng *rand.Rand) []complex128 {
 		}
 
 	default:
-		// DIGITAL / FSK / PSK: band-limited complex noise of width ~b, shifted
-		// to fc. A length-L moving average lowpass gives a ~fs/L bandwidth.
-		// (Distinct shapes per digital kind are deferred to a later step; for R0
-		// the occupied bandwidth is what the benchmark checks.)
-		l := int(math.Round(fs / b))
-		if l < 1 {
-			l = 1
-		}
-		white := make([]complex128, n+l)
-		for i := range white {
-			white[i] = complex(rng.NormFloat64(), rng.NormFloat64())
+		// DIGITAL / FSK / PSK: a flat occupied band of width b centered on fc,
+		// built as many equally spaced tones with random complex amplitudes and
+		// phases. This gives noise-like content with a sharply defined occupied
+		// bandwidth (unlike a moving-average filter, whose sinc sidelobes make
+		// the bandwidth ill-defined). Distinct per-kind shapes are deferred.
+		const ktones = 24
+		freqs := make([]float64, ktones)
+		amps := make([]float64, ktones)
+		phs := make([]float64, ktones)
+		for k := 0; k < ktones; k++ {
+			freqs[k] = fc - b/2 + (float64(k)+0.5)*b/float64(ktones)
+			amps[k] = 0.5 + rng.Float64()
+			phs[k] = rng.Float64() * twoPi
 		}
 		for i := 0; i < n; i++ {
-			var re, im float64
-			for j := 0; j < l; j++ {
-				re += real(white[i+j])
-				im += imag(white[i+j])
-			}
-			re /= float64(l)
-			im /= float64(l)
 			t := float64(i) / fs
-			c := math.Cos(twoPi * fc * t)
-			sn := math.Sin(twoPi * fc * t)
-			out[i] = complex(re*c-im*sn, re*sn+im*c)
+			var re, im float64
+			for k := 0; k < ktones; k++ {
+				ph := twoPi*freqs[k]*t + phs[k]
+				re += amps[k] * math.Cos(ph)
+				im += amps[k] * math.Sin(ph)
+			}
+			out[i] = complex(re, im)
 		}
 	}
 
