@@ -51,6 +51,7 @@ const agcToggle = qs('agcToggle');
 const dcToggle = qs('dcToggle');
 const iqToggle = qs('iqToggle');
 const avgSelect = qs('avgSelect');
+const welchSegInput = qs('welchSegInput');
 const maxHoldToggle = qs('maxHoldToggle');
 const gpuToggle = qs('gpuToggle');
 const recEnableToggle = qs('recEnableToggle');
@@ -1132,6 +1133,7 @@ function applyConfigToUI(cfg) {
   setSelectValueOrNearest(sampleRateSelect, cfg.sample_rate / 1e6);
   setSelectValueOrNearest(bwSelect, cfg.tuner_bw_khz || 1536);
   setSelectValueOrNearest(fftSelect, cfg.fft_size);
+  if (welchSegInput && cfg.surveillance) welchSegInput.value = cfg.surveillance.welch_segments ?? 0;
   if (lastFFTSize !== cfg.fft_size) {
     resetProcessingCaches();
     lastFFTSize = cfg.fft_size;
@@ -2613,6 +2615,11 @@ bwSelect.addEventListener('change', () => {
 fftSelect.addEventListener('change', () => {
   const size = parseInt(fftSelect.value, 10);
   if (Number.isFinite(size)) queueConfigUpdate({ fft_size: size });
+});
+
+if (welchSegInput) welchSegInput.addEventListener('change', () => {
+  const v = parseInt(welchSegInput.value, 10);
+  if (Number.isFinite(v) && v >= 0) queueConfigUpdate({ surveillance: { welch_segments: v } });
 });
 
 gainRange.addEventListener('input', () => {

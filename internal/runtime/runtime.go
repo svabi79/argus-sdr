@@ -30,6 +30,7 @@ type SurveillanceUpdate struct {
 	DisplayBins      *int    `json:"display_bins"`
 	DisplayFPS       *int    `json:"display_fps"`
 	DerivedDetection *string `json:"derived_detection"`
+	WelchSegments    *int    `json:"welch_segments"`
 }
 
 type RefinementUpdate struct {
@@ -269,6 +270,16 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 			default:
 				return m.cfg, errors.New("surveillance.derived_detection must be auto, on, or off")
 			}
+		}
+		if update.Surveillance.WelchSegments != nil {
+			v := *update.Surveillance.WelchSegments
+			if v < 0 {
+				v = 0
+			}
+			if v > 64 {
+				v = 64
+			}
+			next.Surveillance.WelchSegments = v
 		}
 	}
 	if update.Refinement != nil {
