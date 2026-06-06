@@ -285,6 +285,58 @@ func TestRefinedBandwidthVsGeometric(t *testing.T) {
 	}
 }
 
+// bwFromSpec runs the occupied-bandwidth estimator on a wide region of spec
+// around DC (the single signal sits at center 0).
+func bwFromSpec(spec []float64, nominalBw float64) float64 {
+	binWidth := float64(benchFs) / float64(benchN)
+	center := benchN / 2
+	half := int(math.Max(4*nominalBw, 60e3) / binWidth)
+	lo, hi := center-half, center+half
+	if lo < 0 {
+		lo = 0
+	}
+	if hi >= len(spec) {
+		hi = len(spec) - 1
+	}
+	return estimate.OccupiedBandwidthDb(spec[lo:hi+1], binWidth, 0.99).BandwidthHz
+}
+
+// TestWelchStabilizesLowSNRBandwidth proves R2: at low SNR a Welch-averaged PSD
+// gives a more accurate occupied bandwidth than a single FFT, because the stable
+// noise floor keeps the weak skirts of FM/AM visible. This directly fixes the
+// low-SNR bandwidth shrink seen in R1.
+func TestWelchStabilizesLowSNRBandwidth(t *testing.T) {
+	win := fftutil.Hann(benchN)
+	const snr = 15.0
+	var sumS, sumW float64
+	kinds := []synth.Kind{synth.KindWFM, synth.KindAM}
+	for _, kind := range kinds {
+		nominal := map[synth.Kind]float64{synth.KindWFM: 180e3, synth.KindAM: 8e3}[kind]
+		ref := refTruthBW(kind, nominal)
+
+		single := fftutil.Spectrum(sceneOne(kind, nominal, snr, 11).Generate(benchN), win)
+		welch := fftutil.WelchPSD(sceneOne(kind, nominal, snr, 11).Generate(benchN*8), benchN, 0.5, win)
+
+		errS := math.Abs(bwFromSpec(single, nominal)-ref) / ref * 100
+		errW := math.Abs(bwFromSpec(welch, nominal)-ref) / ref * 100
+		t.Logf("%-4s @ %.0f dB: refTruth=%.0f  single err=%.1f%%  welch err=%.1f%%", kind, snr, ref, errS, errW)
+		sumS += errS
+		sumW += errW
+	}
+	avgS, avgW := sumS/float64(len(kinds)), sumW/float64(len(kinds))
+	t.Logf("mean bw error @ %.0f dB: single-FFT=%.1f%%  welch=%.1f%%", snr, avgS, avgW)
+	if avgW > avgS {
+		t.Errorf("Welch mean bw error %.1f%% should be better than single-FFT %.1f%%", avgW, avgS)
+	}
+}
+
+func sceneOne(kind synth.Kind, bw, snr float64, seed int64) synth.Scene {
+	return synth.Scene{
+		SampleRate: benchFs, Seed: seed, NoiseStd: 1.0,
+		Signals: []synth.SignalSpec{{Kind: kind, CenterHz: 0, BandwidthHz: bw, SNRdB: snr}},
+	}
+}
+
 func safeDiv(a, b int) float64 {
 	if b == 0 {
 		return math.NaN()
