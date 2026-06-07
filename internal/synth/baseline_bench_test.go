@@ -337,6 +337,82 @@ func sceneOne(kind synth.Kind, bw, snr float64, seed int64) synth.Scene {
 	}
 }
 
+func stddev(v []float64) float64 {
+	if len(v) < 2 {
+		return 0
+	}
+	var m float64
+	for _, x := range v {
+		m += x
+	}
+	m /= float64(len(v))
+	var s float64
+	for _, x := range v {
+		s += (x - m) * (x - m)
+	}
+	return math.Sqrt(s / float64(len(v)))
+}
+
+// denseFMScene places several strong WFM stations at realistic UKW spacing,
+// including a very strong one (to reproduce the over-wide detection seen live).
+func denseFMScene(snrSeed int64) synth.Scene {
+	mk := func(c, snr float64) synth.SignalSpec {
+		return synth.SignalSpec{Kind: synth.KindWFM, CenterHz: c, BandwidthHz: 180e3, SNRdB: snr}
+	}
+	return synth.Scene{
+		SampleRate: benchFs, Seed: snrSeed, NoiseStd: 1.0,
+		Signals: []synth.SignalSpec{
+			mk(-900e3, 50), mk(-500e3, 35), mk(-150e3, 55), mk(250e3, 40), mk(650e3, 45),
+		},
+	}
+}
+
+// TestDetectionJitter measures, per station, how much the tracked center and
+// bandwidth wobble frame to frame on a dense/strong FM band. This is the
+// stability the WFM stereo pilot PLL needs; the std-dev is the number a stable
+// tracker must drive down (foundation for the lock fix).
+func TestDetectionJitter(t *testing.T) {
+	binWidth := float64(benchFs) / float64(benchN)
+	d := detector.New(detectorConfig(), benchFs, benchN)
+	win := fftutil.Hann(benchN)
+	scene := denseFMScene(5000)
+
+	type acc struct{ centers, bws []float64 }
+	accs := make([]acc, len(scene.Signals))
+	now := time.Unix(0, 0)
+	const frames, warmup = 50, 12
+	for f := 0; f < frames; f++ {
+		s := scene
+		s.Seed = scene.Seed + int64(f)
+		spec := fftutil.Spectrum(s.Generate(benchN), win)
+		now = now.Add(83 * time.Millisecond)
+		d.Process(now, spec, 0)
+		if f < warmup {
+			continue
+		}
+		stable := d.StableSignals()
+		for i, tr := range scene.Signals {
+			best, bestD := -1, math.MaxFloat64
+			for j := range stable {
+				if dd := math.Abs(stable[j].CenterHz - tr.CenterHz); dd < bestD {
+					best, bestD = j, dd
+				}
+			}
+			if best >= 0 && bestD < 120e3 {
+				accs[i].centers = append(accs[i].centers, stable[best].CenterHz)
+				accs[i].bws = append(accs[i].bws, stable[best].BWHz)
+			}
+		}
+	}
+
+	t.Logf("Detection jitter on dense FM band (binWidth=%.0f Hz, %d frames):", binWidth, frames-warmup)
+	t.Logf("%-10s %5s %14s %14s %14s %5s", "station", "snr", "ctrJitterHz", "bwMeanHz", "bwJitterHz", "seen")
+	for i, tr := range scene.Signals {
+		t.Logf("%-10.0f %5.0f %14.0f %14.0f %14.0f %5d",
+			tr.CenterHz/1e3, tr.SNRdB, stddev(accs[i].centers), mean(accs[i].bws), stddev(accs[i].bws), len(accs[i].centers))
+	}
+}
+
 func safeDiv(a, b int) float64 {
 	if b == 0 {
 		return math.NaN()
