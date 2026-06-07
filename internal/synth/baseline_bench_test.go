@@ -769,16 +769,13 @@ func TestClassificationBaseline(t *testing.T) {
 // dense/strong-FM scene OI-22 calls for, and the scene OI-23/OI-27 must be
 // diagnosed on (Constitution IV — reproduce offline before tuning live).
 //
-// SCOPE NOTE: this scene does NOT yet reproduce the full live occupied-bandwidth
-// swing (~47k..504k, OI-23). The generator emits a *stationary* FM spectrum (a
-// fixed multitone message, see synth.go), so each frame's occupied bandwidth is
-// essentially the same shape; the live swing is driven by real program-audio
-// "breathing" (the instantaneous FM occupancy genuinely varies frame to frame),
-// which needs a non-stationary message / time-varying deviation model. That
-// generator enhancement is the first concrete task of OI-23, not OI-22.
+// The stations use the non-stationary broadcast-MPX program model (Dynamic), so
+// each frame is a different loud/quiet, narrow/wide realization and the occupied
+// bandwidth breathes frame to frame — reproducing the live OI-23 instability
+// offline. (Stationary scenes like denseFMScene/baseScene stay non-Dynamic.)
 func denseFMSceneRealistic(seed int64) synth.Scene {
 	mk := func(c, snr float64) synth.SignalSpec {
-		return synth.SignalSpec{Kind: synth.KindWFM, CenterHz: c, BandwidthHz: 180e3, SNRdB: snr}
+		return synth.SignalSpec{Kind: synth.KindWFM, CenterHz: c, BandwidthHz: 180e3, SNRdB: snr, Dynamic: true}
 	}
 	return synth.Scene{
 		SampleRate: benchFs, Seed: seed, NoiseStd: 1.0,
@@ -794,18 +791,21 @@ func denseFMSceneRealistic(seed int64) synth.Scene {
 }
 
 // TestDenseFMInstability measures dense/strong-FM detection stability under the
-// user's aggressive live CFAR config (liveDetectorConfig) at the live FFT size.
-// It reports, per station, frame-to-frame center/bandwidth jitter and the
-// bandwidth swing (min..max). It is a measurement, not a pass gate.
+// user's aggressive live CFAR config (liveDetectorConfig) at the live FFT size,
+// on the breathing (Dynamic) MPX scene. It reports, per station, frame-to-frame
+// center/bandwidth jitter and the bandwidth swing (min..max).
 //
-// What it currently shows (offline target for OI-23/OI-27): the aggressive guard
-// (250 kHz) MASKS weak neighbours ~250 kHz from a dominant carrier (they go
-// undetected), and the strong carriers detect slightly over-wide with modestly
-// increased jitter vs the mild config (TestDetectionJitter). It does NOT yet
-// show the full live bw swing (~47k..504k) — see denseFMSceneRealistic's scope
-// note: the generator's stationary FM spectrum lacks program-audio breathing.
-// Compare against TestDetectionJitter (mild config) and TestRealJitter (real
-// capture, the ground-truth oracle for the swing).
+// What it shows (the offline OI-23 target): with the breathing program model the
+// strong stations' occupied-bandwidth estimate swings frame to frame far more
+// than on a stationary scene — e.g. ~24 kHz jitter and a ~54k..156k swing on one
+// 56 dB carrier, vs ~4-6 kHz on the stationary TestDetectionJitter. This is the
+// live OI-23 instability reproduced offline & deterministically; harden the
+// bandwidth estimator against THIS. (Two effects are stacked: the breathing
+// occupancy itself, plus the aggressive 250 kHz guard masking weak neighbours
+// ~250 kHz from a dominant carrier — the latter is also relevant to OI-21.) It
+// does not reach the live extreme (~504k), which needs adjacent-station bridging
+// from detected neighbours; not chased here. Compare TestDetectionJitter (mild,
+// stationary) and TestRealJitter (real capture).
 //
 //	go test -tags bench -run TestDenseFMInstability ./internal/synth/ -v
 func TestDenseFMInstability(t *testing.T) {
@@ -846,11 +846,25 @@ func TestDenseFMInstability(t *testing.T) {
 	t.Logf("Dense FM instability under live CFAR (fft=%d, binWidth=%.0f Hz, %d frames, truth bw=180k):",
 		fft, binWidth, frames-warmup)
 	t.Logf("%-8s %5s %11s %10s %11s %8s %8s %5s", "ctrKHz", "snr", "ctrJitHz", "bwMeank", "bwJitHz", "bwMink", "bwMaxk", "seen")
+	var strongJit []float64
 	for i, tr := range scene.Signals {
 		mn, mx := minMaxf(accs[i].bws)
 		t.Logf("%-8.0f %5.0f %11.0f %10.0f %11.0f %8.0f %8.0f %5d",
 			tr.CenterHz/1e3, tr.SNRdB, stddev(accs[i].centers), mean(accs[i].bws)/1e3,
 			stddev(accs[i].bws), mn/1e3, mx/1e3, len(accs[i].centers))
+		if tr.SNRdB >= 50 && len(accs[i].bws) > 5 {
+			strongJit = append(strongJit, stddev(accs[i].bws))
+		}
+	}
+
+	// Regression guard: the breathing program model must actually breathe — the
+	// detected strong stations should show a frame-to-frame bw jitter well above
+	// the stationary scene (TestDetectionJitter is ~4-6 kHz). If this collapses,
+	// the Dynamic path has regressed to a stationary spectrum and the scene no
+	// longer reproduces the OI-23 instability it exists to reproduce.
+	if m := mean(strongJit); !(m > 10000) {
+		t.Errorf("breathing bw jitter (mean over strong stations) = %.0f Hz, want > 10000 Hz "+
+			"(stationary baseline is ~4-6 kHz); the Dynamic FM model is not breathing", m)
 	}
 }
 
