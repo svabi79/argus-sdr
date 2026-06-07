@@ -1,260 +1,204 @@
-# SDR Wideband Suite
+# Argus SDR
 
-Go-based SDR analysis engine and live spectrum/waterfall UI, evolved from the original `sdr-visual-suite` into a more scalable foundation for wideband monitoring, candidate-driven refinement, classification, and demod/recording.
+> A GPU-accelerated **wideband SDR surveillance receiver**: it watches a whole RF
+> band at once and detects, classifies, tracks, and decodes *many* signals
+> simultaneously — with a live spectrum/waterfall web UI.
+
+Argus is a Go engine plus a browser UI. Instead of tuning one channel at a time,
+it ingests a wide IQ stream, runs spectral surveillance over the whole span,
+detects every signal it can, classifies and tracks each one across frames, and
+demodulates/decodes them in parallel on the GPU (frequency shift, filtering,
+decimation, FM/AM/SSB demod, and the WFM multiplex including stereo and RDS).
+
+*(Go module / working tree: `sdr-wideband-suite`. The project is named **Argus**
+after the hundred-eyed watcher — it is built to see the whole band at once.)*
+
+---
+
+## Status (honest)
+
+Argus is **proven on the FM broadcast band**: it detects, classifies, and tracks
+the stations across 87.5–108 MHz and decodes them live, including **WFM stereo
+lock and RDS** (station name / PI / radiotext) on strong stations, GPU-accelerated
+end to end.
+
+It is **not yet a universal scanner.** Detection is still tuned for broadcast FM;
+the general-purpose detection & estimation rework (occupied-bandwidth estimation,
+a dense/strong-signal benchmark, robust channelization) is in progress —
+"**Phase R**". See [`docs/known-issues.md`](docs/known-issues.md) and
+[`ROADMAP.md`](ROADMAP.md) for exactly what is and isn't load-bearing.
+
+This is an active, single-maintainer project developed with AI agents under an
+explicit [Constitution](CONSTITUTION.md). Expect sharp edges.
+
+---
 
 ## Features
-- Live spectrum + waterfall web UI (WebSocket streaming)
-- Event timeline view (time vs frequency) + detail drawer
-- Live signal list + classifier insights
-- Runtime UI controls: center, span, sample rate, tuner bandwidth, analysis FFT size, gain, AGC, DC block, IQ balance, detector settings
-- Optional GPU FFT (cuFFT) + `/api/gpu`
-- IQ/audio recording + recordings list
-- Live demod endpoint + WebSocket live-listen audio
-- WFM stereo + RDS baseband
-- Mock mode for testing without hardware
-- Phase-1 architecture foundation complete: explicit pipeline/surveillance/refinement/resources config model plus candidate/refinement/admission scaffolding
-- Phase-2 milestone complete: multi-resolution surveillance levels, derived detection governance, support levels, and fused candidate evidence summaries
-- Phase-3 milestone complete: conservative runtime prioritization/admission/pressure/hold/displacement/rebalance behavior across refinement, record, and decode
 
-> **Status note (2026-06-06):** Phases 1-4 are *policy/orchestration* scaffolding.
-> The **perception layer underneath is not yet universal**: detection is single-
-> resolution, bandwidth is geometric (not occupied-bandwidth), and refinement does
-> not re-estimate bandwidth/SNR. It works well for BC-FM when tuned for it, less so
-> elsewhere. The next priority is **Phase R — Detection & Estimation Rework**
-> (ground-truth benchmark first). See `docs/detection-rework-plan-2026-06-06.md`,
-> `docs/architecture-review-2026-06-06.md`, and `ROADMAP.md`.
+- **Wideband, many-signal pipeline** — surveillance over the whole span, not a
+  single VFO. Multi-resolution analysis, CFAR detection, cross-frame tracking.
+- **Live web UI** — spectrum + waterfall (WebSocket streaming), event timeline
+  (time × frequency), live signal list with classifier insight, runtime controls
+  (center, span, sample rate, bandwidth, FFT size, gain, AGC, DC block, IQ
+  balance, detector settings).
+- **GPU-first DSP** — per-signal shift/filter/decimate/FFT/demod and RDS-baseband
+  extraction run on a CUDA/cuFFT batch runner; a CPU path exists as a fallback and
+  validation oracle.
+- **Demod & decode** — WFM (incl. **stereo** + **RDS**), NFM, AM, SSB, CW; live
+  demod endpoint and a WebSocket live-listen audio stream.
+- **Recording & replay** — IQ/audio recording with a recordings API, plus an
+  **IQ capture/replay oracle** (`-capture` / `-replay`) for reproducible,
+  hardware-free debugging.
+- **Telemetry** — extensive runtime telemetry (counters/gauges/distributions,
+  event history, pprof) for performance and DSP debugging.
+- **Mock mode** — synthetic IQ source; runs with no hardware.
 
 ---
 
 ## Requirements
-**Core**
-- Go **1.22** (see `go.mod`)
 
-**Optional (real device)**
-- SDRplay API (`sdrplay_api.h` + library)
+| | |
+|---|---|
+| **Core** | Go **1.22** (see `go.mod`) |
+| **Real device** (optional) | SDRplay API (RSP-series; reference hardware is an RSP1B) |
+| **GPU** (optional) | CUDA toolkit (cuFFT); `nvcc` (Linux) or `build-gpudemod-dll.ps1` (Windows) |
+| **Windows CGO** | MSYS2 MinGW64 (`gcc`/`g++`) for the real-device / GPU build |
 
-**Optional (GPU)**
-- CUDA toolkit (cuFFT)
-- `nvcc` for kernel build (Linux) or `build-gpudemod-dll.ps1` (Windows)
-
-**Windows build prerequisites (real device + GPU)**
-- MSYS2 MinGW64 (`C:\msys64\mingw64\bin\gcc.exe` / `g++.exe`) for CGO
-- SDRplay API installed (default path in scripts)
-- CUDA toolkit (default paths in scripts)
+Build tags select capability: **(none)** = pure-Go mock build, **`sdrplay`** =
+real device, **`cufft`** = GPU demod. The full app uses `sdrplay,cufft`.
 
 ---
 
-## Quick Start (Mock Mode)
-```bash
-# From repo root
+## Quick start (mock, no hardware)
 
+```bash
 go run ./cmd/sdrd --mock
+# open http://localhost:8080
 ```
-Open `http://localhost:8080`.
+
+---
+
+## Build & run
+
+### Mock / no device (any platform)
+
+```bash
+go build ./cmd/sdrd
+./sdrd --mock
+```
+
+### Windows — real device + GPU (recommended path)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build-cuda-windows.ps1   # builds gpudemod_kernels.dll
+powershell -ExecutionPolicy Bypass -File .\build-sdrplay.ps1        # builds sdrd.exe (tags sdrplay,cufft)
+powershell -ExecutionPolicy Bypass -File .\start-sdr.ps1            # sets PATH for CUDA/SDRplay DLLs and runs
+```
+
+The build scripts expect MinGW at `C:\msys64\mingw64\bin` and copy the CUDA
+runtime DLLs next to `sdrd.exe`. If the SDRplay device fails to initialize after
+a restart, `Restart-Service SDRplayAPIService -Force` and relaunch.
+
+### Linux — real device
+
+```bash
+export CGO_CFLAGS='-I/opt/sdrplay_api/include'
+export CGO_LDFLAGS='-L/opt/sdrplay_api/lib -lsdrplay_api'
+go build -tags sdrplay ./cmd/sdrd
+./cmd/sdrd/sdrd -config config.yaml
+# GPU kernels: ./build-cuda-linux.sh
+```
+
+> **Before a build/test session, stop a running `sdrd` and the browser UI** to
+> avoid file locks and misleading live state (see [`AGENTS.md`](AGENTS.md)).
+
+---
+
+## Capture & replay (the debugging oracle)
+
+```bash
+sdrd -capture data/snapshots/fm_bc.cf32 -capture-seconds 20 -capture-center 101.5
+sdrd -replay  data/snapshots/fm_bc.cf32     # real-time-paced replay of the capture
+```
+
+Diagnosing against a fixed capture (and the `-tags bench` `TestReal*` tests) is
+how DSP/detection work is verified — see Constitution Principle IV. Captures are
+large and git-ignored.
 
 ---
 
 ## Configuration
-Edit `config.yaml` (autosave goes to `config.autosave.yaml`).
 
-### Legacy-compatible core fields
-- `center_hz`, `sample_rate`, `fft_size`, `gain_db`, `tuner_bw_khz`
-- `use_gpu_fft`, `agc`, `dc_block`, `iq_balance`
-- `detector.*`
-- `recorder.*`
-- `decoder.*`
-
-### Phase-1 pipeline fields
-- `pipeline.mode` -- operating mode label (`legacy`, `wideband-balanced`, ...)
-- `pipeline.profile` -- last applied operating profile name (if any)
-- `pipeline.goals.*` -- declarative target/intent layer for future autonomous operation
-  - `intent`
-  - `monitor_start_hz` / `monitor_end_hz` / `monitor_span_hz`
-  - `monitor_windows` -- optional list of monitor windows (each window uses `start_hz` + `end_hz` or `center_hz` + `span_hz`, plus optional `label`, `zone`, `priority`, `auto_record`, `auto_decode`)
-  - `signal_priorities`
-  - `auto_record_classes`
-  - `auto_decode_classes`
-- `surveillance.analysis_fft_size` -- analysis FFT size used by the surveillance layer
-- `surveillance.frame_rate` -- surveillance cadence target
-- `surveillance.strategy` -- `single-resolution` or `multi-resolution`
-- `surveillance.display_bins` -- preferred presentation density for clients/UI
-- `surveillance.display_fps` -- preferred presentation cadence for clients/UI
-- `surveillance.derived_detection` -- `auto`, `on`, or `off` (governs derived detection vs support-only levels)
-- `refinement.enabled` -- enables explicit candidate refinement stage
-- `refinement.max_concurrent` -- refinement budget hint
-- `refinement.detail_fft_size` -- FFT size for refinement/detail path (defaults to surveillance analysis FFT)
-- `refinement.min_candidate_snr_db` -- floor for future scheduling decisions
-- `refinement.min_span_hz` / `refinement.max_span_hz` -- clamp refinement window span (0 = no clamp)
-- `refinement.auto_span` -- use mod-type heuristics when candidate bandwidth is missing/odd
-- `resources.prefer_gpu` -- GPU preference hint
-
-**Operating profiles (wideband)**
-- `wideband-balanced`: multi-resolution, 4096 surveillance/detail FFT, refinement span 4000-200000 Hz
-- `wideband-aggressive`: multi-resolution, 8192 surveillance/detail FFT, refinement span 6000-250000 Hz
-- `archive`: record-forward bias, higher record/decode budgets, 4096 detail FFT
-- `digital-hunting`: digital-first priorities and decode bias
-- `resources.max_refinement_jobs` -- processing budget hint
-- `resources.max_recording_streams` -- recording/streaming budget hint
-- `resources.max_decode_jobs` -- decode budget hint
-- `resources.decision_hold_ms` -- baseline hold time for queue slots before churn (arbitration scales per profile/strategy and tags hold reasons in debug snapshots)
-- `profiles[]` -- named operating profiles/intent metadata
-
-Phase 1 stays backward compatible, but the config model now reflects the intended separation between:
-- acquisition
-- surveillance analysis
-- local refinement
-- resource policy
-- presentation
-- operator goals / future autonomous intent
-
-Refinement plans now rank candidates, while a shared arbitration step admits refinement/record/decode work based on budgets and hold policy. Arbitration reasons are normalized:
-- `refinement:*` for work item lifecycle (planned/admitted/running/completed/drop/skip)
-- `admission:*` for refinement admission outcomes
-- `decision:*` for record/decode decisions
-- `queue:*` when record/decode is deferred by budget
-Hold policy reasons are surfaced as `profile:*` / `strategy:*` tokens in `hold_source`.
-
-Phase-1 scope stops at consistent policy surfaces, ranking/admission scaffolding, and debug visibility. Phase 2+ adds a true multi-resolution surveillance engine and scheduler/intent overrides that can re-balance budgets automatically.
-
-Phase-2 status (Wave E):
-- derived detection policy now reports detection vs support-only vs disabled
-- fused candidate evidence summaries expose role/kind detail
-- surveillance level summaries include role intent for easier debug
-
-Phase-3 status (Wave 3E):
-- scheduler/arbitration layer for refinement + record/decode admission
-- hold/displacement policy with normalized reason tags
-- budget pressure summaries and decision queue stats (including displaced-by-hold counters)
-- conservative cross-resource rebalance (refinement/record/decode) with profile/intent-aware protections
-- rebalance state and reasons surfaced in arbitration/debug snapshots
-
-The long-term target is that you describe *what the system should do* (for example broad-span monitoring intent, preferred signal families, auto-record/decode priorities), while the engine decides *how* to allocate surveillance, refinement and decoding budgets.
-
-Phase-4 status (monitor-window operating model): `monitor_windows` gates candidates inside a capture span, supports overlapping windows with priority/zone bias, and can auto-record/decode per window without retuning. Window stats + summaries now surface in `/api/refinement`, and decision/admission reasons include window tags/zone tags for traceability.
-
-**CFAR modes:** `OFF`, `CA`, `OS`, `GOSCA`, `CASO`
+Runtime config is `config.yaml`; the running app autosaves to
+`config.autosave.yaml` (git-ignored — never commit it). The model separates
+acquisition, surveillance analysis, refinement, resource policy, presentation,
+and operator goals. Operating profiles (`wideband-balanced`,
+`wideband-aggressive`, `archive`, `digital-hunting`) bundle sensible defaults.
+The full field reference lives in the config file's comments and `docs/`.
 
 ---
 
-## Build & Run (Windows)
-### Mock / No SDRplay
-```powershell
-go build ./cmd/sdrd
-.\sdrd.exe --mock
-```
+## Web API (selected)
 
-### SDRplay (Real Device)
-```powershell
-$env:CGO_CFLAGS='-IC:\Program Files\SDRplay\API\inc'
-$env:CGO_LDFLAGS='-LC:\Program Files\SDRplay\API\x64 -lsdrplay_api'
+| Group | Endpoints |
+|---|---|
+| Config | `GET/POST /api/config`, `POST /api/sdr/settings`, `GET /api/gpu` |
+| Pipeline | `GET /api/pipeline/policy`, `/api/pipeline/recommendations`, `/api/refinement` |
+| Signals | `GET /api/signals`, `GET /api/events?limit=&since=` |
+| Recordings | `GET /api/recordings`, `/api/recordings/:id[/iq|/audio|/decode]` |
+| Live audio | `GET /api/demod?freq=&bw=&mode=&sec=`, `WS /ws/audio?freq=&bw=&mode=` |
+| Telemetry | `GET /api/debug/telemetry/{live,history,events,config}` |
 
-go build -tags sdrplay ./cmd/sdrd
-.\sdrd.exe -config config.yaml
-```
-
-### Windows (GPU + SDRplay) -- recommended path
-```powershell
-powershell -ExecutionPolicy Bypass -File .\build-cuda-windows.ps1
-powershell -ExecutionPolicy Bypass -File .\build-sdrplay.ps1
-```
-This path:
-- Builds `gpudemod_kernels.dll` (MSVC/nvcc)
-- Builds Go app with MinGW64 CGO + tags `sdrplay,cufft`
-- Copies CUDA runtime DLLs next to `sdrd.exe`
-
-Notes:
-- `build-sdrplay.ps1` expects MinGW at `C:\msys64\mingw64\bin`
-- CUDA DLLs are copied if found (see script for exact paths)
-- Override the GPU DLL path with `GPUMOD_DLL=C:\path\to\gpudemod_kernels.dll`
+Full telemetry reference: [`docs/telemetry-api.md`](docs/telemetry-api.md).
 
 ---
 
-## Build & Run (Linux)
-### SDRplay (Real Device)
+## Architecture (one screen)
+
+```
+IQ source (SDRplay | mock | replay)
+        │
+   acquisition ─► ring buffer (recording/replay)
+        │
+  surveillance  (multi-resolution spectra, noise floor, CFAR detection)
+        │
+   detection ─► cross-frame tracker (stable per-signal IDs)
+        │
+  refinement  (re-estimate, classify, per-signal IQ snippet)
+        │
+   demod/decode on GPU  (shift/filter/decimate · WFM·NFM·AM·SSB·CW · stereo · RDS)
+        │
+  streaming (web UI, live-listen) · recording · telemetry
+```
+
+Key packages: `cmd/sdrd` (daemon + HTTP/WS), `internal/detector`,
+`internal/pipeline`, `internal/classifier`, `internal/demod` (+ `gpudemod`),
+`internal/recorder`, `internal/dsp`, `internal/telemetry`, `web/`.
+
+---
+
+## Contributing & governance
+
+This repo is built to be worked on by AI agents as well as humans, with the gates
+enforced by process rather than trust:
+
+- **[`CONSTITUTION.md`](CONSTITUTION.md)** — the inviolable principles (each one
+  encodes a real failure this project shipped and fixed). Read first.
+- **[`AGENTS.md`](AGENTS.md)** — the operational guide (build, test, branch,
+  debug, what not to commit).
+- **[`docs/agent-workflow.md`](docs/agent-workflow.md)** — how work flows: issues
+  → claim → PR → CI → operator merge.
+
+CI (GitHub Actions) runs `go vet` + tagless build + tagless tests on every PR; the
+full GPU build and replay-oracle tests run on a self-hosted GPU runner.
+
 ```bash
-export CGO_CFLAGS='-I/opt/sdrplay_api/include'
-export CGO_LDFLAGS='-L/opt/sdrplay_api/lib -lsdrplay_api'
-
-go build -tags sdrplay ./cmd/sdrd
-./cmd/sdrd/sdrd -config config.yaml
-```
-
-### CUDA kernel build (GPU demod)
-```bash
-./build-cuda-linux.sh
+go test ./...        # tagless sweep (GPU-only tests skip without cufft)
+go vet ./...
 ```
 
 ---
 
-## APIs
-### Config
-- `GET /api/config`
-- `POST /api/config`
-- `POST /api/sdr/settings`
-- `GET /api/gpu`
-- `GET /api/pipeline/policy`
-- `GET /api/pipeline/recommendations`
-- `GET /api/refinement` -> latest refinement plan/windows snapshot (includes `window_stats`, levels, request/context/work_items, plus `arbitration` with budgets/hold policy/refinement admission/queue/decision summary)
+## License
 
-### Signals / Events
-- `GET /api/signals` -> current live signals
-- `GET /api/events?limit=&since=` -> recent events
-
-### Debug Telemetry
-- `GET /api/debug/telemetry/live` -> current telemetry snapshot (counters, gauges, distributions, recent events, collector status/config)
-- `GET /api/debug/telemetry/history` -> historical metric samples with filtering by time/name/prefix/tags
-- `GET /api/debug/telemetry/events` -> telemetry event/anomaly history with filtering by time/name/prefix/level/tags
-- `GET /api/debug/telemetry/config` -> current collector config plus `debug.telemetry` runtime config
-- `POST /api/debug/telemetry/config` -> update telemetry settings at runtime and persist them to autosave config
-
-Telemetry query params (`history` / `events`) include:
-- `since`, `until` -> unix seconds, unix milliseconds, or RFC3339 timestamps
-- `limit`
-- `name`, `prefix`
-- `signal_id`, `session_id`, `stage`, `trace_id`, `component`
-- `tag_<key>=<value>` for arbitrary tag filters
-- `include_persisted=true|false` (default `true`)
-- `level` on the events endpoint
-
-Telemetry config lives under `debug.telemetry`:
-- `enabled`, `heavy_enabled`, `heavy_sample_every`
-- `metric_sample_every`, `metric_history_max`, `event_history_max`
-- `retention_seconds`
-- `persist_enabled`, `persist_dir`, `rotate_mb`, `keep_files`
-
-See also:
-- `docs/telemetry-api.md` for the full telemetry API reference
-- `docs/telemetry-debug-runbook.md` for the short operational debug flow
-
-### Recordings
-- `GET /api/recordings`
-- `GET /api/recordings/:id` (meta.json)
-- `GET /api/recordings/:id/iq`
-- `GET /api/recordings/:id/audio`
-- `GET /api/recordings/:id/decode?mode=FT8|WSPR|DMR|D-STAR|FSK|PSK`
-
-### Live Demod / Listen
-- `GET /api/demod?freq=...&bw=...&mode=...&sec=...` -> audio/wav
-- `WS /ws/audio?freq=...&bw=...&mode=...` -> live PCM audio stream
-
----
-
-## Decoder Tools
-Put external decoder binaries/scripts under `tools/` and configure `decoder.*` in `config.yaml`.
-Placeholders: `{iq}`, `{audio}`, `{sr}`.
-See `tools/README.md` for examples.
-
----
-
-## Tests
-```bash
-go test ./...
-```
-
----
-
-## Troubleshooting
-- `sdrplay support not built` -> rebuild with `-tags sdrplay`.
-- SDRplay library not found -> check `CGO_CFLAGS` / `CGO_LDFLAGS`.
-- GPU demod not loading -> verify `gpudemod_kernels.dll` / `cudart64_13.dll` next to `sdrd.exe` (Windows).
-- Use `--mock` to run without hardware.
+[MIT](LICENSE) © 2026 Jan Svabenik.

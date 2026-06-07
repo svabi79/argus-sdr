@@ -1,7 +1,18 @@
-# SDR Wideband Suite - Persisted Roadmap
+# Argus SDR - Persisted Roadmap
 
 This file is the durable architectural roadmap and phase memory for the project.
 It exists so a context reset, model switch, or new coding agent can continue from the real project state without reconstructing the entire plan from chat history.
+
+> **Update 2026-06-07:** WFM **stereo lock and RDS now work live** on the FM
+> broadcast band (DLF 100.6 / Radio 7 102.5 verified). The platform issues that
+> blocked them are resolved (OI-24/25/26): RDS moved to the GPU, per-signal state
+> is keyed by stable tracker ID, the long-window stereo pilot lock landed, and the
+> detector now propagates a stable non-zero ID. Still open and the focus of
+> Phase R: general-purpose detection/estimation (occupied bandwidth, a dense/
+> strong-FM benchmark, robust channelization) and OI-27 (wandering phantom near
+> 99.9 MHz). The "perception layer not yet load-bearing" note below is still true
+> *for the general case* — Argus is tuned and proven for BC-FM, not yet universal.
+> Authoritative open-issue list: [`docs/known-issues.md`](docs/known-issues.md).
 
 ## Current Project Status
 
