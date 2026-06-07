@@ -34,10 +34,10 @@ type SurveillanceUpdate struct {
 }
 
 type RefinementUpdate struct {
-	Enabled           *bool    `json:"enabled"`
-	MaxConcurrent     *int     `json:"max_concurrent"`
-	DetailFFTSize     *int     `json:"detail_fft_size"`
-	MinCandidateSNRDb *float64 `json:"min_candidate_snr_db"`
+	Enabled            *bool    `json:"enabled"`
+	MaxConcurrent      *int     `json:"max_concurrent"`
+	DetailFFTSize      *int     `json:"detail_fft_size"`
+	MinCandidateSNRDb  *float64 `json:"min_candidate_snr_db"`
 	MinSpanHz          *float64 `json:"min_span_hz"`
 	MaxSpanHz          *float64 `json:"max_span_hz"`
 	AutoSpan           *bool    `json:"auto_span"`
@@ -95,6 +95,11 @@ type DetectorUpdate struct {
 	MergeGapHz       *float64 `json:"merge_gap_hz"`
 	ClassHistorySize *int     `json:"class_history_size"`
 	ClassSwitchRatio *float64 `json:"class_switch_ratio"`
+	// L1-B scale-aware fusion, live-adjustable for within-run A/B (OI-21).
+	ScaleAwareFusion *bool    `json:"scale_aware_fusion"`
+	SharpCFARGuardHz *float64 `json:"sharp_cfar_guard_hz"`
+	SharpCFARTrainHz *float64 `json:"sharp_cfar_train_hz"`
+	SharpCFARScaleDb *float64 `json:"sharp_cfar_scale_db"`
 }
 
 type SettingsUpdate struct {
@@ -483,6 +488,24 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 				return m.cfg, errors.New("class_switch_ratio must be between 0.1 and 1.0")
 			}
 			next.Detector.ClassSwitchRatio = v
+		}
+		if update.Detector.ScaleAwareFusion != nil {
+			next.Detector.ScaleAwareFusion = *update.Detector.ScaleAwareFusion
+		}
+		if update.Detector.SharpCFARGuardHz != nil {
+			if *update.Detector.SharpCFARGuardHz < 0 {
+				return m.cfg, errors.New("sharp_cfar_guard_hz must be >= 0")
+			}
+			next.Detector.SharpCFARGuardHz = *update.Detector.SharpCFARGuardHz
+		}
+		if update.Detector.SharpCFARTrainHz != nil {
+			if *update.Detector.SharpCFARTrainHz < 0 {
+				return m.cfg, errors.New("sharp_cfar_train_hz must be >= 0")
+			}
+			next.Detector.SharpCFARTrainHz = *update.Detector.SharpCFARTrainHz
+		}
+		if update.Detector.SharpCFARScaleDb != nil {
+			next.Detector.SharpCFARScaleDb = *update.Detector.SharpCFARScaleDb
 		}
 	}
 	if update.Recorder != nil {
