@@ -17,7 +17,10 @@ func EstimateExactFrequency(iq []complex64, sampleRate int, detectedHz float64, 
 		return PLLResult{ExactHz: detectedHz}
 	}
 	switch modType {
-	case ClassWFM:
+	case ClassWFM, ClassWFMStereo:
+		// The refinement layer upgrades WFM -> WFM_STEREO *before* calling this,
+		// so the stereo class must take the pilot path too — otherwise it falls
+		// through to default and the 19 kHz pilot is never looked for (no lock).
 		return estimateWFMPilot(iq, sampleRate, detectedHz)
 	case ClassAM:
 		return estimateAMCarrier(iq, sampleRate, detectedHz)

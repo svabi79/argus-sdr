@@ -19,11 +19,67 @@ import (
 
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
+	"sdr-wideband-suite/internal/dsp"
 	"sdr-wideband-suite/internal/estimate"
 	fftutil "sdr-wideband-suite/internal/fft"
 	"sdr-wideband-suite/internal/iqfile"
 	"sdr-wideband-suite/internal/synth"
 )
+
+// TestRealTargetPilot extracts a target WFM station from the capture, FM-
+// demodulates it, and checks for the 19 kHz stereo pilot (and 57 kHz RDS
+// subcarrier). This isolates extraction QUALITY from the PLL/decoder: if the
+// pilot is clearly present here, the no-lock is a downstream wiring/PLL issue,
+// not the DSP chain.
+func TestRealTargetPilot(t *testing.T) {
+	const path = "../../data/snapshots/fm_bc.cf32"
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("snapshot not present (%s)", path)
+	}
+	iq, meta, err := iqfile.Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tgtMHz := range []float64{100.6, 102.5} {
+		offset := tgtMHz*1e6 - meta.CenterHz
+		// Use ~1.5 s of the capture.
+		n := meta.SampleRate * 3 / 2
+		if n > len(iq) {
+			n = len(iq)
+		}
+		shifted := dsp.FreqShift(iq[:n], meta.SampleRate, offset)
+		// Decimate to ~256 kHz in one stage (integer factor).
+		decim := meta.SampleRate / 256000
+		if decim < 1 {
+			decim = 1
+		}
+		lp := dsp.LowpassFIR(float64(meta.SampleRate/decim)/2.0*0.8, meta.SampleRate, 101)
+		base := dsp.Decimate(dsp.ApplyFIR(shifted, lp), decim)
+		baseRate := meta.SampleRate / decim
+		// FM discriminator: instantaneous frequency = angle(y[n]·conj(y[n-1])).
+		disc := make([]complex64, len(base))
+		for i := 1; i < len(base); i++ {
+			p := base[i] * conj64(base[i-1])
+			disc[i] = complex(float32(math.Atan2(float64(imag(p)), float64(real(p)))), 0)
+		}
+		// Spectrum of the discriminator; look for the 19 kHz pilot.
+		fftN := 16384
+		if fftN > len(disc) {
+			fftN = len(disc)
+		}
+		spec := fftutil.Spectrum(disc[len(disc)-fftN:], fftutil.Hann(fftN))
+		bw := float64(baseRate) / float64(fftN)
+		binAt := func(hz float64) int { return fftN/2 + int(hz/bw) }
+		floor := medianf(append([]float64(nil), spec...))
+		pilot := spec[binAt(19000)] - floor
+		rds := spec[binAt(57000)] - floor
+		audio := spec[binAt(3000)] - floor
+		t.Logf("%.1f MHz: audio(3k)=%.1f dB  PILOT(19k)=%.1f dB  RDS(57k)=%.1f dB above floor (baseRate=%d)",
+			tgtMHz, audio, pilot, rds, baseRate)
+	}
+}
+
+func conj64(c complex64) complex64 { return complex(real(c), -imag(c)) }
 
 // liveDetectorConfig mirrors the user's aggressive live CFAR (from autosave):
 // high scale + wide guard, which over-detects strong signals.

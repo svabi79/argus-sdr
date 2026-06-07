@@ -123,6 +123,9 @@ func (m *extractionManager) extractRDS(iq []complex64, sampleRate int, offsetHz,
 	if m == nil || len(iq) == 0 || sampleRate <= 0 || !gpudemod.Available() {
 		return nil, 0, false
 	}
+	if os.Getenv("SDRD_RDS_CPU") != "" {
+		return nil, 0, false // force the CPU fallback for A/B isolation
+	}
 	m.rdsMu.Lock()
 	defer m.rdsMu.Unlock()
 	if m.rdsRunner != nil && len(iq) > m.rdsMaxSamples {
