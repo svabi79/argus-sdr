@@ -69,6 +69,13 @@ Prefer current code, current docs in `docs/`, and current branch state over hist
 - `docs/classifier-ml-plan-2026-06-06.md`
   - detailed plan for adding ML to the classifier (data+benchmark first → Stage A trees → Stage B CNN),
     including automated data collection strategy
+- `docs/detection-architecture.md`
+  - canonical architecture/direction for detection & estimation: Argus is a
+    universal, modulation- and frequency-agnostic wideband surveillance receiver
+    (not a BC-FM channelizer). Layered model (L1 universal detection → L2 generic
+    estimation → L3 per-class anchors → L4 tracking) and the durable contracts
+    (scale-aware candidate, split/merge refinement, pluggable refiner, resource
+    budget + profiling gate, phase fidelity). Read this before changing detection.
 - `docs/detection-rework-plan-2026-06-06.md`
   - step-wise plan to make the perception layer universal and measurable
     (R0 ground-truth benchmark → R1 occupied-bandwidth/SNR re-estimation →
