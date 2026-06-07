@@ -198,6 +198,29 @@ Status values used here:
   consumed by the detector.
 - Recommended fix: multi-resolution detection consuming multiple levels + scale-aware
   merge + candidate fusion (Phase R, step R3).
+- Update 2026-06-07 (real-capture evaluation, #53, `internal/synth/real_eval_test.go`):
+  evaluated single-resolution detection on three real captured oracles (BC-FM
+  `fm_bc.cf32`, 40m `hf_40m.cf32`, 20m `hf_20m.cf32`) against a Welch "what-is-on-air"
+  reference. Two decisive findings, both pointing AWAY from multi-resolution as the
+  next step:
+  1. **Bridging is solvable with a single resolution.** `MergeGapHz≈0 + CFARScaleDb
+     10–12 + CFARGuardHz 15k + fft 32768` eliminates over-widening on all three
+     oracles (overWide 5→0, maxBw 190k→7–34k) at high precision (0.86–1.00); the
+     BC-FM two-wide-WFM case is resolved perfectly. The dominant bridging lever on
+     real RF is `MergeGapHz`, not the CFAR guard. (Confirms the #51/#52 finding on
+     real data: the live 527k "bridging" was config, not a single-resolution limit.)
+  2. **Finer resolution makes the narrow end WORSE, not better.** Narrow-signal
+     recall (CW/FT8) fell 0.38→0.18 going 16384→131072 FFT, while `MergeGapHz=0`
+     nearly doubled it (0.32→0.68). The narrow signals are lost to the merge/edge
+     stage, not to bin width — which contradicts the scale-space premise. The
+     residual narrow/weak-recall gap (~0.3–0.5 still missed; 20m's second wide
+     broadcaster masked by the dominant +51 dB carrier) is therefore a
+     merge/edge-logic problem to diagnose, not a resolution problem.
+  Decision (operator, Principle VIII): pivot to a candidate single-resolution
+  known-good operating point + a merge/edge-logic fix; **defer the scale-space L1**
+  (kept in reserve on local WIP branch `feat/oi-21-scalespace` for a future
+  WFM-dense-overlap case that single-resolution actually fails — none of the three
+  real oracles showed one).
 - Source: `docs/detection-rework-plan-2026-06-06.md`
 
 ### OI-22 — No ground-truth benchmark for detection/estimation/classification
