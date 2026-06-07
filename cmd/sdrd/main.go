@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	_ "net/http/pprof" // registers /debug/pprof on the default mux
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -37,9 +38,20 @@ func main() {
 
 	var cfgPath string
 	var mockFlag bool
+	var pprofAddr string
 	flag.StringVar(&cfgPath, "config", "config.yaml", "path to config YAML")
 	flag.BoolVar(&mockFlag, "mock", false, "use synthetic IQ source")
+	flag.StringVar(&pprofAddr, "pprof", "localhost:6060", "pprof/debug HTTP address (empty to disable)")
 	flag.Parse()
+
+	if pprofAddr != "" {
+		go func() {
+			log.Printf("pprof listening on http://%s/debug/pprof/", pprofAddr)
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				log.Printf("pprof server: %v", err)
+			}
+		}()
+	}
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
