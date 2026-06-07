@@ -2,6 +2,10 @@
 
 This file tracks durable open engineering issues that remain after the 2026-03-25 audio-click fix.
 
+> Open items are mirrored as **GitHub Issues** (linked per item below). This file is
+> the curated narrative; the GitHub issues are the executable units of work — see
+> [`agent-workflow.md`](agent-workflow.md).
+
 Primary source:
 - `docs/open-issues-report-2026-03-25.json`
 
@@ -103,7 +107,7 @@ Status values used here:
   TestRealTargetPilot, TestRealJitter.
 
 ### OI-27 — Wandering phantom detection near 99.9 MHz
-- Status: `open`
+- Status: `open` — GitHub: [#3](https://github.com/svabi79/argus-sdr/issues/3)
 - Severity: Medium
 - Category: detection
 - Summary: a detection near ~99.9 MHz wanders in frequency and (with the loose
@@ -144,7 +148,7 @@ Status values used here:
   unstable bandwidth (OI-23) can make this worse.
 
 ### OI-23 — Occupied-bandwidth estimate unstable on the dense, strong FM band
-- Status: `open`
+- Status: `open` — GitHub: [#4](https://github.com/svabi79/argus-sdr/issues/4)
 - Severity: High
 - Category: estimation-quality
 - File: `internal/estimate/bandwidth.go`, `internal/pipeline/refiner.go`
@@ -183,7 +187,7 @@ Status values used here:
 - Source: `docs/detection-rework-plan-2026-06-06.md`
 
 ### OI-21 — Single-resolution detection is not universal (over/under detection)
-- Status: `open`
+- Status: `open` — GitHub: [#5](https://github.com/svabi79/argus-sdr/issues/5)
 - Severity: High
 - Category: detection-architecture
 - File: `internal/detector/detector.go`, `internal/cfar/`
@@ -197,7 +201,7 @@ Status values used here:
 - Source: `docs/detection-rework-plan-2026-06-06.md`
 
 ### OI-22 — No ground-truth benchmark for detection/estimation/classification
-- Status: `open`
+- Status: `open` — GitHub: [#2](https://github.com/svabi79/argus-sdr/issues/2)
 - Severity: High
 - Category: test-coverage / measurability
 - File: `internal/mock/`, (new) benchmark/eval target
@@ -210,7 +214,7 @@ Status values used here:
 - Source: `docs/detection-rework-plan-2026-06-06.md`, `docs/architecture-review-2026-06-06.md`
 
 ### OI-02 — `lastDiscrimIQ` missing from `dspStateSnapshot`
-- Status: `open`
+- Status: `open` — GitHub: [#7](https://github.com/svabi79/argus-sdr/issues/7)
 - Severity: High
 - Category: state-continuity
 - File: `internal/recorder/streamer.go`
@@ -219,7 +223,7 @@ Status values used here:
 - Source: `docs/open-issues-report-2026-03-25.json` (OI-02)
 
 ### OI-03 — CPU oracle path not yet usable as validation baseline
-- Status: `open`
+- Status: `open` — GitHub: [#8](https://github.com/svabi79/argus-sdr/issues/8)
 - Severity: High
 - Category: architecture
 - File: `cmd/sdrd/streaming_refactor.go`, `internal/demod/gpudemod/cpu_oracle.go`
@@ -228,7 +232,7 @@ Status values used here:
 - Source: `docs/open-issues-report-2026-03-25.json` (OI-03)
 
 ### OI-18 — planned C2-C validation gate never completed
-- Status: `open`
+- Status: `open` — GitHub: [#9](https://github.com/svabi79/argus-sdr/issues/9)
 - Severity: Info
 - Category: architecture
 - File: `docs/audio-click-debug-notes-2026-03-24.md`
@@ -241,7 +245,7 @@ Status values used here:
 ## Medium Priority
 
 ### OI-14 — no regression test for `allIQ` immutability through spectrum/detection pipeline
-- Status: `open`
+- Status: `open` — GitHub: [#10](https://github.com/svabi79/argus-sdr/issues/10)
 - Severity: Low
 - Category: test-coverage
 - File: `cmd/sdrd/pipeline_runtime.go`
@@ -250,7 +254,7 @@ Status values used here:
 - Source: `docs/open-issues-report-2026-03-25.json` (OI-14)
 
 ### OI-15 — very low test coverage for `processSnippet` audio pipeline
-- Status: `open`
+- Status: `open` — GitHub: [#11](https://github.com/svabi79/argus-sdr/issues/11)
 - Severity: Low
 - Category: test-coverage
 - File: `internal/recorder/streamer.go`
@@ -259,7 +263,7 @@ Status values used here:
 - Source: `docs/open-issues-report-2026-03-25.json` (OI-15)
 
 ### OI-07 — taps are recalculated every frame
-- Status: `open`
+- Status: `open` — GitHub: [#12](https://github.com/svabi79/argus-sdr/issues/12)
 - Severity: Medium
 - Category: correctness
 - File: `internal/demod/gpudemod/stream_state.go`
@@ -268,7 +272,7 @@ Status values used here:
 - Source: `docs/open-issues-report-2026-03-25.json` (OI-07)
 
 ### OI-17 — bandwidth changes can change Go-side taps without GPU tap re-upload
-- Status: `open`
+- Status: `open` — GitHub: [#13](https://github.com/svabi79/argus-sdr/issues/13)
 - Severity: Low-Medium
 - Category: correctness
 - File: `internal/demod/gpudemod/streaming_gpu_native_prepare.go`, `internal/demod/gpudemod/stream_state.go`
@@ -277,7 +281,7 @@ Status values used here:
 - Source: `docs/open-issues-report-2026-03-25.json` (OI-17)
 
 ### OI-09 — streaming feature flags are compile-time constants
-- Status: `open`
+- Status: `open` — GitHub: [#14](https://github.com/svabi79/argus-sdr/issues/14)
 - Severity: Medium
 - Category: architecture
 - File: `cmd/sdrd/streaming_refactor.go`, `internal/demod/gpudemod/streaming_gpu_modes.go`
@@ -286,7 +290,7 @@ Status values used here:
 - Source: `docs/open-issues-report-2026-03-25.json` (OI-09)
 
 ### OI-05 — feed channel is shallow and can drop frames under pressure
-- Status: `open`
+- Status: `open` — GitHub: [#6](https://github.com/svabi79/argus-sdr/issues/6)
 - Severity: Medium
 - Category: reliability
 - File: `internal/recorder/streamer.go`
