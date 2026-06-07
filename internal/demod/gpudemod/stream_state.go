@@ -54,12 +54,27 @@ func (r *BatchRunner) getOrInitExtractState(job StreamingExtractJob, sampleRate 
 	if cutoff < 200 {
 		cutoff = 200
 	}
-	base := dsp.LowpassFIR(cutoff, sampleRate, state.NumTaps)
-	state.BaseTaps = make([]float32, len(base))
-	for i, v := range base {
-		state.BaseTaps[i] = float32(v)
+	// Rebuild taps only when a tap-relevant input changes (#20 / OI-07). Identical
+	// inputs produce identical taps, so the cached path is byte-for-byte equivalent
+	// to rebuilding every frame; it just skips the per-frame LowpassFIR + polyphase
+	// allocation for the (common) steady signal.
+	if state.BaseTaps == nil || cutoff != state.tapsCutoff || state.NumTaps != state.tapsNumTaps ||
+		state.Decim != state.tapsDecim || sampleRate != state.tapsSampleRate {
+		base := dsp.LowpassFIR(cutoff, sampleRate, state.NumTaps)
+		if cap(state.BaseTaps) < len(base) {
+			state.BaseTaps = make([]float32, len(base))
+		} else {
+			state.BaseTaps = state.BaseTaps[:len(base)]
+		}
+		for i, v := range base {
+			state.BaseTaps[i] = float32(v)
+		}
+		state.PolyphaseTaps = BuildPolyphaseTapsPhaseMajor(state.BaseTaps, state.Decim)
+		state.tapsCutoff = cutoff
+		state.tapsNumTaps = state.NumTaps
+		state.tapsDecim = state.Decim
+		state.tapsSampleRate = sampleRate
 	}
-	state.PolyphaseTaps = BuildPolyphaseTapsPhaseMajor(state.BaseTaps, state.Decim)
 	if cap(state.ShiftedHistory) < maxInt(0, state.NumTaps-1) {
 		state.ShiftedHistory = make([]complex64, 0, maxInt(0, state.NumTaps-1))
 	} else if state.ShiftedHistory == nil {
