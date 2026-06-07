@@ -14,6 +14,42 @@ Status values used here:
 
 ## High Priority
 
+### OI-24 — WFM stereo never locks on live broadcast (pilot not detected)
+- Status: `open`
+- Severity: High
+- Category: demod / stereo
+- File: `internal/pipeline/refiner.go` (PLL), `internal/recorder/streamer.go`
+- Summary: live WFM broadcast signals stay `stereo=searching` (pll pilot not
+  detected) on all stations. Predates the Phase-R bandwidth work — it was already
+  "searching" when R1 was effectively skipped (OI-23), so it is not caused by the
+  bandwidth re-estimation. Needs its own investigation: verify the 19 kHz pilot is
+  present in the extracted snippet at the snippet rate, the FM discriminator
+  output, and the PLL lock thresholds.
+- Note: extraction bandwidth (sig.BWHz) must be wide enough to pass the pilot;
+  unstable bandwidth (OI-23) can make this worse.
+
+### OI-23 — Occupied-bandwidth estimate unstable on the dense, strong FM band
+- Status: `open`
+- Severity: High
+- Category: estimation-quality
+- File: `internal/estimate/bandwidth.go`, `internal/pipeline/refiner.go`
+- Summary: R1 occupied-bandwidth re-estimation is validated on the synthetic
+  benchmark (isolated ~30 dB signals) but is unreliable on the real broadcast FM
+  band: very strong (55–58 dB) carriers over a low (Welch) noise floor, with
+  closely spaced neighbours, make the blob chase far skirts / bridge to adjacent
+  stations (observed bandwidths swinging 47 k…504 k for WFM). Mitigations added
+  (peak-relative dynamic-range bound, tightened sane-factor guard) reduce but do
+  not eliminate it.
+- Also: a coordinate bug was fixed here — refinement was indexing the detail
+  spectrum (4096) with candidate bins from the surveillance spectrum (16384), so
+  R1 was silently skipped live whenever detail_fft != fft_size. Now uses the
+  surveillance spectrum.
+- Recommended fix: add a dense/strong-FM scene to the synth benchmark (multiple
+  strong WFM stations at realistic spacing and 50+ dB SNR), reproduce the
+  instability, and harden the estimator there (peak-relative containment, smarter
+  inter-station gap handling) instead of tuning constants on live signals.
+- Source: live testing 2026-06-07.
+
 ### OI-20 — Refinement does not re-estimate bandwidth/SNR (copies coarse value)
 - Status: `resolved` (Phase R / R1: bandwidth, center and SNR re-estimation landed)
 - Severity: High

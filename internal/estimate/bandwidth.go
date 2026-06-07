@@ -20,6 +20,9 @@ const (
 	noiseMarginDb = 3.0
 	// minSignalDb is the minimum peak-over-noise for a region to hold a signal.
 	minSignalDb = 6.0
+	// dynamicRangeDb bounds the signal blob to energy within this many dB of the
+	// peak, so strong signals over a low noise floor do not chase far skirts.
+	dynamicRangeDb = 35.0
 	// smoothHz is the dB-domain smoothing width used for peak/blob detection.
 	smoothHz = 1800.0
 )
@@ -81,9 +84,15 @@ func OccupiedBandwidthDb(regionDb []float64, binWidthHz, fraction float64) Occup
 	}
 
 	// 2) Contiguous signal blob around the peak on the smoothed spectrum: extend
-	// while bins stay above a small margin over noise, tolerating a couple of
-	// bins of dip. Bounds the estimate to the signal and excludes far noise.
+	// while bins stay above the blob threshold, tolerating a couple of bins of
+	// dip. The threshold is the higher of (noise + margin) and (peak - dynamic
+	// range): the noise term bounds weak signals, while the peak-relative term
+	// stops a very strong signal (with a low noise floor) from chasing its far
+	// skirts into a neighbour — without it, a 55 dB FM carrier grows absurdly wide.
 	thr := noiseDb + noiseMarginDb
+	if pr := peakDb - dynamicRangeDb; pr > thr {
+		thr = pr
+	}
 	const gap = 2
 	blo, bhi := peakBin, peakBin
 	for i, miss := peakBin-1, 0; i >= 0; i-- {

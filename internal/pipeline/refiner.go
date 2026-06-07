@@ -1,8 +1,6 @@
 package pipeline
 
 import (
-	"math"
-
 	"sdr-wideband-suite/internal/classifier"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/estimate"
@@ -15,11 +13,14 @@ import (
 // occupiedBwFraction selects the power-containment fraction for bandwidth
 // re-estimation (e.g. 0.99); <=0 disables it and keeps the coarse detector
 // bandwidth.
-func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectrum []float64, sampleRate int, fftSize int, snippets [][]complex64, snippetRates []int, mode classifier.ClassifierMode, occupiedBwFraction float64) []Refinement {
+// survSpectrum is the surveillance spectrum the detector ran on; the candidate
+// FirstBin/LastBin are in its coordinates, so it (not the lower-resolution detail
+// spectrum) is used for occupied-bandwidth re-estimation.
+func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectrum []float64, sampleRate int, fftSize int, snippets [][]complex64, snippetRates []int, mode classifier.ClassifierMode, survSpectrum []float64, occupiedBwFraction float64) []Refinement {
 	out := make([]Refinement, 0, len(candidates))
-	binWidth := 0.0
-	if fftSize > 0 {
-		binWidth = float64(sampleRate) / float64(fftSize)
+	estBinWidth := 0.0
+	if len(survSpectrum) > 0 {
+		estBinWidth = float64(sampleRate) / float64(len(survSpectrum))
 	}
 	for i, c := range candidates {
 		sig := detector.Signal{
@@ -32,24 +33,22 @@ func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectr
 			SNRDb:    c.SNRDb,
 			NoiseDb:  c.NoiseDb,
 		}
-		// R1: re-estimate occupied bandwidth + center from the local spectrum.
-		// Guarded: only applied when the estimate is valid and within a sane
-		// factor of the coarse bandwidth, otherwise the coarse value is kept.
-		if occupiedBwFraction > 0 && binWidth > 0 && len(spectrum) > 0 &&
-			c.FirstBin >= 0 && c.LastBin < len(spectrum) && c.LastBin >= c.FirstBin {
-			ref := estimate.RefineFromSpectrum(spectrum, c.FirstBin, c.LastBin, binWidth, occupiedBwFraction)
+		// R1: re-estimate occupied bandwidth + center + SNR from the surveillance
+		// spectrum (candidate bins are in its coordinates). Guarded: only applied
+		// when the estimate is valid and within a sane factor of the coarse
+		// bandwidth, otherwise the coarse value is kept. FirstBin/LastBin are left
+		// untouched (they feed the classifier's detail-spectrum feature path).
+		if occupiedBwFraction > 0 && estBinWidth > 0 && len(survSpectrum) > 0 &&
+			c.FirstBin >= 0 && c.LastBin < len(survSpectrum) && c.LastBin >= c.FirstBin {
+			ref := estimate.RefineFromSpectrum(survSpectrum, c.FirstBin, c.LastBin, estBinWidth, occupiedBwFraction)
 			if ref.OK && ref.BandwidthHz > 0 && c.BandwidthHz > 0 &&
-				ref.BandwidthHz >= 0.2*c.BandwidthHz && ref.BandwidthHz <= 6*c.BandwidthHz {
-				coarseCenterBin := float64(c.FirstBin+c.LastBin) / 2
+				ref.BandwidthHz >= 0.4*c.BandwidthHz && ref.BandwidthHz <= 2.5*c.BandwidthHz {
+				// Refine bandwidth + SNR only. CenterHz is intentionally NOT
+				// overridden: the detector's power-weighted centroid is carrier-
+				// accurate, while the occupancy centroid can drift a few kHz on an
+				// asymmetric instant — enough to detune WFM stereo's 19 kHz pilot
+				// PLL and prevent stereo lock.
 				sig.BWHz = ref.BandwidthHz
-				sig.CenterHz = c.CenterHz + (ref.CenterBin-coarseCenterBin)*binWidth
-				if lo := int(math.Round(ref.LowBin)); lo >= 0 && lo < len(spectrum) {
-					sig.FirstBin = lo
-				}
-				if hi := int(math.Round(ref.HighBin)); hi >= sig.FirstBin && hi < len(spectrum) {
-					sig.LastBin = hi
-				}
-				// R1.3: refined peak-over-noise SNR from the same local estimate.
 				if ref.SNRDb > 0 {
 					sig.SNRDb = ref.SNRDb
 					sig.NoiseDb = ref.NoiseFloorDb
