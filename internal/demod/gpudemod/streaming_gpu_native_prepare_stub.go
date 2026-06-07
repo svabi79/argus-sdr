@@ -20,6 +20,7 @@ func (r *BatchRunner) syncNativeStreamingStates(active map[int64]struct{}) {
 			delete(r.nativeState, id)
 		}
 	}
+	r.pruneOutRings(active)
 }
 
 func (r *BatchRunner) resetNativeStreamingState(signalID int64) {

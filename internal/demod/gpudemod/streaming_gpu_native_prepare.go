@@ -75,7 +75,11 @@ func (r *BatchRunner) executeStreamingGPUNativePrepared(invocations []StreamingG
 		state.phaseCount = int(phaseCount)
 		state.phaseNCO = float64(phaseNCO)
 
-		outHost := make([]complex64, int(nOut))
+		// Per-signal ring buffer (allocation-free across frames; #20). The snippet
+		// crosses the async streamer feed channel, so a single reused buffer would
+		// race — the ring (depth streamOutRingDepth) guarantees the producer never
+		// overwrites a slot the consumer still holds.
+		outHost := r.outRingFor(inv.SignalID).next(int(nOut))
 		if len(outHost) > 0 {
 			if bridgeMemcpyD2H(unsafe.Pointer(&outHost[0]), state.dOut, uintptr(len(outHost))*unsafe.Sizeof(complex64(0))) != 0 {
 				return nil, ErrUnavailable
@@ -215,6 +219,7 @@ func (r *BatchRunner) syncNativeStreamingStates(active map[int64]struct{}) {
 		releaseNativeStreamingSignalState(state)
 		delete(r.nativeState, id)
 	}
+	r.pruneOutRings(active)
 }
 
 func (r *BatchRunner) resetNativeStreamingState(signalID int64) {
