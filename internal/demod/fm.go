@@ -172,6 +172,104 @@ func RDSBasebandDecimated(iq []complex64, sampleRate int) RDSBasebandResult {
 	return RDSBasebandResult{Samples: out, SampleRate: res.SampleRate}
 }
 
+// fmDiscrimInto is the allocation-free core of fmDiscrim: it writes the FM
+// discriminator output into out (grown if needed) and returns the used slice.
+// It omits the diagnostic meter/logging fmDiscrim computes; the produced samples
+// are identical.
+func fmDiscrimInto(iq []complex64, out []float32) []float32 {
+	if len(iq) < 2 {
+		return out[:0]
+	}
+	n := len(iq) - 1
+	if cap(out) < n {
+		out = make([]float32, n)
+	}
+	out = out[:n]
+	for i := 1; i < len(iq); i++ {
+		p := iq[i-1]
+		c := iq[i]
+		num := float64(real(p))*float64(imag(c)) - float64(imag(p))*float64(real(c))
+		den := float64(real(p))*float64(real(c)) + float64(imag(p))*float64(imag(c))
+		out[i-1] = float32(math.Atan2(num, den))
+	}
+	return out
+}
+
+func decimateComplexInto(iq []complex64, factor int, out []complex64) []complex64 {
+	if factor <= 1 {
+		if cap(out) < len(iq) {
+			out = make([]complex64, len(iq))
+		}
+		out = out[:len(iq)]
+		copy(out, iq)
+		return out
+	}
+	need := len(iq)/factor + 1
+	if cap(out) < need {
+		out = make([]complex64, 0, need)
+	}
+	out = out[:0]
+	for i := 0; i < len(iq); i += factor {
+		out = append(out, iq[i])
+	}
+	return out
+}
+
+// RDSScratch holds the per-signal reusable buffers (and cached taps) for
+// RDSBasebandComplexInto. One per stable tracker ID; the caller must not use it
+// concurrently (the RDS decode goroutine is serialized per signal by a busy flag).
+type RDSScratch struct {
+	disc   []float32
+	cplx   []complex64
+	filt   []complex64
+	decim  []complex64
+	lpTaps []float64
+	tapsSR int
+}
+
+// RDSBasebandComplexInto is RDSBasebandComplex with all per-call allocations
+// served from s (reused across decodes), and the lowpass taps cached. The output
+// is byte-identical to RDSBasebandComplex (see fm_rds_test.go). The returned
+// Samples alias s.decim and stay valid until the next call on the same scratch.
+func RDSBasebandComplexInto(iq []complex64, sampleRate int, s *RDSScratch) RDSComplexResult {
+	if s == nil {
+		return RDSBasebandComplex(iq, sampleRate)
+	}
+	if len(iq) < 2 || sampleRate <= 0 {
+		return RDSComplexResult{}
+	}
+	s.disc = fmDiscrimInto(iq, s.disc)
+	n := len(s.disc)
+	if n == 0 {
+		return RDSComplexResult{}
+	}
+	// Complex convert (imag=0) fused with FreqShift(-57000) into s.cplx.
+	if cap(s.cplx) < n {
+		s.cplx = make([]complex64, n)
+	}
+	s.cplx = s.cplx[:n]
+	phase := 0.0
+	inc := -2 * math.Pi * (-57000.0) / float64(sampleRate)
+	for i := 0; i < n; i++ {
+		phase += inc
+		re := math.Cos(phase)
+		im := math.Sin(phase)
+		b := float64(s.disc[i])
+		s.cplx[i] = complex(float32(b*re), float32(b*im))
+	}
+	if s.lpTaps == nil || s.tapsSR != sampleRate {
+		s.lpTaps = dsp.LowpassFIR(7500, sampleRate, 101)
+		s.tapsSR = sampleRate
+	}
+	s.filt = dsp.ApplyFIRInto(s.cplx, s.lpTaps, s.filt)
+	decim := sampleRate / 19000
+	if decim < 1 {
+		decim = 1
+	}
+	s.decim = decimateComplexInto(s.filt, decim, s.decim)
+	return RDSComplexResult{Samples: s.decim, SampleRate: sampleRate / decim}
+}
+
 func init() {
 	Register(NFM{})
 	Register(WFM{})
