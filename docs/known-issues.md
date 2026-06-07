@@ -201,16 +201,26 @@ Status values used here:
 - Source: `docs/detection-rework-plan-2026-06-06.md`
 
 ### OI-22 — No ground-truth benchmark for detection/estimation/classification
-- Status: `open` — GitHub: [#2](https://github.com/svabi79/argus-sdr/issues/2)
+- Status: `resolved` — GitHub: [#2](https://github.com/svabi79/argus-sdr/issues/2)
 - Severity: High
 - Category: test-coverage / measurability
-- File: `internal/mock/`, (new) benchmark/eval target
+- File: `internal/synth/` (`synth.go` generator, `baseline_bench_test.go` harness)
 - Summary: there is no measurement with known ground truth, so detection P/R,
   bandwidth/center error, and classification accuracy are unquantified. Any tuning is
   blind ("tinkering"). This blocks doing the rework correctly.
-- Recommended fix: parametric synthetic scene generator (extend mock) + ground-truth
-  benchmark harness as a tagged `go test` (Phase R, step R0). Also satisfies B-5 and
-  the classifier-ml-plan Phase 0.
+- Resolution: the `internal/synth` parametric scene generator + `bench`-tagged
+  harness now measure all three metrics against known truth, reproducibly:
+  detection P/R + bw/center error (`TestDetectionBaseline`), bandwidth refinement
+  (`TestRefinedBandwidthVsGeometric`, `TestWelchStabilizesLowSNRBandwidth`),
+  center tracking (`TestCenterTrackingFollowsDrift`), and classification accuracy
+  vs `synth.Kind` truth (`TestClassificationBaseline`). A dense/strong-FM scene
+  (`denseFMSceneRealistic` + `TestDenseFMInstability`) is in place.
+  Deferred (NOT OI-22): (1) IQ-based classification modes (math/combined) need
+  per-signal baseband extraction — the spectrum-only rule baseline is poor
+  (0-12%), which is itself a finding; (2) the dense scene does not yet reproduce
+  the full live bw swing (~47k..504k) because the generator emits a *stationary*
+  FM spectrum — program-audio "breathing" needs a non-stationary message model,
+  now the first concrete task of OI-23 (#4).
 - Source: `docs/detection-rework-plan-2026-06-06.md`, `docs/architecture-review-2026-06-06.md`
 
 ### OI-02 — `lastDiscrimIQ` missing from `dspStateSnapshot`

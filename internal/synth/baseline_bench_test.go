@@ -643,6 +643,233 @@ func TestDetectionJitter(t *testing.T) {
 	}
 }
 
+// expectedClasses maps a synthetic ground-truth Kind to the set of classifier
+// SignalClass labels that count as a correct prediction. WFM accepts the stereo
+// variant; SSB accepts either sideband; the generic DIGITAL scene accepts any
+// digital-family label (its exact sub-kind is not modeled — see synth.go).
+func expectedClasses(k synth.Kind) map[classifier.SignalClass]bool {
+	set := func(cs ...classifier.SignalClass) map[classifier.SignalClass]bool {
+		m := make(map[classifier.SignalClass]bool, len(cs))
+		for _, c := range cs {
+			m[c] = true
+		}
+		return m
+	}
+	switch k {
+	case synth.KindCW:
+		return set(classifier.ClassCW)
+	case synth.KindAM:
+		return set(classifier.ClassAM)
+	case synth.KindSSB:
+		return set(classifier.ClassSSBUSB, classifier.ClassSSBLSB)
+	case synth.KindNFM:
+		return set(classifier.ClassNFM)
+	case synth.KindWFM:
+		return set(classifier.ClassWFM, classifier.ClassWFMStereo)
+	case synth.KindFSK:
+		return set(classifier.ClassFSK)
+	case synth.KindPSK:
+		return set(classifier.ClassPSK)
+	default: // DIGITAL and any other generic digital content
+		return set(classifier.ClassFSK, classifier.ClassPSK, classifier.ClassDMR,
+			classifier.ClassDStar, classifier.ClassFT8, classifier.ClassWSPR)
+	}
+}
+
+// TestClassificationBaseline quantifies classification accuracy against known
+// truth — the third OI-22 metric, alongside detection P/R and bw/center error.
+// It uses the spectrum-only rule classifier (ModeRule); IQ-based modes (math/
+// combined) need per-signal baseband extraction and are deferred here. This is a
+// measurement, not a pass gate: a low score is a finding that motivates the
+// classifier rework, not a test failure. A detection miss is not counted as a
+// classification error (it is already measured by TestDetectionBaseline).
+//
+//	go test -tags bench -run TestClassificationBaseline ./internal/synth/ -v
+func TestClassificationBaseline(t *testing.T) {
+	binWidth := float64(benchFs) / float64(benchN)
+	win := fftutil.Hann(benchN)
+	snrs := []float64{10, 20, 30}
+
+	t.Logf("Classification baseline — spectrum-only rule classifier (binWidth=%.0f Hz)", binWidth)
+	t.Logf("%-6s %8s %8s %9s", "SNRdB", "correct", "matched", "accuracy")
+
+	classifyMatched := func(scene synth.Scene) (correct, total int, detail map[synth.Kind]classifier.SignalClass) {
+		d := detector.New(detectorConfig(), benchFs, benchN)
+		var raw []detector.Signal
+		var spec []float64
+		now := time.Unix(0, 0)
+		for f := 0; f < benchFrames; f++ {
+			s := scene
+			s.Seed = scene.Seed + int64(f)
+			spec = fftutil.Spectrum(s.Generate(benchN), win)
+			now = now.Add(66 * time.Millisecond)
+			_, raw = d.Process(now, spec, 0)
+		}
+		detail = make(map[synth.Kind]classifier.SignalClass)
+		used := make([]bool, len(raw))
+		for _, tr := range scene.Signals {
+			best, bestD := -1, math.MaxFloat64
+			for i, g := range raw {
+				if used[i] {
+					continue
+				}
+				if dd := math.Abs(g.CenterHz - tr.CenterHz); dd < bestD {
+					best, bestD = i, dd
+				}
+			}
+			if best < 0 || bestD > math.Max(tr.BandwidthHz, raw[best].BWHz)/2+4*binWidth {
+				continue // detection miss; not a classification error
+			}
+			used[best] = true
+			total++
+			g := raw[best]
+			in := classifier.SignalInput{
+				FirstBin: g.FirstBin, LastBin: g.LastBin,
+				SNRDb: g.SNRDb, CenterHz: g.CenterHz, BWHz: g.BWHz,
+			}
+			got := classifier.SignalClass("")
+			if cls := classifier.Classify(in, spec, benchFs, benchN, nil, classifier.ModeRule); cls != nil {
+				got = cls.ModType
+			}
+			detail[tr.Kind] = got
+			if expectedClasses(tr.Kind)[got] {
+				correct++
+			}
+		}
+		return correct, total, detail
+	}
+
+	for _, snr := range snrs {
+		correct, total, _ := classifyMatched(baseScene(snr, 3000))
+		t.Logf("%-6.0f %8d %8d %8.0f%%", snr, correct, total, 100*safeDiv(correct, total))
+	}
+
+	// Per-kind predicted class at 30 dB (where detection is easy) to expose which
+	// modulations the spectrum-only classifier confuses.
+	t.Logf("")
+	t.Logf("Per-kind predicted class @ 30 dB SNR (truth -> predicted):")
+	t.Logf("%-8s %-12s %s", "truth", "predicted", "")
+	_, _, detail := classifyMatched(baseScene(30, 3000))
+	kinds := []synth.Kind{synth.KindWFM, synth.KindNFM, synth.KindAM, synth.KindSSB, synth.KindCW, synth.KindFSK, synth.KindPSK, synth.KindDigital}
+	for _, k := range kinds {
+		got, ok := detail[k]
+		if !ok {
+			continue // not present in this scene
+		}
+		mark := "MISS"
+		if expectedClasses(k)[got] {
+			mark = "ok"
+		}
+		t.Logf("%-8s %-12s %s", k, got, mark)
+	}
+}
+
+// denseFMSceneRealistic places strong WFM stations at realistic UKW raster
+// spacing (~250 kHz) with dominant carriers next to much weaker neighbours — the
+// dense/strong-FM scene OI-22 calls for, and the scene OI-23/OI-27 must be
+// diagnosed on (Constitution IV — reproduce offline before tuning live).
+//
+// SCOPE NOTE: this scene does NOT yet reproduce the full live occupied-bandwidth
+// swing (~47k..504k, OI-23). The generator emits a *stationary* FM spectrum (a
+// fixed multitone message, see synth.go), so each frame's occupied bandwidth is
+// essentially the same shape; the live swing is driven by real program-audio
+// "breathing" (the instantaneous FM occupancy genuinely varies frame to frame),
+// which needs a non-stationary message / time-varying deviation model. That
+// generator enhancement is the first concrete task of OI-23, not OI-22.
+func denseFMSceneRealistic(seed int64) synth.Scene {
+	mk := func(c, snr float64) synth.SignalSpec {
+		return synth.SignalSpec{Kind: synth.KindWFM, CenterHz: c, BandwidthHz: 180e3, SNRdB: snr}
+	}
+	return synth.Scene{
+		SampleRate: benchFs, Seed: seed, NoiseStd: 1.0,
+		Signals: []synth.SignalSpec{
+			mk(-800e3, 57), // dominant
+			mk(-550e3, 39), // 250 kHz away, much weaker — bridging victim
+			mk(-200e3, 55),
+			mk(150e3, 41),
+			mk(450e3, 56),
+			mk(700e3, 40), // 250 kHz from the 450 kHz carrier
+		},
+	}
+}
+
+// TestDenseFMInstability measures dense/strong-FM detection stability under the
+// user's aggressive live CFAR config (liveDetectorConfig) at the live FFT size.
+// It reports, per station, frame-to-frame center/bandwidth jitter and the
+// bandwidth swing (min..max). It is a measurement, not a pass gate.
+//
+// What it currently shows (offline target for OI-23/OI-27): the aggressive guard
+// (250 kHz) MASKS weak neighbours ~250 kHz from a dominant carrier (they go
+// undetected), and the strong carriers detect slightly over-wide with modestly
+// increased jitter vs the mild config (TestDetectionJitter). It does NOT yet
+// show the full live bw swing (~47k..504k) — see denseFMSceneRealistic's scope
+// note: the generator's stationary FM spectrum lacks program-audio breathing.
+// Compare against TestDetectionJitter (mild config) and TestRealJitter (real
+// capture, the ground-truth oracle for the swing).
+//
+//	go test -tags bench -run TestDenseFMInstability ./internal/synth/ -v
+func TestDenseFMInstability(t *testing.T) {
+	const fft = 16384
+	binWidth := float64(benchFs) / float64(fft)
+	d := detector.New(liveDetectorConfig(), benchFs, fft)
+	win := fftutil.Hann(fft)
+	scene := denseFMSceneRealistic(9000)
+
+	type acc struct{ centers, bws []float64 }
+	accs := make([]acc, len(scene.Signals))
+	now := time.Unix(0, 0)
+	const frames, warmup = 50, 12
+	for f := 0; f < frames; f++ {
+		s := scene
+		s.Seed = scene.Seed + int64(f)
+		spec := fftutil.Spectrum(s.Generate(fft), win)
+		now = now.Add(83 * time.Millisecond)
+		d.Process(now, spec, 0)
+		if f < warmup {
+			continue
+		}
+		stable := d.StableSignals()
+		for i, tr := range scene.Signals {
+			best, bestD := -1, math.MaxFloat64
+			for j := range stable {
+				if dd := math.Abs(stable[j].CenterHz - tr.CenterHz); dd < bestD {
+					best, bestD = j, dd
+				}
+			}
+			if best >= 0 && bestD < 150e3 {
+				accs[i].centers = append(accs[i].centers, stable[best].CenterHz)
+				accs[i].bws = append(accs[i].bws, stable[best].BWHz)
+			}
+		}
+	}
+
+	t.Logf("Dense FM instability under live CFAR (fft=%d, binWidth=%.0f Hz, %d frames, truth bw=180k):",
+		fft, binWidth, frames-warmup)
+	t.Logf("%-8s %5s %11s %10s %11s %8s %8s %5s", "ctrKHz", "snr", "ctrJitHz", "bwMeank", "bwJitHz", "bwMink", "bwMaxk", "seen")
+	for i, tr := range scene.Signals {
+		mn, mx := minMaxf(accs[i].bws)
+		t.Logf("%-8.0f %5.0f %11.0f %10.0f %11.0f %8.0f %8.0f %5d",
+			tr.CenterHz/1e3, tr.SNRdB, stddev(accs[i].centers), mean(accs[i].bws)/1e3,
+			stddev(accs[i].bws), mn/1e3, mx/1e3, len(accs[i].centers))
+	}
+}
+
+func minMaxf(v []float64) (float64, float64) {
+	if len(v) == 0 {
+		return math.NaN(), math.NaN()
+	}
+	mn, mx := v[0], v[0]
+	for _, x := range v {
+		if x < mn {
+			mn = x
+		}
+		if x > mx {
+			mx = x
+		}
+	}
+	return mn, mx
+}
+
 func safeDiv(a, b int) float64 {
 	if b == 0 {
 		return math.NaN()
