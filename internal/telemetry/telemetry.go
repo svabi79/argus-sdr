@@ -156,8 +156,10 @@ func New(cfg Config) (*Collector, error) {
 		counters: map[string]*collectorMetric{},
 		gauges: map[string]*collectorMetric{},
 		dists: map[string]*distMetric{},
-		metricsHistory: make([]MetricPoint, 0, cfg.MetricHistoryMax),
-		events: make([]Event, 0, cfg.EventHistoryMax),
+		// Pre-allocate with slack so append never reallocates and trimLocked can
+		// compact in place; the buffer oscillates between max and historyCap (#29).
+		metricsHistory: make([]MetricPoint, 0, historyCap(cfg.MetricHistoryMax)),
+		events: make([]Event, 0, historyCap(cfg.EventHistoryMax)),
 		status: map[string]any{},
 	}
 	if cfg.PersistEnabled {
@@ -489,31 +491,65 @@ func (c *Collector) QueryEvents(q Query) ([]Event, error) {
 	return items, nil
 }
 
+// historyCap is the backing capacity reserved for a history buffer whose logical
+// size is bounded by max. The slack lets trimLocked compact in place (no
+// allocation) only when the buffer fills, amortizing the O(n) shift over ~max
+// appends instead of copying the whole window on every record (#29 / OI-04).
+func historyCap(max int) int {
+	if max <= 0 {
+		return 0
+	}
+	return 2 * max
+}
+
+// historyTrimStart returns how many leading entries to drop from a history buffer
+// of length n. To stay amortized O(1) (and allocation-free), trimming is deferred
+// until the buffer fills to its slack capacity (2*max); the common path returns 0
+// without scanning, so it neither copies nor allocates. When it does fire, it
+// drops down to max recent entries plus any older than the retention cutoff. The
+// extra (up to max) entries that linger between compactions are bounded by the
+// reserved capacity and are still filtered by each query's own time range.
+func historyTrimStart(n int, max int, expired func(i int) bool, hasRet bool) int {
+	if max <= 0 {
+		// Degenerate config (no count bound): retention-only, scanned each call.
+		start := 0
+		if hasRet {
+			for start < n && expired(start) {
+				start++
+			}
+		}
+		return start
+	}
+	if n < 2*max {
+		return 0
+	}
+	start := n - max
+	if hasRet {
+		for start < n && expired(start) {
+			start++
+		}
+	}
+	return start
+}
+
 func (c *Collector) trimLocked(now time.Time) {
-	if c.cfg.MetricHistoryMax > 0 && len(c.metricsHistory) > c.cfg.MetricHistoryMax {
-		c.metricsHistory = append([]MetricPoint(nil), c.metricsHistory[len(c.metricsHistory)-c.cfg.MetricHistoryMax:]...)
+	hasRet := c.cfg.Retention > 0
+	cut := now.Add(-c.cfg.Retention)
+	if mh := c.metricsHistory; len(mh) > 0 {
+		start := historyTrimStart(len(mh), c.cfg.MetricHistoryMax, func(i int) bool {
+			return mh[i].Timestamp.Before(cut)
+		}, hasRet)
+		if start > 0 {
+			c.metricsHistory = mh[:copy(mh, mh[start:])] // in-place compaction, no allocation
+		}
 	}
-	if c.cfg.EventHistoryMax > 0 && len(c.events) > c.cfg.EventHistoryMax {
-		c.events = append([]Event(nil), c.events[len(c.events)-c.cfg.EventHistoryMax:]...)
-	}
-	ret := c.cfg.Retention
-	if ret <= 0 {
-		return
-	}
-	cut := now.Add(-ret)
-	mStart := 0
-	for mStart < len(c.metricsHistory) && c.metricsHistory[mStart].Timestamp.Before(cut) {
-		mStart++
-	}
-	if mStart > 0 {
-		c.metricsHistory = append([]MetricPoint(nil), c.metricsHistory[mStart:]...)
-	}
-	eStart := 0
-	for eStart < len(c.events) && c.events[eStart].Timestamp.Before(cut) {
-		eStart++
-	}
-	if eStart > 0 {
-		c.events = append([]Event(nil), c.events[eStart:]...)
+	if ev := c.events; len(ev) > 0 {
+		start := historyTrimStart(len(ev), c.cfg.EventHistoryMax, func(i int) bool {
+			return ev[i].Timestamp.Before(cut)
+		}, hasRet)
+		if start > 0 {
+			c.events = ev[:copy(ev, ev[start:])] // in-place compaction, no allocation
+		}
 	}
 }
 
