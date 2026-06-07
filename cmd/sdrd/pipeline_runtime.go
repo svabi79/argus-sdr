@@ -51,6 +51,8 @@ var forceFixedStreamReadSamples = func() int {
 type dspRuntime struct {
 	cfg              config.Config
 	det              *detector.Detector
+	detSharp         *detector.Detector // L1-B: fine/sharp CFAR pass for scale-aware fusion (nil when off)
+	sharpIDBase      int64              // ID offset block for sharp-pass candidates (Principle II: distinct, stable)
 	derivedDetectors map[string]*derivedDetector
 	nextDerivedBase  int64
 	window           []float64
@@ -87,6 +89,7 @@ type spectrumArtifacts struct {
 	detailSpectrum       []float64
 	finished             []detector.Event
 	detected             []detector.Signal
+	sharpDetected        []detector.Signal // L1-B: fine/sharp pass on the same survSpectrum (nil when off)
 	thresholds           []float64
 	noiseFloor           float64
 	now                  time.Time
@@ -116,6 +119,11 @@ type surveillancePlan struct {
 }
 
 const derivedIDBlock = int64(1_000_000_000)
+
+// sharpIDBase is the fixed ID block for L1-B sharp-pass candidates: far below the
+// derived pool (which only ever reaches a few * -derivedIDBlock) so sharp IDs
+// never collide with primary (positive) or derived IDs (Principle II).
+const sharpIDBase = int64(-1_000_000_000_000)
 
 func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, gpuState *gpuStatus, coll *telemetry.Collector) *dspRuntime {
 	detailFFT := cfg.Refinement.DetailFFTSize
@@ -156,7 +164,34 @@ func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, 
 			}
 		}
 	}
+	// L1-B: the sharp pass uses a fixed, far-away ID block (Principle II: split
+	// children adopt these stable IDs, distinct from primary's positive IDs and
+	// from the derived pool which resets to -derivedIDBlock on config change).
+	rt.sharpIDBase = sharpIDBase
+	rt.rebuildSharpDetector()
 	return rt
+}
+
+// rebuildSharpDetector (re)creates rt.detSharp from rt.cfg when scale-aware
+// fusion is enabled, or clears it when disabled. Called on construction and on
+// config update so the sharp pass tracks the live config.
+func (rt *dspRuntime) rebuildSharpDetector() {
+	if !rt.cfg.Detector.ScaleAwareFusion {
+		rt.detSharp = nil
+		return
+	}
+	sc := rt.cfg.Detector
+	sc.CFARGuardHz = firstPositive(rt.cfg.Detector.SharpCFARGuardHz, 8000)
+	sc.CFARTrainHz = firstPositive(rt.cfg.Detector.SharpCFARTrainHz, 60000)
+	sc.CFARScaleDb = firstPositive(rt.cfg.Detector.SharpCFARScaleDb, 10)
+	rt.detSharp = detector.New(sc, rt.cfg.SampleRate, rt.cfg.FFTSize)
+}
+
+func firstPositive(v, fallback float64) float64 {
+	if v > 0 {
+		return v
+	}
+	return fallback
 }
 
 func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *recorder.Manager, gpuState *gpuStatus) {
@@ -212,6 +247,8 @@ func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *rec
 		rt.derivedDetectors = map[string]*derivedDetector{}
 		rt.nextDerivedBase = -derivedIDBlock
 	}
+	// L1-B: track the live config (scale-aware toggle, sharp params, rate/fft).
+	rt.rebuildSharpDetector()
 	rt.dcEnabled = upd.dcBlock
 	rt.iqEnabled = upd.iqBalance
 	if rt.cfg.FFTSize != prevFFT || rt.cfg.UseGPUFFT != prevUseGPU {
@@ -625,6 +662,13 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	}
 	now := time.Now()
 	finished, detected := rt.det.Process(now, survSpectrum, rt.cfg.CenterHz)
+	// L1-B: fine/sharp pass on the SAME spectrum to separate close emissions; the
+	// scale-aware fusion (buildSurveillanceResult) reconciles it with the coarse
+	// primary. Phase-agnostic (power spectrum), so Principle XIII does not apply here.
+	var sharpDetected []detector.Signal
+	if rt.detSharp != nil {
+		_, sharpDetected = rt.detSharp.Process(now, survSpectrum, rt.cfg.CenterHz)
+	}
 	if rt.telemetry != nil {
 		rt.telemetry.SetGauge("signals.detected.count", float64(len(detected)), nil)
 		rt.telemetry.SetGauge("signals.finished.count", float64(len(finished)), nil)
@@ -640,6 +684,7 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 		detailSpectrum:       detailSpectrum,
 		finished:             finished,
 		detected:             detected,
+		sharpDetected:        sharpDetected,
 		thresholds:           rt.det.LastThresholds(),
 		noiseFloor:           rt.det.LastNoiseFloor(),
 		now:                  now,
@@ -656,8 +701,23 @@ func (rt *dspRuntime) buildSurveillanceResult(art *spectrumArtifacts) pipeline.S
 		plan = rt.buildSurveillancePlan(policy)
 	}
 	primaryCandidates := pipeline.CandidatesFromSignalsWithLevel(art.detected, "surveillance-detector", plan.Primary)
-	derivedCandidates := rt.detectDerivedCandidates(art, plan)
-	candidates := pipeline.FuseCandidates(primaryCandidates, derivedCandidates)
+	var candidates []pipeline.Candidate
+	if rt.detSharp != nil {
+		// L1-B scale-aware fusion: the coarse primary supplies width, the sharp
+		// pass supplies count+centers (separation). Split children adopt the
+		// sharp candidate's stable, offset ID (Principle II); a lone wide
+		// emission keeps the primary ID. See pipeline.FuseScaleAware.
+		sharpCandidates := pipeline.CandidatesFromSignalsWithLevel(art.sharpDetected, "surveillance-sharp", plan.Primary)
+		for i := range sharpCandidates {
+			if sharpCandidates[i].ID != 0 {
+				sharpCandidates[i].ID = rt.sharpIDBase - sharpCandidates[i].ID
+			}
+		}
+		candidates = pipeline.FuseScaleAware(primaryCandidates, sharpCandidates, pipeline.ScaleFuseOptions{})
+	} else {
+		derivedCandidates := rt.detectDerivedCandidates(art, plan)
+		candidates = pipeline.FuseCandidates(primaryCandidates, derivedCandidates)
+	}
 	pipeline.ApplyMonitorWindowMatchesToCandidates(policy, candidates)
 	scheduled := pipeline.ScheduleCandidates(candidates, policy)
 	return pipeline.SurveillanceResult{

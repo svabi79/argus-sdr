@@ -53,6 +53,16 @@ type DetectorConfig struct {
 	//   "tracking"           — follows real frequency drift (e.g. LEO Doppler)
 	CenterTrackMode string `yaml:"center_track_mode" json:"center_track_mode"`
 
+	// ScaleAwareFusion (L1-B, OI-21) runs a second sharp/fine CFAR pass on the
+	// same surveillance spectrum and fuses it with the coarse primary
+	// (pipeline.FuseScaleAware) to un-bridge close emissions — see
+	// docs/detection-architecture.md. Off by default; when on, the Sharp* fields
+	// override the primary CFAR for the fine pass only (zero = sane defaults).
+	ScaleAwareFusion bool    `yaml:"scale_aware_fusion,omitempty" json:"scale_aware_fusion,omitempty"`
+	SharpCFARGuardHz float64 `yaml:"sharp_cfar_guard_hz,omitempty" json:"sharp_cfar_guard_hz,omitempty"`
+	SharpCFARTrainHz float64 `yaml:"sharp_cfar_train_hz,omitempty" json:"sharp_cfar_train_hz,omitempty"`
+	SharpCFARScaleDb float64 `yaml:"sharp_cfar_scale_db,omitempty" json:"sharp_cfar_scale_db,omitempty"`
+
 	// Deprecated (backward compatibility)
 	CFAREnabled *bool `yaml:"cfar_enabled,omitempty" json:"cfar_enabled,omitempty"`
 }
@@ -457,7 +467,7 @@ func Default() Config {
 			ExtractionTaps:   101,
 			ExtractionBwMult: 1.2,
 		},
-		Decoder:        DecoderConfig{},
+		Decoder: DecoderConfig{},
 		Debug: DebugConfig{
 			AudioDumpEnabled: false,
 			CPUMonitoring:    false,
@@ -486,7 +496,7 @@ func Default() Config {
 			TimeFormat:  "15:04:05",
 			DisableTime: false,
 		},
-		WebAddr: ":8080",
+		WebAddr:        ":8080",
 		EventPath:      "data/events.jsonl",
 		FrameRate:      15,
 		WaterfallLines: 200,
