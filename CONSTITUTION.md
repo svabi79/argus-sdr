@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| **Version** | 1.2.0 |
+| **Version** | 1.3.0 |
 | **Status** | `STABLE` |
 | **Applies to** | All Argus SDR contributions: source code, documentation, automation, commits — produced by any human or AI agent |
 | **Project** | Argus SDR (Go module / working tree: `sdr-wideband-suite`) |
@@ -227,6 +227,25 @@ would have mixed a finished deliverable with open modeling work. It is the
 constitutional spine under what `AGENTS.md` §4 and `agent-workflow.md` already
 state operationally ("one issue = one unit of work = one PR"), and it generalizes
 Principle VI's discarded bundle-without-a-tracked-issue branch.*
+
+### XIII. Phase Fidelity in Per-Signal Processing
+
+Per-signal processing that feeds demodulation, decoding, or phase-sensitive
+detection — the FM discriminator, the 19 kHz stereo-pilot PLL, the 57 kHz RDS
+BPSK, and any future coherent decode — must preserve phase continuity and
+coherence end to end. A frequency shift carries its phase across frames;
+extraction must not introduce a per-frame phase discontinuity; and a path that
+accumulates per-frame snippets must carry the shift phase and be
+invalidated/restarted on a stream reset rather than spliced across the
+discontinuity.
+
+*Why this is inviolable: the audio-click investigation and the RDS long-window
+path (#18) both turned on this. The 4 s one-shot ring slice exists precisely
+because per-frame phase breaks corrupt the discriminator output, keep the 19 kHz
+pilot PLL from locking, and destroy the 57 kHz RDS BPSK; #18-deep (a streaming
+RDS accumulator, #33) was deferred for exactly this reason — a mid-window phase
+discontinuity from a stream reset reintroduces the failure. For coherent
+demod/decode, phase is not an implementation detail; it is the signal.*
 
 ---
 
