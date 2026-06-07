@@ -13,20 +13,25 @@ func (r *BatchRunner) buildStreamingGPUInvocations(iqNew []complex64, jobs []Str
 			return nil, err
 		}
 		invocations[i] = StreamingGPUInvocation{
-			SignalID:       job.SignalID,
-			ConfigHash:     state.ConfigHash,
-			OffsetHz:       job.OffsetHz,
-			OutRate:        job.OutRate,
-			Bandwidth:      job.Bandwidth,
-			SampleRate:     r.eng.sampleRate,
-			NumTaps:        state.NumTaps,
-			Decim:          state.Decim,
-			PhaseCountIn:   state.PhaseCount,
-			NCOPhaseIn:     state.NCOPhase,
-			HistoryLen:     len(state.ShiftedHistory),
-			BaseTaps:       append([]float32(nil), state.BaseTaps...),
-			PolyphaseTaps:  append([]float32(nil), state.PolyphaseTaps...),
-			ShiftedHistory: append([]complex64(nil), state.ShiftedHistory...),
+			SignalID:     job.SignalID,
+			ConfigHash:   state.ConfigHash,
+			OffsetHz:     job.OffsetHz,
+			OutRate:      job.OutRate,
+			Bandwidth:    job.Bandwidth,
+			SampleRate:   r.eng.sampleRate,
+			NumTaps:      state.NumTaps,
+			Decim:        state.Decim,
+			PhaseCountIn: state.PhaseCount,
+			NCOPhaseIn:   state.NCOPhase,
+			HistoryLen:   len(state.ShiftedHistory),
+			// Reference the stable per-signal state slices instead of copying them
+			// every frame (#20). The native exec path reads these read-only (taps are
+			// uploaded to the GPU only on reset) and synchronously, before
+			// applyStreamingGPUExecutionResults next mutates ShiftedHistory — same
+			// goroutine, so no aliasing. With the tap cache the slices are stable.
+			BaseTaps:       state.BaseTaps,
+			PolyphaseTaps:  state.PolyphaseTaps,
+			ShiftedHistory: state.ShiftedHistory,
 			IQNew:          iqNew,
 		}
 	}

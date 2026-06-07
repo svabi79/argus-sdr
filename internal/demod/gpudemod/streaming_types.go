@@ -34,6 +34,13 @@ type ExtractStreamState struct {
 	BaseTaps       []float32
 	PolyphaseTaps  []float32
 	Initialized    bool
+	// Tap cache (#20 / OI-07): BaseTaps/PolyphaseTaps are rebuilt only when a
+	// tap-relevant input changes. Identical inputs yield identical taps, so this
+	// is byte-for-byte equivalent to rebuilding every frame.
+	tapsCutoff     float64
+	tapsNumTaps    int
+	tapsDecim      int
+	tapsSampleRate int
 }
 
 func ResetExtractStreamState(state *ExtractStreamState, cfgHash uint64) {
@@ -45,6 +52,7 @@ func ResetExtractStreamState(state *ExtractStreamState, cfgHash uint64) {
 	state.PhaseCount = 0
 	state.ShiftedHistory = state.ShiftedHistory[:0]
 	state.Initialized = false
+	state.BaseTaps = nil // force tap rebuild: a config reset changes the tap geometry
 }
 
 func StreamingConfigHash(signalID int64, offsetHz float64, bandwidth float64, outRate int, numTaps int, sampleRate int) uint64 {
