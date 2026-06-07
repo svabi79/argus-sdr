@@ -868,6 +868,111 @@ func TestDenseFMInstability(t *testing.T) {
 	}
 }
 
+// TestRefinedBandwidthOnBreathingBand measures the REFINED occupied-bandwidth
+// estimator (estimate.RefineFromSpectrum, the OI-23/R1 path) on the breathing
+// dense FM band, vs the detector's geometric bandwidth, per station. The OI-23
+// failure is the refined estimate chasing far skirts / bridging to neighbours on
+// strong carriers (live swing ~47k..504k). A good estimator stays bounded to the
+// station's actual occupancy (a WFM channel is ~180-256k) instead of blowing up.
+//
+//	go test -tags bench -run TestRefinedBandwidthOnBreathingBand ./internal/synth/ -v
+func TestRefinedBandwidthOnBreathingBand(t *testing.T) {
+	const fft = 16384
+	binWidth := float64(benchFs) / float64(fft)
+	d := detector.New(liveDetectorConfig(), benchFs, fft)
+	win := fftutil.Hann(fft)
+	scene := denseFMSceneRealistic(9000)
+
+	type acc struct{ geom, ref []float64 }
+	accs := make([]acc, len(scene.Signals))
+	now := time.Unix(0, 0)
+	const frames, warmup = 50, 12
+	for f := 0; f < frames; f++ {
+		s := scene
+		s.Seed = scene.Seed + int64(f)
+		spec := fftutil.Spectrum(s.Generate(fft), win)
+		now = now.Add(83 * time.Millisecond)
+		_, raw := d.Process(now, spec, 0)
+		if f < warmup {
+			continue
+		}
+		for i, tr := range scene.Signals {
+			best, bestD := -1, math.MaxFloat64
+			for j := range raw {
+				if dd := math.Abs(raw[j].CenterHz - tr.CenterHz); dd < bestD {
+					best, bestD = j, dd
+				}
+			}
+			if best < 0 || bestD >= 150e3 {
+				continue
+			}
+			g := raw[best]
+			accs[i].geom = append(accs[i].geom, g.BWHz)
+			if ref := estimate.RefineFromSpectrum(spec, g.FirstBin, g.LastBin, binWidth, 0.99); ref.OK {
+				accs[i].ref = append(accs[i].ref, ref.BandwidthHz)
+			}
+		}
+	}
+
+	t.Logf("Refined vs geometric occupied bw on the breathing dense band (fft=%d, truth nominal 180k):", fft)
+	t.Logf("%-8s %5s %10s %10s %10s %10s %10s %5s", "ctrKHz", "snr", "geomMnk", "refMnk", "refJitHz", "refMink", "refMaxk", "nref")
+	for i, tr := range scene.Signals {
+		mn, mx := minMaxf(accs[i].ref)
+		t.Logf("%-8.0f %5.0f %10.0f %10.0f %10.0f %10.0f %10.0f %5d",
+			tr.CenterHz/1e3, tr.SNRdB, mean(accs[i].geom)/1e3, mean(accs[i].ref)/1e3,
+			stddev(accs[i].ref), mn/1e3, mx/1e3, len(accs[i].ref))
+	}
+}
+
+// TestBandwidthBridgingReproduction reproduces the OI-23 "bridging" failure
+// offline: two strong WFM stations placed progressively closer, both detected,
+// whose skirts merge so the detector hands one over-wide candidate and the
+// refined occupied bandwidth blows up far past either station. It is the offline
+// oracle (Constitution IV) for the resolution fix — which belongs in the
+// detection backbone (L1, docs/detection-architecture.md), NOT in the
+// occupied-bandwidth estimator (the estimator faithfully measures whatever blob
+// it is handed; it cannot un-merge what detection merged). A measurement, not a
+// pass gate: at ~200 kHz spacing the refined bw reaches ~3x a single station.
+//
+//	go test -tags bench -run TestBandwidthBridgingReproduction ./internal/synth/ -v
+func TestBandwidthBridgingReproduction(t *testing.T) {
+	const fft = 16384
+	binWidth := float64(benchFs) / float64(fft)
+	for _, spacing := range []float64{300e3, 250e3, 200e3} {
+		d := detector.New(liveDetectorConfig(), benchFs, fft)
+		win := fftutil.Hann(fft)
+		var refMax, geomMax float64
+		var nDet int
+		now := time.Unix(0, 0)
+		for f := 0; f < 40; f++ {
+			scene := synth.Scene{
+				SampleRate: benchFs, Seed: 3000 + int64(f), NoiseStd: 1.0,
+				Signals: []synth.SignalSpec{
+					{Kind: synth.KindWFM, CenterHz: -spacing / 2, BandwidthHz: 180e3, SNRdB: 55, Dynamic: true},
+					{Kind: synth.KindWFM, CenterHz: spacing / 2, BandwidthHz: 180e3, SNRdB: 55, Dynamic: true},
+				},
+			}
+			spec := fftutil.Spectrum(scene.Generate(fft), win)
+			now = now.Add(83 * time.Millisecond)
+			_, raw := d.Process(now, spec, 0)
+			if f < 10 {
+				continue
+			}
+			nDet = len(raw)
+			for _, g := range raw {
+				if g.BWHz > geomMax {
+					geomMax = g.BWHz
+				}
+				if ref := estimate.RefineFromSpectrum(spec, g.FirstBin, g.LastBin, binWidth, 0.99); ref.OK && ref.BandwidthHz > refMax {
+					refMax = ref.BandwidthHz
+				}
+			}
+		}
+		t.Logf("spacing=%.0fk: detections=%d  geomMax=%.0fk  refMax=%.0fk (two 55dB stations, each truth 180k)",
+			spacing/1e3, nDet, geomMax/1e3, refMax/1e3)
+	}
+}
+
 func minMaxf(v []float64) (float64, float64) {
 	if len(v) == 0 {
 		return math.NaN(), math.NaN()
