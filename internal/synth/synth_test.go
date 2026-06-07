@@ -108,6 +108,64 @@ func TestSNRControlsPeakHeight(t *testing.T) {
 	}
 }
 
+// TestDynamicWFMBreathes guards the non-stationary broadcast-MPX WFM model
+// (SignalSpec.Dynamic): it must stay deterministic per seed, and its occupied
+// bandwidth must vary across realizations (the "breathing" OI-23 relies on).
+func TestDynamicWFMBreathes(t *testing.T) {
+	mk := func(seed int64) []complex64 {
+		sc := Scene{
+			SampleRate: testFs, Seed: seed, NoiseStd: 1.0,
+			Signals: []SignalSpec{{Kind: KindWFM, CenterHz: 0, BandwidthHz: 180e3, SNRdB: 50, Dynamic: true}},
+		}
+		return sc.Generate(testN)
+	}
+
+	// Deterministic per seed.
+	a, b := mk(1), mk(1)
+	for i := range a {
+		if a[i] != b[i] {
+			t.Fatalf("Dynamic WFM non-deterministic at sample %d: %v vs %v", i, a[i], b[i])
+		}
+	}
+
+	// Breathing: a simple occupied-width metric (bins > floor+20 dB within
+	// ±300 kHz) must vary meaningfully across realizations.
+	binWidth := float64(testFs) / float64(testN)
+	occWidth := func(seed int64) float64 {
+		spec := fftutil.Spectrum(mk(seed), fftutil.Hann(testN))
+		floor := median(spec)
+		half := int(300e3 / binWidth)
+		c := testN / 2
+		lo, hi := c-half, c+half
+		if lo < 0 {
+			lo = 0
+		}
+		if hi >= len(spec) {
+			hi = len(spec) - 1
+		}
+		count := 0
+		for i := lo; i <= hi; i++ {
+			if spec[i]-floor > 20 {
+				count++
+			}
+		}
+		return float64(count) * binWidth
+	}
+	mn, mx := math.Inf(1), math.Inf(-1)
+	for s := int64(1); s <= 8; s++ {
+		w := occWidth(s)
+		if w < mn {
+			mn = w
+		}
+		if w > mx {
+			mx = w
+		}
+	}
+	if mx-mn < 20000 {
+		t.Errorf("Dynamic WFM occupied-width spread = %.0f Hz across realizations, want > 20 kHz (should breathe)", mx-mn)
+	}
+}
+
 func TestGenerateDeterministic(t *testing.T) {
 	scene := Scene{
 		SampleRate: testFs, Seed: 123, NoiseStd: 1.0,

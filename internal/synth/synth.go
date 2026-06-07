@@ -47,6 +47,11 @@ type SignalSpec struct {
 	BandwidthHz float64
 	SNRdB       float64
 	Duty        float64
+	// Dynamic, for WFM, selects a non-stationary broadcast-MPX program model
+	// (breathing occupied bandwidth) instead of the default stationary multitone
+	// FM. See genWFMDynamic. Off by default so existing stationary scenes/tests
+	// are unaffected.
+	Dynamic bool
 }
 
 // Scene is a reproducible collection of signals plus a noise level. Generate is
@@ -165,6 +170,10 @@ func genSignal(s SignalSpec, fs float64, n int, rng *rand.Rand) []complex128 {
 		}
 
 	case KindNFM, KindWFM:
+		if s.Kind == KindWFM && s.Dynamic {
+			out = genWFMDynamic(s, fs, n, rng)
+			break
+		}
 		// FM with a multi-tone audio message so the spectrum is continuous and
 		// fills the Carson bandwidth (real broadcast/voice FM), rather than the
 		// discrete Bessel lines a single tone would give. Peak deviation and
@@ -239,6 +248,109 @@ func genSignal(s SignalSpec, fs float64, n int, rng *rand.Rand) []complex128 {
 		for i := active; i < n; i++ {
 			out[i] = 0
 		}
+	}
+	return out
+}
+
+// genWFMDynamic renders a broadcast WFM station with a NON-STATIONARY program,
+// so its occupied bandwidth breathes from generation to generation (frame to
+// frame in the benchmark). It is modelled after a real stereo-MPX FM encoder
+// (cf. D:/Code/fm-rds-tx): a randomized multitone L/R program with a
+// per-realization loudness and message bandwidth drives the mono and stereo
+// (38 kHz DSB-SC) paths, on top of a constant 19 kHz pilot and a 57 kHz RDS BPSK
+// subcarrier that set a realistic occupancy floor; the composite frequency-
+// modulates the carrier at broadcast peak deviation (±75 kHz). Quiet frames
+// occupy ~the pilot/RDS floor; loud frames open up to the full ~±75 kHz
+// multiplex — the live behaviour OI-23 must reproduce offline (Constitution IV).
+//
+// Determinism: all randomness is drawn from the passed rng, so a given Scene.Seed
+// reproduces exactly. The benchmark re-seeds per frame, so each frame is a
+// different (loud/quiet, narrow/wide) realization — that is the breathing.
+func genWFMDynamic(s SignalSpec, fs float64, n int, rng *rand.Rand) []complex128 {
+	const (
+		twoPi    = 2 * math.Pi
+		peakDev  = 75000.0 // broadcast WFM peak deviation
+		pilotHz  = 19000.0
+		subHz    = 38000.0 // stereo subcarrier (2x pilot)
+		rdsHz    = 57000.0 // RDS subcarrier (3x pilot)
+		rdsBaud  = 1187.5  // RDS bit rate
+		pilotAmp = 0.09    // ~9% deviation, broadcast-typical
+		rdsAmp   = 0.04    // ~4% deviation
+		ktones   = 12
+	)
+	out := make([]complex128, n)
+	fc := s.CenterHz
+
+	// Per-realization program dynamics: loudness 0.25..1.0 and message bandwidth
+	// 4..15 kHz, so the occupied band varies between quiet/narrow and loud/wide.
+	loud := 0.25 + 0.75*rng.Float64()
+	progBW := 4000.0 + 11000.0*rng.Float64()
+	lf := make([]float64, ktones)
+	la := make([]float64, ktones)
+	lp := make([]float64, ktones)
+	ra := make([]float64, ktones)
+	rp := make([]float64, ktones)
+	for k := 0; k < ktones; k++ {
+		lf[k] = progBW * float64(k+1) / float64(ktones)
+		la[k] = rng.Float64()
+		lp[k] = rng.Float64() * twoPi
+		ra[k] = rng.Float64()
+		rp[k] = rng.Float64() * twoPi
+	}
+
+	// RDS NRZ bit stream (random, deterministic from rng), small contribution.
+	nbits := int(float64(n)/fs*rdsBaud) + 2
+	bits := make([]float64, nbits)
+	for i := range bits {
+		if rng.Float64() < 0.5 {
+			bits[i] = -1
+		} else {
+			bits[i] = 1
+		}
+	}
+
+	// First pass: build the L/R program and find its peak, to normalize loudness
+	// so loud==1.0 maps to ~full program deviation.
+	lbuf := make([]float64, n)
+	rbuf := make([]float64, n)
+	peak := 1e-9
+	for i := 0; i < n; i++ {
+		t := float64(i) / fs
+		var l, r float64
+		for k := 0; k < ktones; k++ {
+			l += la[k] * math.Cos(twoPi*lf[k]*t+lp[k])
+			r += ra[k] * math.Cos(twoPi*lf[k]*t+rp[k])
+		}
+		lbuf[i] = l
+		rbuf[i] = r
+		if a := math.Abs(l); a > peak {
+			peak = a
+		}
+		if a := math.Abs(r); a > peak {
+			peak = a
+		}
+	}
+	g := loud / peak
+
+	// Second pass: assemble the MPX composite and FM-modulate it.
+	phase := 0.0
+	for i := 0; i < n; i++ {
+		t := float64(i) / fs
+		l := lbuf[i] * g
+		r := rbuf[i] * g
+		mono := 0.5 * (l + r)
+		diff := 0.5 * (l - r)
+		pilot := pilotAmp * math.Sin(twoPi*pilotHz*t)
+		stereo := diff * math.Sin(twoPi*subHz*t)
+		bi := int(t * rdsBaud)
+		if bi >= len(bits) {
+			bi = len(bits) - 1
+		}
+		rds := rdsAmp * bits[bi] * math.Sin(twoPi*rdsHz*t)
+		composite := mono + stereo + pilot + rds
+		inst := fc + peakDev*composite
+		phase += twoPi * inst / fs
+		out[i] = complex(math.Cos(phase), math.Sin(phase))
 	}
 	return out
 }
