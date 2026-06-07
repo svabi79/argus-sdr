@@ -3,6 +3,13 @@
 This file is the repo-level working guide for humans, coding agents, and LLMs.
 Read it before making changes.
 
+> **Read [`CONSTITUTION.md`](CONSTITUTION.md) first.** It holds the project's
+> inviolable principles — each one encodes a real failure this project shipped
+> and fixed. This file (`AGENTS.md`) is the *operational* layer (how to build,
+> test, branch, debug, what not to commit); the constitution is the *spine* it
+> serves. Where the two disagree, the constitution wins and this file is
+> corrected. Tool entry files (`CLAUDE.md`, …) are thin pointers back here.
+
 ---
 
 ## 1. Purpose of this file
