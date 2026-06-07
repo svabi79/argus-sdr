@@ -90,10 +90,23 @@ func pressureLevel(pressure float64) string {
 }
 
 func pressureReasonTag(pressure BudgetPressure) string {
-	if pressure.Level == "" || pressure.Level == "idle" {
+	// Return interned constants for the known levels (set by pressureLevel) so the
+	// per-candidate-per-frame call does not allocate a fresh "pressure:"+level
+	// string every time (#21). Output is identical to the previous concat.
+	switch pressure.Level {
+	case "", "idle":
 		return ""
+	case "steady":
+		return "pressure:steady"
+	case "elevated":
+		return "pressure:elevated"
+	case "high":
+		return "pressure:high"
+	case "critical":
+		return "pressure:critical"
+	default:
+		return "pressure:" + pressure.Level
 	}
-	return "pressure:" + pressure.Level
 }
 
 func pressureEffectiveMax(value float64) float64 {
