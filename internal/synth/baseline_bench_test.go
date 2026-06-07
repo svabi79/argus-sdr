@@ -15,12 +15,91 @@ import (
 	"testing"
 	"time"
 
+	"os"
+
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/estimate"
 	fftutil "sdr-wideband-suite/internal/fft"
+	"sdr-wideband-suite/internal/iqfile"
 	"sdr-wideband-suite/internal/synth"
 )
+
+// liveDetectorConfig mirrors the user's aggressive live CFAR (from autosave):
+// high scale + wide guard, which over-detects strong signals.
+func liveDetectorConfig() config.DetectorConfig {
+	c := detectorConfig()
+	c.CFARScaleDb = 15
+	c.CFARGuardHz = 250000
+	c.CFARTrainHz = 100000
+	return c
+}
+
+// TestRealJitter measures center/bandwidth jitter on a real FM capture (the
+// 100.6 + 102.5 MHz targets), to compare against the synthetic baseline and to
+// give the tracker fix a real-world target. Skips if the snapshot is absent.
+//
+//	go test -tags bench -run TestRealJitter ./internal/synth/ -v
+func TestRealJitter(t *testing.T) {
+	const path = "../../data/snapshots/fm_bc.cf32"
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("snapshot not present (%s); capture with: sdrd -capture %s -capture-center 101.5", path, path)
+	}
+	iq, meta, err := iqfile.Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fft := 16384
+	binWidth := float64(meta.SampleRate) / float64(fft)
+	win := fftutil.Hann(fft)
+	d := detector.New(liveDetectorConfig(), meta.SampleRate, fft)
+
+	// Targets as offsets from the capture center (101.5 MHz).
+	targets := []struct {
+		name   string
+		offset float64
+	}{
+		{"100.6", 100.6e6 - meta.CenterHz},
+		{"102.5", 102.5e6 - meta.CenterHz},
+	}
+	type acc struct{ centers, bws []float64 }
+	accs := make([]acc, len(targets))
+
+	stride := meta.SampleRate / 12 // ~12 fps
+	now := time.Unix(0, 0)
+	frame := 0
+	const warmup = 8
+	for start := 0; start+fft <= len(iq); start += stride {
+		spec := fftutil.Spectrum(iq[start:start+fft], win)
+		now = now.Add(83 * time.Millisecond)
+		d.Process(now, spec, 0)
+		frame++
+		if frame < warmup {
+			continue
+		}
+		stable := d.StableSignals()
+		for ti, tg := range targets {
+			best, bestD := -1, math.MaxFloat64
+			for j := range stable {
+				if dd := math.Abs(stable[j].CenterHz - tg.offset); dd < bestD {
+					best, bestD = j, dd
+				}
+			}
+			if best >= 0 && bestD < 120e3 {
+				accs[ti].centers = append(accs[ti].centers, stable[best].CenterHz)
+				accs[ti].bws = append(accs[ti].bws, stable[best].BWHz)
+			}
+		}
+	}
+
+	t.Logf("Real FM capture jitter (%.3f MHz, %.3f MS/s, binWidth=%.0f Hz, %d frames):",
+		meta.CenterHz/1e6, float64(meta.SampleRate)/1e6, binWidth, frame)
+	t.Logf("%-8s %14s %12s %14s %6s", "target", "ctrJitterHz", "bwMeanHz", "bwJitterHz", "seen")
+	for ti, tg := range targets {
+		t.Logf("%-8s %14.0f %12.0f %14.0f %6d",
+			tg.name, stddev(accs[ti].centers), mean(accs[ti].bws), stddev(accs[ti].bws), len(accs[ti].centers))
+	}
+}
 
 const (
 	benchFs     = 2_500_000
