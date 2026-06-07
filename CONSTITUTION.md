@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| **Version** | 1.0.0 |
+| **Version** | 1.1.0 |
 | **Status** | `STABLE` |
 | **Applies to** | All Argus SDR contributions: source code, documentation, automation, commits — produced by any human or AI agent |
 | **Project** | Argus SDR (Go module / working tree: `sdr-wideband-suite`) |
@@ -188,6 +188,23 @@ mixed-language traces; a single artifact language keeps the codebase
 greppable, tool-portable, and open to contributors who do not share the
 working language. Mixed-language comments and commit subjects fragment search
 and onboarding.*
+
+### XI. Decode the Whole Band in Real Time
+
+Argus decodes every detected signal across the band **simultaneously, in real
+time**. Scale the all-signal path by making it cheaper *per signal* —
+allocation-free hot loops, GPU-batched DSP (Principle I) — **never** by doing
+less work, i.e. never by gating extraction/demod/decode to whatever is currently
+being listened to or recorded.
+
+*Why this is inviolable: simultaneous many-signal decode is the entire reason
+Argus exists — it is the "hundred eyes." "Only process what's being consumed" is
+the seductive wrong turn, because it looks like a clean performance win: faced
+with GC-saturated CPU and audio dropouts under a full band (issue #15), an agent
+proposed gating extraction to active listeners for a ~14x reduction. That
+reduction is real and it deletes the product. The CPU/GC cost is fixed by making
+the path allocation-free and GPU-batched, not by decoding fewer signals — the
+budget is the thing to solve, not the signal count to avoid.*
 
 ---
 
