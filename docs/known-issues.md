@@ -33,7 +33,13 @@ Status values used here:
 - Source: pprof CPU profile, 2026-06-07.
 
 ### OI-25 — Very high CPU (~13-16 cores) and memory (~3-4 GB) at runtime
-- Status: `open`
+- Status: `resolved` — two root causes, both per-signal and scaling with signal count:
+  1. RDS DSP ran on the CPU (OI-26) → moved to GPU: CPU ~14 -> ~3.5 cores.
+  2. RDS sliced ~128 MB of full-rate IQ per station per decode and keyed state by
+     the jittering center frequency, so the buffer re-allocated every frame
+     (Ring.Slice = ~85% of all allocations) → GC stutter that grew with the number
+     of signals. Fixed by a stable tracker-ID key + reused buffer (commit 516f0db):
+     CPU -> ~0.1 cores, RSS ~3.6 -> ~1 GB, allocation profile now only necessary work.
 - Severity: High
 - Category: performance
 - File: TBD (profile first — recorder/decode, extraction, surveillance levels, GPU demod)
