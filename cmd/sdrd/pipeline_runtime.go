@@ -15,9 +15,9 @@ import (
 	"sdr-wideband-suite/internal/demod"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
-	"sdr-wideband-suite/internal/logging"
 	fftutil "sdr-wideband-suite/internal/fft"
 	"sdr-wideband-suite/internal/fft/gpufft"
+	"sdr-wideband-suite/internal/logging"
 	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/rds"
 	"sdr-wideband-suite/internal/recorder"
@@ -31,8 +31,9 @@ type rdsState struct {
 	lastSeen   time.Time
 	busy       int32
 	mu         sync.Mutex
-	iqBuf      []complex64 // reused ring-slice buffer (only touched by the busy goroutine)
-	stereo     bool        // 19 kHz pilot present in the last long-window decode (OI-24)
+	iqBuf      []complex64      // reused ring-slice buffer (only touched by the busy goroutine)
+	rdsScratch demod.RDSScratch // reused RDS baseband buffers + cached taps (busy goroutine only)
+	stereo     bool             // 19 kHz pilot present in the last long-window decode (OI-24)
 }
 
 var forceFixedStreamReadSamples = func() int {
@@ -241,10 +242,10 @@ func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *rec
 	}
 	if rt.telemetry != nil {
 		rt.telemetry.Event("dsp_config_update", "info", "dsp runtime configuration updated", nil, map[string]any{
-			"fft_size":     rt.cfg.FFTSize,
-			"sample_rate":  rt.cfg.SampleRate,
-			"use_gpu_fft":  rt.cfg.UseGPUFFT,
-			"detail_fft":   rt.detailFFT,
+			"fft_size":      rt.cfg.FFTSize,
+			"sample_rate":   rt.cfg.SampleRate,
+			"use_gpu_fft":   rt.cfg.UseGPUFFT,
+			"detail_fft":    rt.detailFFT,
 			"surv_strategy": rt.cfg.Surveillance.Strategy,
 		})
 	}
@@ -564,14 +565,14 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 			rt.telemetry.Observe("iq.boundary.all.delta_phase", phaseJump, nil)
 			if rt.telemetry.ShouldSampleHeavy() {
 				rt.telemetry.Event("alliq_boundary", "info", "allIQ boundary snapshot", nil, map[string]any{
-					"window":                boundaryWindow,
-					"head_mean_mag":         headMean,
-					"prev_tail_mean_mag":    tailMean,
-					"delta_mag":             deltaMag,
-					"delta_phase":           phaseJump,
-					"discontinuity_score":   boundaryScore,
-					"alliq_len":             len(allIQ),
-					"stream_dropped":        streamDropped,
+					"window":              boundaryWindow,
+					"head_mean_mag":       headMean,
+					"prev_tail_mean_mag":  tailMean,
+					"delta_mag":           deltaMag,
+					"delta_phase":         phaseJump,
+					"discontinuity_score": boundaryScore,
+					"alliq_len":           len(allIQ),
+					"stream_dropped":      streamDropped,
 				})
 			}
 		}
@@ -1001,6 +1002,13 @@ func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, extractMgr
 	if now.Sub(st.lastDecode) >= 4*time.Second && atomic.LoadInt32(&st.busy) == 0 {
 		st.lastDecode = now
 		atomic.StoreInt32(&st.busy, 1)
+		// Pre-size the reused 4 s full-rate ring buffer once, so the first decode
+		// doesn't pay the append-doubling overhead (~2.3x transient) growing from
+		// empty to ~4*sampleRate samples (issue #18). Safe to touch here: busy=1 is
+		// set and the goroutine below hasn't started reading st.iqBuf yet.
+		if cap(st.iqBuf) == 0 && rt.cfg.SampleRate > 0 {
+			st.iqBuf = make([]complex64, 0, 4*rt.cfg.SampleRate+1024)
+		}
 		go func(st *rdsState, sigHz float64) {
 			defer atomic.StoreInt32(&st.busy, 0)
 			// Reuse the per-station buffer (only this goroutine touches st.iqBuf;
@@ -1053,7 +1061,7 @@ func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, extractMgr
 			st.mu.Lock()
 			st.stereo = stereo
 			st.mu.Unlock()
-			rdsBase := demod.RDSBasebandComplex(decimated, actualRate)
+			rdsBase := demod.RDSBasebandComplexInto(decimated, actualRate, &st.rdsScratch)
 			if len(rdsBase.Samples) == 0 {
 				return
 			}

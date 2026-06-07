@@ -51,6 +51,35 @@ func ApplyFIR(iq []complex64, taps []float64) []complex64 {
 	return out
 }
 
+// ApplyFIRInto is ApplyFIR but writes into out (grown if needed) and returns the
+// used slice, so callers with a stable scratch buffer avoid a per-call allocation.
+// out must NOT alias iq (the filter reads past input samples).
+func ApplyFIRInto(iq []complex64, taps []float64, out []complex64) []complex64 {
+	if len(iq) == 0 || len(taps) == 0 {
+		return out[:0]
+	}
+	if cap(out) < len(iq) {
+		out = make([]complex64, len(iq))
+	}
+	out = out[:len(iq)]
+	n := len(taps)
+	for i := 0; i < len(iq); i++ {
+		var accR, accI float64
+		for k := 0; k < n; k++ {
+			idx := i - k
+			if idx < 0 {
+				break
+			}
+			v := iq[idx]
+			w := taps[k]
+			accR += float64(real(v)) * w
+			accI += float64(imag(v)) * w
+		}
+		out[i] = complex(float32(accR), float32(accI))
+	}
+	return out
+}
+
 // Decimate keeps every nth sample.
 func Decimate(iq []complex64, factor int) []complex64 {
 	if factor <= 1 {
