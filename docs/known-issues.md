@@ -221,6 +221,23 @@ Status values used here:
   (kept in reserve on local WIP branch `feat/oi-21-scalespace` for a future
   WFM-dense-overlap case that single-resolution actually fails — none of the three
   real oracles showed one).
+- Update 2026-06-07 (narrow-recall diagnosis, #55, `TestRealRecallDiagnosis`):
+  the "merge/edge-logic problem" of point 2 above was investigated and is **NOT a
+  detector bug** — it was measurement methodology. Four-block diagnosis: (A) the
+  strong-narrow reference is real (40m 34/34, 20m 25/26 confirmed in both capture
+  halves) but the WEAK tier is noise-contaminated (40m 6/28, 20m 9/16 unconfirmed)
+  → trust strong-narrow recall, not weak; (B) much of the 24-frame gap is DUTY
+  CYCLE (40m Rs_n 0.65→0.76 at 96 frames); (C) 32/34 strong-narrow refs are
+  detected; (D) **edge-expansion is not the cause** — `MaxSignalBwHz` 2k→260k
+  changes nothing, median strong-narrow detBw is ~1 kHz (not inflated). The
+  residual Rs_n≈0.76 ceiling is the one-to-one cost of multiple dense co-located
+  references (FT8 watering-hole stations sub-kHz apart) sharing one ~1 kHz
+  detection — reference granularity + the fact that 6–50 Hz-spaced FT8 are not
+  separable by ENERGY detection at any single resolution (decode-domain). The
+  detector correctly reports the activity as an occupied region. Conclusion:
+  single-resolution narrow handling is sound; nothing to fix in `expandSignalEdges`
+  /`mergeOverlapping`. #55 closed not-a-bug. Remaining real work is #56 (adopt the
+  known-good operating point as defaults).
 - Source: `docs/detection-rework-plan-2026-06-06.md`
 
 ### OI-22 — No ground-truth benchmark for detection/estimation/classification
