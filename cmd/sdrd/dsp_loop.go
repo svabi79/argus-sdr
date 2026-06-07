@@ -84,17 +84,21 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			}
 			logging.Debug("trace", "capture_done", "trace", frameID, "allIQ", len(art.allIQ), "detailIQ", len(art.detailIQ))
 			if coll != nil {
-				coll.Observe("stage.capture.duration_ms", float64(time.Since(frameStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+				// No frame_id tag: a per-frame-unique tag gives every sample its own
+				// metric series (cloneTags + new map + Sprintf every frame, unbounded
+				// cardinality) and dominated the GC mark cost (#21). The distribution
+				// aggregates across frames; metric-history timestamps preserve time order.
+				coll.Observe("stage.capture.duration_ms", float64(time.Since(frameStart).Microseconds())/1000.0, nil)
 			}
 			survStart := time.Now()
 			state.surveillance = rt.buildSurveillanceResult(art)
 			if coll != nil {
-				coll.Observe("stage.surveillance.duration_ms", float64(time.Since(survStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+				coll.Observe("stage.surveillance.duration_ms", float64(time.Since(survStart).Microseconds())/1000.0, nil)
 			}
 			refineStart := time.Now()
 			state.refinement = rt.runRefinement(art, state.surveillance, extractMgr, rec)
 			if coll != nil {
-				coll.Observe("stage.refinement.duration_ms", float64(time.Since(refineStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+				coll.Observe("stage.refinement.duration_ms", float64(time.Since(refineStart).Microseconds())/1000.0, nil)
 			}
 			finished := state.surveillance.Finished
 			thresholds := state.surveillance.Thresholds
@@ -128,7 +132,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 					extractStart := time.Now()
 					streamSnips, streamRates := extractForStreaming(extractMgr, art.allIQ, rt.cfg.SampleRate, rt.cfg.CenterHz, streamSignals, rt.streamPhaseState, rt.streamOverlap, aqCfg, rt.telemetry)
 					if coll != nil {
-						coll.Observe("stage.extract_stream.duration_ms", float64(time.Since(extractStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+						coll.Observe("stage.extract_stream.duration_ms", float64(time.Since(extractStart).Microseconds())/1000.0, nil)
 						coll.SetGauge("stage.extract_stream.signals", float64(len(streamSignals)), nil)
 						if coll.ShouldSampleHeavy() {
 							for i := range streamSnips {
@@ -196,7 +200,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 						feedStart := time.Now()
 						rec.FeedSnippets(items, frameID)
 						if coll != nil {
-							coll.Observe("stage.feed_enqueue.duration_ms", float64(time.Since(feedStart).Microseconds())/1000.0, telemetry.TagsFromPairs("frame_id", fmt.Sprintf("%d", frameID)))
+							coll.Observe("stage.feed_enqueue.duration_ms", float64(time.Since(feedStart).Microseconds())/1000.0, nil)
 							coll.SetGauge("stage.feed.items", float64(len(items)), nil)
 						}
 						logging.Debug("trace", "feed", "trace", frameID, "items", len(items), "signals", len(streamSignals), "allIQ", len(art.allIQ))
