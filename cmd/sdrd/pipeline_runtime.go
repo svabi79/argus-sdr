@@ -64,6 +64,7 @@ type dspRuntime struct {
 	useGPU           bool
 	gpuEngine        *gpufft.Engine
 	rdsMap           map[int64]*rdsState
+	stereoHold       map[int64]time.Time // sticky stereo-lock per signal ID
 	streamPhaseState map[int64]*streamExtractState
 	streamOverlap    *streamIQOverlap
 	arbiter          *pipeline.Arbiter
@@ -918,7 +919,17 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 				cls.PLL = &pll
 				signals[i].PLL = &pll
 				if cls.ModType == classifier.ClassWFMStereo {
+					// Sticky lock: hold "locked" for a few seconds after each pilot
+					// detection so a single missed frame (residual center jitter
+					// nudging the pilot) does not flicker the indicator.
+					id := signals[i].ID
+					if rt.stereoHold == nil {
+						rt.stereoHold = map[int64]time.Time{}
+					}
 					if pll.Stereo {
+						rt.stereoHold[id] = art.now.Add(4 * time.Second)
+					}
+					if until, ok := rt.stereoHold[id]; ok && art.now.Before(until) {
 						signals[i].StereoState = "locked"
 					} else if signals[i].StereoState == "" {
 						signals[i].StereoState = "searching"
@@ -933,6 +944,11 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 					signals[i].StereoState = "locked"
 				}
 			}
+		}
+	}
+	for id, until := range rt.stereoHold {
+		if art.now.Sub(until) > 30*time.Second {
+			delete(rt.stereoHold, id)
 		}
 	}
 	budget := input.Budgets

@@ -1,6 +1,44 @@
 package classifier
 
-import "math"
+import (
+	"log"
+	"math"
+	"os"
+	"sort"
+	"strconv"
+)
+
+// pilotLockRatio is the min (pilot magnitude / band-median) to declare a stereo
+// lock. INTERIM placeholder: with the current ~512-sample PLL snippet the pilot
+// cannot be reliably separated from noise (a real station's ratio ~2 is below
+// noise spikes ~5), so this is set high to avoid false-lock spam rather than to
+// lock real stations. The real fix is a longer integration window (OI-24);
+// recalibrate this against the replay capture once that lands.
+// Override at runtime with SDRD_PILOT_RATIO.
+var pilotLockRatio = 4.0
+
+var pllDebug = os.Getenv("SDRD_PLL_DEBUG") != ""
+
+func init() {
+	if v := os.Getenv("SDRD_PILOT_RATIO"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			pilotLockRatio = f
+		}
+	}
+}
+
+func pllDebugLog(detHz, ratio, freqErr float64, n int) {
+	log.Printf("PLL pilot: detHz=%.0f ratio=%.1f freqErr=%.0f demodN=%d", detHz, ratio, freqErr, n)
+}
+
+func medianFloats(v []float64) float64 {
+	if len(v) == 0 {
+		return 0
+	}
+	c := append([]float64(nil), v...)
+	sort.Float64s(c)
+	return c[len(c)/2]
+}
 
 type PLLResult struct {
 	ExactHz     float64 `json:"exact_hz"`
@@ -41,19 +79,36 @@ func estimateWFMPilot(iq []complex64, sampleRate int, detectedHz float64) PLLRes
 	if len(demod) == 0 {
 		return PLLResult{ExactHz: detectedHz, Method: "pilot"}
 	}
+	// Search a window around 19 kHz wide enough to tolerate residual carrier-
+	// center jitter (~1 kHz) without flickering. Because we take the max over many
+	// frequencies, the lock test must compare it against a ROBUST noise floor (the
+	// median magnitude across the band) — comparing the max to a single off-pilot
+	// point would false-lock on the strongest noise bin of a weak/empty signal.
 	pilotFreq := 19000.0
 	bestFreq := pilotFreq
-	bestMag := goertzelMagnitude(demod, pilotFreq, sampleRate)
-	for offset := -50.0; offset <= 50.0; offset += 1.0 {
+	bestMag := 0.0
+	mags := make([]float64, 0, 256)
+	for offset := -1000.0; offset <= 1000.0; offset += 10.0 {
 		mag := goertzelMagnitude(demod, pilotFreq+offset, sampleRate)
+		mags = append(mags, mag)
 		if mag > bestMag {
 			bestMag = mag
 			bestFreq = pilotFreq + offset
 		}
 	}
 	freqError := bestFreq - 19000.0
-	noiseMag := goertzelMagnitude(demod, 17500, sampleRate)
-	locked := bestMag > noiseMag*5
+	// Median of the search band ≈ the noise floor (only ~1 bin is the pilot).
+	noiseMed := medianFloats(mags)
+	ratio := 0.0
+	if noiseMed > 0 {
+		ratio = bestMag / noiseMed
+	}
+	if pllDebug {
+		pllDebugLog(detectedHz, ratio, bestFreq-19000.0, len(demod))
+	}
+	// A real stereo pilot is a discrete tone tens of dB over the floor; noise
+	// maxima sit only a few× above the median. Require a wide margin.
+	locked := noiseMed > 0 && ratio > pilotLockRatio
 	if !locked {
 		return PLLResult{ExactHz: detectedHz, Method: "pilot", Locked: false}
 	}

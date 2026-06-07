@@ -54,9 +54,40 @@ Status values used here:
   recorder/auto-decode and surveillance levels) to find the hot path, then fix.
 - Source: live testing 2026-06-07.
 
-### OI-24 — WFM stereo lock is flaky on live broadcast (unstable detection)
-- Status: `partially-resolved` (CPU starvation removed via OI-26; remaining cause
-  is unstable detection center/bandwidth on the dense FM band)
+### OI-24 — WFM stereo lock unreliable (PLL integration window too short)
+- Status: `root-cause-found` (real bug fixed; reliability blocked on a longer PLL window)
+- Update 2026-06-07 (offline replay oracle): the chain was diagnosed end to end.
+  1. CPU starvation removed (OI-26) — necessary but not sufficient.
+  2. Center jitter reduced 3x (Slice A, alpha-beta + peak anchor) — necessary but
+     not sufficient.
+  3. **Real bug found & fixed (e6e7798):** the refinement upgrades WFM -> WFM_STEREO
+     *before* calling EstimateExactFrequency, whose switch only handled ClassWFM, so
+     every stereo station fell through to default and the 19 kHz pilot was never
+     looked for. Added ClassWFMStereo to the pilot path. Stereo then locks.
+  4. **Remaining root cause (the real blocker):** the PLL snippet is only ~512
+     samples (~1 ms). Measured on the replay capture (TestRealTargetPilot proves the
+     pilot is 43 dB present over 1.5 s), the live per-frame pilot ratio is ~2 for a
+     real station vs noise spikes up to ~5 — i.e. at 512 samples the pilot is
+     indistinguishable from noise and NO threshold separates them. The lock and the
+     false-locks on weak/noise detections both stem from this.
+- Fix (next): give the stereo PLL a longer integration window (e.g. a ~100 ms+ ring
+  slice like the RDS path) so the 19 kHz pilot integrates reliably; then recalibrate
+  pilotLockRatio against the replay. Interim: pilotLockRatio set high (4.0) to avoid
+  false-lock spam (so real stations under-lock for now). A pilot-search window
+  (±1 kHz, robust band-median threshold) and a sticky-lock hold (rt.stereoHold) are
+  already in place for when the window is fixed.
+- Tools: sdrd -replay (reproducible oracle), SDRD_PLL_DEBUG / SDRD_PILOT_RATIO,
+  TestRealTargetPilot, TestRealJitter.
+
+### OI-27 — Wandering phantom detection near 99.9 MHz
+- Status: `open`
+- Severity: Medium
+- Category: detection
+- Summary: a detection near ~99.9 MHz wanders in frequency and (with the loose
+  interim pilot threshold) flickers a stereo lock — reported as clearly incorrect.
+  Likely a weak/spurious detection (image/intermod/band-edge) tracked as one ID.
+  Investigate reproducibly on the replay capture.
+- Source: live observation 2026-06-07.
 - Update 2026-06-07: Two findings from live work.
   1. CPU starvation was a major cause — once RDS moved to the GPU (OI-26, CPU
      ~14 -> ~1-3.5 cores) stereo started locking (e.g. 102.5 MHz, RDS "RADIO").
