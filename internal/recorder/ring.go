@@ -7,7 +7,8 @@ import (
 
 type iqBlock struct {
 	t0      time.Time
-	samples []complex64
+	samples []complex64 // live data; after a partial trim this is a sub-slice of buf
+	buf     []complex64 // full-capacity backing buffer, recycled on full eviction (#26)
 }
 
 // Ring keeps recent IQ blocks for preroll capture.
@@ -17,6 +18,36 @@ type Ring struct {
 	maxSamples int
 	total      int
 	sampleRate int
+	free       [][]complex64 // recycled block buffers, reused by Push to avoid a per-ingest allocation (#26)
+}
+
+// ringFreeListMax bounds the recycled-buffer pool. In steady state the ring
+// pushes ~one block and evicts ~one per frame, so a small pool suffices; the
+// bound caps memory if frame sizes vary.
+const ringFreeListMax = 8
+
+// getBufLocked returns a length-0 buffer with cap >= n, reusing a recycled block
+// buffer when one fits. The caller must hold r.mu.
+func (r *Ring) getBufLocked(n int) []complex64 {
+	for i := len(r.free) - 1; i >= 0; i-- {
+		b := r.free[i]
+		if cap(b) >= n {
+			r.free[i] = r.free[len(r.free)-1]
+			r.free = r.free[:len(r.free)-1]
+			return b[:0]
+		}
+	}
+	return make([]complex64, 0, n)
+}
+
+// putBufLocked recycles a block buffer. The caller must hold r.mu and must have
+// already removed the block from r.blocks, so nothing references the buffer
+// (external reads go through Slice/SliceInto, which copy and hold the RLock).
+func (r *Ring) putBufLocked(b []complex64) {
+	if cap(b) == 0 || len(r.free) >= ringFreeListMax {
+		return
+	}
+	r.free = append(r.free, b[:0])
 }
 
 func NewRing(sampleRate int, blockSize int, seconds int) *Ring {
@@ -50,8 +81,9 @@ func (r *Ring) Push(t0 time.Time, samples []complex64) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	cp := append([]complex64(nil), samples...)
-	r.blocks = append(r.blocks, iqBlock{t0: t0, samples: cp})
+	cp := r.getBufLocked(len(samples))[:len(samples)]
+	copy(cp, samples)
+	r.blocks = append(r.blocks, iqBlock{t0: t0, samples: cp, buf: cp})
 	r.total += len(cp)
 	for r.total > r.maxSamples && len(r.blocks) > 0 {
 		overflow := r.total - r.maxSamples
@@ -59,6 +91,9 @@ func (r *Ring) Push(t0 time.Time, samples []complex64) {
 		if overflow >= len(head.samples) {
 			r.total -= len(head.samples)
 			r.blocks = r.blocks[1:]
+			// Recycle the full backing buffer, not the (possibly trimmed) live
+			// slice, so the pool keeps full-capacity buffers that fit new pushes.
+			r.putBufLocked(head.buf)
 			continue
 		}
 		trim := overflow
