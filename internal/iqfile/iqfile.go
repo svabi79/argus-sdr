@@ -141,20 +141,26 @@ func (s *Source) ReadIQ(n int) ([]complex64, error) {
 		}
 	}
 	s.delivered += int64(n)
-	delivered := s.delivered
-	rate := s.meta.SampleRate
-	start := s.start
-	paced := s.paced
 	s.mu.Unlock()
-
-	if paced && rate > 0 {
-		want := time.Duration(float64(delivered) / float64(rate) * float64(time.Second))
-		if d := want - time.Since(start); d > 0 {
-			time.Sleep(d)
-		}
-	}
 	return out, nil
 }
 
-func (s *Source) Stats() sdr.SourceStats { return sdr.SourceStats{BufferSamples: len(s.iq)} }
-func (s *Source) Flush()                 {}
+// Stats reports a real-time backlog: the number of samples that have "arrived"
+// since Start (at the recorded sample rate) but not yet been read. The DSP loop
+// drains this each frame, so replay paces exactly like live hardware without
+// per-read sleeps. (Unpaced sources report the whole file as available.)
+func (s *Source) Stats() sdr.SourceStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.paced || s.meta.SampleRate <= 0 || s.start.IsZero() {
+		return sdr.SourceStats{BufferSamples: len(s.iq)}
+	}
+	arrived := int64(time.Since(s.start).Seconds() * float64(s.meta.SampleRate))
+	backlog := arrived - s.delivered
+	if backlog < 0 {
+		backlog = 0
+	}
+	return sdr.SourceStats{BufferSamples: int(backlog)}
+}
+
+func (s *Source) Flush() {}
