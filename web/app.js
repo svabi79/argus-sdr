@@ -2336,7 +2336,11 @@ function connect() {
     || hn.endsWith('.local')
     || hn.endsWith('.lan');
   const params = new URLSearchParams(location.search);
-  const wantBinary = params.get('binary') === '1' || !isLocal;
+  // Default to the binary spectrum protocol everywhere (incl. localhost): it sends
+  // the spectrum as compact int16 instead of JSON-encoding the float64 array every
+  // frame, which was the dominant per-frame broadcast allocation (#24). Opt out with
+  // ?binary=0 to get the legacy JSON frames for debugging.
+  const wantBinary = params.get('binary') !== '0';
   const bins = parseInt(params.get('bins') || (isLocal ? '0' : '2048'), 10);
   const fps = parseInt(params.get('fps') || (isLocal ? '0' : '10'), 10);
   const wantSignals = params.get('signals') === '1';
