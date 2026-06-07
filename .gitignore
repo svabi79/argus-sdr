@@ -10,7 +10,8 @@
 # runtime data
 data/
 logs/
-config.autosave.yaml
+config.autosave*.yaml
+debug/audio-stutter/*.jsonl
 
 # local scripts/prompts
 codex_prompt.txt
