@@ -48,8 +48,29 @@ Status values used here:
   recorder/auto-decode and surveillance levels) to find the hot path, then fix.
 - Source: live testing 2026-06-07.
 
-### OI-24 — WFM stereo never locks on live broadcast (pilot not detected)
-- Status: `open`
+### OI-24 — WFM stereo lock is flaky on live broadcast (unstable detection)
+- Status: `partially-resolved` (CPU starvation removed via OI-26; remaining cause
+  is unstable detection center/bandwidth on the dense FM band)
+- Update 2026-06-07: Two findings from live work.
+  1. CPU starvation was a major cause — once RDS moved to the GPU (OI-26, CPU
+     ~14 -> ~1-3.5 cores) stereo started locking (e.g. 102.5 MHz, RDS "RADIO").
+  2. Locks are still flaky and correlate with detection quality, not signal
+     strength: a *narrowly* detected station locks; the same/stronger station
+     when *widely* detected (250-540 kHz, from the dense band + skirts) does not.
+     The wide detection skews the carrier center and pulls adjacent-channel
+     energy into the extraction, detuning the 19 kHz pilot PLL and corrupting the
+     RDS baseband ("the problem is before the decoder"). The detected bandwidth
+     for one station also jitters frame to frame (33k/73k/106k/138k), so the lock
+     comes and goes.
+- Tried and reverted: live CFAR retuning (scale/guard) and a peak-bounded center
+  estimate. These only moved the problem around (changing CFAR changed which
+  stations detect narrow vs wide) and one coincided with a lock regression — i.e.
+  live tuning is the wrong tool here.
+- Recommended fix: this is detection-stability work, not live tuning. Build a
+  realistic dense/strong-FM benchmark scene (OI-23 / Phase R R3), reproduce the
+  center/bandwidth jitter offline, and give WFM a stable carrier center (peak-
+  locked) + fixed channel bandwidth there, validated on the benchmark before
+  live. Also fixes R1 (OI-23).
 - Severity: High
 - Category: demod / stereo
 - File: `internal/pipeline/refiner.go` (PLL), `internal/recorder/streamer.go`
