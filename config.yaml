@@ -232,6 +232,9 @@ detector:
   merge_gap_hz: 20000
   class_history_size: 10
   class_switch_ratio: 0.6
+  # Carrier-center tracking: "quiet" (stationary stations, default) or
+  # "tracking" (follow real drift, e.g. LEO Doppler).
+  center_track_mode: quiet
 recorder:
   enabled: true
   min_snr_db: 0

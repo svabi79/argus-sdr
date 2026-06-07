@@ -416,6 +416,54 @@ func sceneOne(kind synth.Kind, bw, snr float64, seed int64) synth.Scene {
 	}
 }
 
+// TestCenterTrackingFollowsDrift validates the switchable center filter: a
+// drifting carrier (LEO Doppler) should be followed in "tracking" mode but
+// heavily lagged in the default "quiet" mode.
+func TestCenterTrackingFollowsDrift(t *testing.T) {
+	fft := benchN
+	win := fftutil.Hann(fft)
+	const driftPerFrame = 1500.0 // Hz/frame (~18 kHz/s at 12 fps)
+
+	run := func(mode string) float64 {
+		cfg := detectorConfig()
+		cfg.CenterTrackMode = mode
+		d := detector.New(cfg, benchFs, fft)
+		now := time.Unix(0, 0)
+		var lag []float64
+		for f := 0; f < 45; f++ {
+			trueCenter := -300e3 + driftPerFrame*float64(f)
+			scene := synth.Scene{
+				SampleRate: benchFs, Seed: 7000 + int64(f), NoiseStd: 1.0,
+				Signals: []synth.SignalSpec{{Kind: synth.KindWFM, CenterHz: trueCenter, BandwidthHz: 180e3, SNRdB: 40}},
+			}
+			spec := fftutil.Spectrum(scene.Generate(fft), win)
+			now = now.Add(83 * time.Millisecond)
+			d.Process(now, spec, 0)
+			if f < 18 {
+				continue
+			}
+			best, bestD := -1, math.MaxFloat64
+			stable := d.StableSignals()
+			for j := range stable {
+				if dd := math.Abs(stable[j].CenterHz - trueCenter); dd < bestD {
+					best, bestD = j, dd
+				}
+			}
+			if best >= 0 {
+				lag = append(lag, math.Abs(stable[best].CenterHz-trueCenter))
+			}
+		}
+		return mean(lag)
+	}
+
+	quietLag := run("quiet")
+	trackLag := run("tracking")
+	t.Logf("drift %.0f Hz/frame: quiet lag=%.0f Hz, tracking lag=%.0f Hz", driftPerFrame, quietLag, trackLag)
+	if trackLag > 0.4*quietLag {
+		t.Errorf("tracking mode lag %.0f Hz should be far below quiet %.0f Hz", trackLag, quietLag)
+	}
+}
+
 func stddev(v []float64) float64 {
 	if len(v) < 2 {
 		return 0

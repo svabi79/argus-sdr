@@ -48,6 +48,10 @@ type DetectorConfig struct {
 	MergeGapHz       float64 `yaml:"merge_gap_hz" json:"merge_gap_hz"`
 	ClassHistorySize int     `yaml:"class_history_size" json:"class_history_size"`
 	ClassSwitchRatio float64 `yaml:"class_switch_ratio" json:"class_switch_ratio"`
+	// CenterTrackMode selects the carrier-center tracking regime:
+	//   "quiet"    (default) — heavy smoothing, treats the center as stationary
+	//   "tracking"           — follows real frequency drift (e.g. LEO Doppler)
+	CenterTrackMode string `yaml:"center_track_mode" json:"center_track_mode"`
 
 	// Deprecated (backward compatibility)
 	CFAREnabled *bool `yaml:"cfar_enabled,omitempty" json:"cfar_enabled,omitempty"`

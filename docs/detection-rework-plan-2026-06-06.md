@@ -173,6 +173,39 @@ belegten Fortschritt, ohne den Rest zu blockieren.
 
 ---
 
+## 5b. Tracker-Stabilisierung (Lock-Wurzel) — Slice A erledigt
+
+Aus der Live-/Replay-Analyse: der fehlende WFM-Stereo-Lock kommt vom **Center-
+Jitter** der Detektion (real gemessen: 100.6 MHz 971 Hz, 102.5 MHz 3165 Hz
+Std-Abw.), nicht von Ressourcen. Klassen-bewusste Channelization ist die
+Gesamtlösung; sie zerfällt in:
+
+**Slice A — Center-Stabilisierung im Tracker (erledigt):**
+- *Messung* pro Frame am **Träger-Peak verankert** (peak-bounded Centroid ±30 kHz),
+  statt am breiten, schiefen Band-Schwerpunkt.
+- *Filter* = **Alpha-Beta** (Position+Geschwindigkeit) mit umschaltbarer Agilität
+  (`detector.center_track_mode`): `quiet` (Default, beta=0, stark geglättet) und
+  `tracking` (folgt echter Drift, z. B. LEO-Doppler).
+- Ergebnis (an realer Aufnahme + Synth validiert): Center-Jitter 100.6 971→336 Hz,
+  102.5 3165→942 Hz; `tracking`-Mode folgt einer 1500-Hz/Frame-Drift (Lag
+  1955 Hz vs `quiet` 24244 Hz).
+
+> **Design-Entscheidung — Alpha-Beta statt Kalman (bewusst, vorerst):** Ein 1-D-
+> Kalman-Filter wäre *statistisch sauberer* — er würde die Gains aus geschätztem
+> Mess-/Prozessrauschen ableiten, statt fixe alpha/beta zu verwenden, und sich
+> automatisch an SNR/Modulation anpassen. Wir nehmen zuerst Alpha-Beta, weil es
+> ohne Rauschmodell auskommt, mit zwei Gains transparent tunebar ist und die
+> Agilität trivial umschaltbar macht (quiet/tracking). Kalman ist der natürliche
+> nächste Schritt, falls die festen Gains an Grenzen stoßen (z. B. stark
+> variierende SNR im selben Band).
+
+**Slice B — klassen-bewusste Channelization (offen):** pro Klasse eine ITU-
+basierte Standard-Kanalbreite (Emission-Designator) als Anker + Clamp [min,max];
+Occupied-BW (R1) misst/adaptiert *innerhalb* des Clamps. Demod-Kanal = Standard
+(geklemmt), Display = gemessene Occupied-BW. Fixt zugleich OI-23 (Weglaufen) und
+schützt dichte Bänder. Überlappende/eng benachbarte Signale (80 m Contest) =
+Super-Resolution, bewusst später.
+
 ## 6. Querverweise
 - `docs/architecture-review-2026-06-06.md` — B-5 (Ursprung), Ausbau-Schieflage
 - `docs/classifier-ml-plan-2026-06-06.md` — R4 nutzt dessen Phase 0 / Stufe A

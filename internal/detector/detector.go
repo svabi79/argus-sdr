@@ -3,6 +3,7 @@ package detector
 import (
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"sdr-wideband-suite/internal/cfar"
@@ -37,6 +38,8 @@ type Detector struct {
 	MergeGapHz      float64
 	classHistorySize int
 	classSwitchRatio float64
+	centerAlpha     float64 // alpha-beta position gain for carrier-center tracking
+	centerBeta      float64 // alpha-beta velocity gain (0 = treat center as stationary)
 	binWidth        float64
 	nbins           int
 	sampleRate      int
@@ -55,6 +58,7 @@ type activeEvent struct {
 	start      time.Time
 	lastSeen   time.Time
 	centerHz   float64
+	centerVel  float64 // alpha-beta velocity estimate (Hz/frame)
 	bwHz       float64
 	peakDb     float64
 	snrDb      float64
@@ -109,6 +113,15 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	mergeGapHz := detCfg.MergeGapHz
 	classHistorySize := detCfg.ClassHistorySize
 	classSwitchRatio := detCfg.ClassSwitchRatio
+
+	// Carrier-center tracking gains (alpha-beta filter). See matchSignals.
+	// "quiet" treats the center as stationary (beta=0) with heavy smoothing;
+	// "tracking" follows real drift (e.g. LEO Doppler) via the velocity term.
+	centerAlpha, centerBeta := 0.05, 0.0
+	switch strings.ToLower(strings.TrimSpace(detCfg.CenterTrackMode)) {
+	case "tracking", "doppler", "sat":
+		centerAlpha, centerBeta = 0.40, 0.04
+	}
 
 	if minDur <= 0 {
 		minDur = 250 * time.Millisecond
@@ -177,6 +190,8 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 		MergeGapHz:      mergeGapHz,
 		classHistorySize: classHistorySize,
 		classSwitchRatio: classSwitchRatio,
+		centerAlpha:     centerAlpha,
+		centerBeta:      centerBeta,
 		binWidth:        float64(sampleRate) / float64(fftSize),
 		nbins:           fftSize,
 		sampleRate:      sampleRate,
@@ -491,26 +506,51 @@ func (d *Detector) centerFreqForBin(bin float64, centerHz float64) float64 {
 	return centerHz + (bin-float64(d.nbins)/2.0)*d.binWidth
 }
 
-// powerWeightedCenter computes the power-weighted centroid frequency within [first, last].
-// This is more accurate than the midpoint because it accounts for asymmetric signal shapes.
+// powerWeightedCenter computes a carrier-accurate center: it finds the spectral
+// peak within [first, last] and takes the power-weighted centroid in a bounded
+// window around it, rather than over the whole detected band. For a strong/wide
+// detection (a WFM carrier over-detected to 250 kHz, or one whose band overlaps a
+// neighbour's skirts) the full-band centroid is skewed off the carrier by tens of
+// kHz and jitters frame to frame — enough to detune the stereo pilot. The
+// peak-bounded centroid stays on the carrier regardless of detected width and
+// collapses to the original behaviour for narrow signals.
 func (d *Detector) powerWeightedCenter(spectrum []float64, first, last int, centerHz float64) float64 {
 	if first > last || first < 0 || last >= len(spectrum) {
 		centerBin := float64(first+last) / 2.0
 		return d.centerFreqForBin(centerBin, centerHz)
 	}
-	// Convert dB to linear, compute weighted average bin
-	var sumPower, sumWeighted float64
+	peakBin := first
+	peakVal := spectrum[first]
 	for i := first; i <= last; i++ {
+		if spectrum[i] > peakVal {
+			peakVal = spectrum[i]
+			peakBin = i
+		}
+	}
+	win := 1
+	if d.binWidth > 0 {
+		win = int(30000.0 / d.binWidth) // ±30 kHz around the peak
+	}
+	if win < 1 {
+		win = 1
+	}
+	lo, hi := peakBin-win, peakBin+win
+	if lo < first {
+		lo = first
+	}
+	if hi > last {
+		hi = last
+	}
+	var sumPower, sumWeighted float64
+	for i := lo; i <= hi; i++ {
 		p := math.Pow(10, spectrum[i]/10.0)
 		sumPower += p
 		sumWeighted += p * float64(i)
 	}
 	if sumPower <= 0 {
-		centerBin := float64(first+last) / 2.0
-		return d.centerFreqForBin(centerBin, centerHz)
+		return d.centerFreqForBin(float64(peakBin), centerHz)
 	}
-	centroidBin := sumWeighted / sumPower
-	return d.centerFreqForBin(centroidBin, centerHz)
+	return d.centerFreqForBin(sumWeighted/sumPower, centerHz)
 }
 
 func minInRange(s []float64, from, to int) float64 {
@@ -650,7 +690,18 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal, adaptiveAlpha f
 		ev.lastSeen = now
 		ev.stableHits++
 		ev.missedFrames = 0 // Reset miss counter on successful match
-		ev.centerHz = smoothAlpha*s.CenterHz + (1-smoothAlpha)*ev.centerHz
+		// Alpha-beta filter on the carrier center: predict with the velocity
+		// estimate, then correct toward the measurement. In "quiet" mode beta=0,
+		// so velocity stays 0 and this is heavy position smoothing (kills jitter);
+		// in "tracking" mode the velocity term follows real drift (Doppler).
+		// (A 1-D Kalman would be statistically cleaner — it would adapt the gains
+		// from measurement/process noise instead of fixed alpha/beta — but needs a
+		// noise model and more tuning; alpha-beta is chosen first for simplicity.
+		// See docs/detection-rework-plan.)
+		predicted := ev.centerHz + ev.centerVel
+		residual := s.CenterHz - predicted
+		ev.centerHz = predicted + d.centerAlpha*residual
+		ev.centerVel += d.centerBeta * residual
 		if ev.bwHz <= 0 {
 			ev.bwHz = s.BWHz
 		} else {
