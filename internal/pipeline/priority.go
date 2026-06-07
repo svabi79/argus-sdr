@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"strings"
+	"sync"
 )
 
 const (
@@ -75,27 +76,58 @@ func admissionReason(base string, policy Policy, holdPolicy HoldPolicy, extras .
 	return base + ":" + strings.Join(tags, ":")
 }
 
+// reasonPrefix memoizes the policy-derived reason tags (profile/intent/strategy).
+// These are identical for every candidate every frame until the policy changes,
+// so building them per call (slugToken ToLower + string concat) was a large share
+// of the per-frame allocation churn that scaled with signal count (#21). The cached
+// slice is treated as read-only by callers, so returning it without a copy is safe.
+var (
+	reasonPrefixMu   sync.Mutex
+	reasonPrefixKey  [3]string
+	reasonPrefixVal  []string
+	reasonPrefixInit bool
+)
+
+func policyPrefixTags(policy Policy) []string {
+	key := [3]string{policy.Profile, policy.Intent, policy.RefinementStrategy}
+	reasonPrefixMu.Lock()
+	defer reasonPrefixMu.Unlock()
+	if reasonPrefixInit && key == reasonPrefixKey {
+		return reasonPrefixVal
+	}
+	tags := make([]string, 0, 3)
+	if policy.Profile != "" {
+		tags = append(tags, "profile:"+slugToken(policy.Profile))
+	}
+	if policy.Intent != "" {
+		tags = append(tags, "intent:"+slugToken(policy.Intent))
+	}
+	if policy.RefinementStrategy != "" {
+		tags = append(tags, "strategy:"+slugToken(policy.RefinementStrategy))
+	}
+	reasonPrefixKey = key
+	reasonPrefixVal = tags
+	reasonPrefixInit = true
+	return tags
+}
+
 func uniqueReasonTags(policy Policy, holdPolicy HoldPolicy, extras ...string) []string {
-	seen := map[string]struct{}{}
-	tags := make([]string, 0, 6)
+	prefix := policyPrefixTags(policy)
+	tags := make([]string, 0, len(prefix)+len(holdPolicy.Reasons)+len(extras))
+	// Linear dedup over the small (<=~8) tag set avoids a per-call map allocation.
 	add := func(tag string) {
 		if tag == "" {
 			return
 		}
-		if _, ok := seen[tag]; ok {
-			return
+		for _, t := range tags {
+			if t == tag {
+				return
+			}
 		}
-		seen[tag] = struct{}{}
 		tags = append(tags, tag)
 	}
-	if policy.Profile != "" {
-		add("profile:" + slugToken(policy.Profile))
-	}
-	if policy.Intent != "" {
-		add("intent:" + slugToken(policy.Intent))
-	}
-	if policy.RefinementStrategy != "" {
-		add("strategy:" + slugToken(policy.RefinementStrategy))
+	for _, tag := range prefix {
+		add(tag)
 	}
 	for _, reason := range holdPolicy.Reasons {
 		add(reason)
