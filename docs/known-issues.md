@@ -14,6 +14,22 @@ Status values used here:
 
 ## High Priority
 
+### OI-25 — Very high CPU (~13-16 cores) and memory (~3-4 GB) at runtime
+- Status: `open`
+- Severity: High
+- Category: performance
+- File: TBD (profile first — recorder/decode, extraction, surveillance levels, GPU demod)
+- Summary: live runtime uses ~13-16 CPU cores and 3-4 GB RSS (soft mem limit is
+  1 GB). Measured pre-existing: toggling the Phase-R features makes no difference
+  (R1 on = 12.9 cores, R1 off = 15.7 cores), so it is NOT caused by R1/Welch.
+  Likely sinks: recorder `auto_demod`/`auto_decode` per signal on the dense FM
+  band, per-signal streaming extraction, multi-resolution surveillance, or a
+  GPU-demod fallback. Suspected to also starve the DSP loop and contribute to
+  OI-24 (no stereo lock).
+- Recommended fix: profile (net/http/pprof CPU profile, or bisect by toggling
+  recorder/auto-decode and surveillance levels) to find the hot path, then fix.
+- Source: live testing 2026-06-07.
+
 ### OI-24 — WFM stereo never locks on live broadcast (pilot not detected)
 - Status: `open`
 - Severity: High

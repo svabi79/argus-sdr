@@ -54,7 +54,10 @@ refinement:
   auto_span: true
   # Occupied-bandwidth re-estimation in refinement (power-containment fraction).
   # 0 = default (0.99); negative disables and keeps the coarse detector bandwidth.
-  occupied_bw_fraction: 0.99
+  # Disabled by default until OI-23 (unstable on the dense, strong FM band) is
+  # hardened against a realistic FM benchmark scene. Validated on the synthetic
+  # benchmark; safe to re-enable (0.99) for isolated/weaker-signal scenarios.
+  occupied_bw_fraction: -1
 resources:
   prefer_gpu: true
   max_refinement_jobs: 16

@@ -38,9 +38,10 @@ type RefinementUpdate struct {
 	MaxConcurrent     *int     `json:"max_concurrent"`
 	DetailFFTSize     *int     `json:"detail_fft_size"`
 	MinCandidateSNRDb *float64 `json:"min_candidate_snr_db"`
-	MinSpanHz         *float64 `json:"min_span_hz"`
-	MaxSpanHz         *float64 `json:"max_span_hz"`
-	AutoSpan          *bool    `json:"auto_span"`
+	MinSpanHz          *float64 `json:"min_span_hz"`
+	MaxSpanHz          *float64 `json:"max_span_hz"`
+	AutoSpan           *bool    `json:"auto_span"`
+	OccupiedBwFraction *float64 `json:"occupied_bw_fraction"`
 }
 
 type ResourcesUpdate struct {
@@ -319,6 +320,9 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 		}
 		if update.Refinement.AutoSpan != nil {
 			next.Refinement.AutoSpan = update.Refinement.AutoSpan
+		}
+		if update.Refinement.OccupiedBwFraction != nil {
+			next.Refinement.OccupiedBwFraction = *update.Refinement.OccupiedBwFraction
 		}
 		if next.Refinement.MaxSpanHz > 0 && next.Refinement.MinSpanHz > next.Refinement.MaxSpanHz {
 			return m.cfg, errors.New("refinement.min_span_hz must be <= refinement.max_span_hz")
