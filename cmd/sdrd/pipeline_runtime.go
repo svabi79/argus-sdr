@@ -28,8 +28,10 @@ type rdsState struct {
 	dec        rds.Decoder
 	result     rds.Result
 	lastDecode time.Time
+	lastSeen   time.Time
 	busy       int32
 	mu         sync.Mutex
+	iqBuf      []complex64 // reused ring-slice buffer (only touched by the busy goroutine)
 }
 
 var forceFixedStreamReadSamples = func() int {
@@ -953,22 +955,38 @@ func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, extractMgr
 	if sig == nil || cls == nil {
 		return
 	}
-	keyHz := sig.CenterHz
-	if sig.PLL != nil && sig.PLL.ExactHz != 0 {
-		keyHz = sig.PLL.ExactHz
+	// Key the RDS state by the stable tracked signal ID, not the (jittering)
+	// center frequency. A frequency-quantized key flips whenever the detected
+	// center wobbles, spawning a fresh rdsState every frame — which defeats the
+	// reused IQ buffer (re-allocating ~100+ MB) and re-fires the decode every
+	// frame instead of every few seconds. The tracker ID is stable per station.
+	key := sig.ID
+	if key == 0 {
+		return
 	}
-	key := int64(math.Round(keyHz / 25000.0))
 	st := rt.rdsMap[key]
 	if st == nil {
 		st = &rdsState{}
 		rt.rdsMap[key] = st
+	}
+	st.lastSeen = now
+	// Prune states for signals that have disappeared so their large reused IQ
+	// buffers (~100+ MB each) are released; ID keys are otherwise unbounded.
+	for id, other := range rt.rdsMap {
+		if now.Sub(other.lastSeen) > 30*time.Second && atomic.LoadInt32(&other.busy) == 0 {
+			delete(rt.rdsMap, id)
+		}
 	}
 	if now.Sub(st.lastDecode) >= 4*time.Second && atomic.LoadInt32(&st.busy) == 0 {
 		st.lastDecode = now
 		atomic.StoreInt32(&st.busy, 1)
 		go func(st *rdsState, sigHz float64) {
 			defer atomic.StoreInt32(&st.busy, 0)
-			ringIQ, ringSR, ringCenter := rec.SliceRecent(4.0)
+			// Reuse the per-station buffer (only this goroutine touches st.iqBuf;
+			// the busy flag guarantees one at a time) to avoid a ~100+ MB
+			// allocation per decode — the dominant allocation source.
+			ringIQ, ringSR, ringCenter := rec.SliceRecentInto(4.0, st.iqBuf)
+			st.iqBuf = ringIQ
 			if len(ringIQ) < ringSR || ringSR <= 0 {
 				return
 			}

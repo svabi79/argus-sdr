@@ -81,12 +81,21 @@ func (r *Ring) MaxSamples() int {
 
 // Slice returns IQ samples between [start,end] (best-effort).
 func (r *Ring) Slice(start, end time.Time) []complex64 {
+	return r.SliceInto(start, end, nil)
+}
+
+// SliceInto is like Slice but appends into dst (reset to length 0, capacity
+// reused), so callers that slice repeatedly (e.g. the per-signal RDS path every
+// few seconds) can recycle one large buffer instead of allocating ~100+ MB per
+// call — which otherwise dominates allocation/GC and makes stutter scale with the
+// number of signals.
+func (r *Ring) SliceInto(start, end time.Time, dst []complex64) []complex64 {
 	if r == nil || end.Before(start) {
-		return nil
+		return dst[:0]
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var out []complex64
+	out := dst[:0]
 	for _, b := range r.blocks {
 		blockDur := time.Duration(float64(len(b.samples)) / float64(r.sampleRate) * float64(time.Second))
 		bEnd := b.t0.Add(blockDur)

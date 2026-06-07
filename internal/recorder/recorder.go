@@ -349,6 +349,26 @@ func (m *Manager) SliceRecent(seconds float64) ([]complex64, int, float64) {
 	return iq, sr, center
 }
 
+// SliceRecentInto is like SliceRecent but reuses dst (see Ring.SliceInto) to
+// avoid a large per-call allocation in repeated callers (RDS).
+func (m *Manager) SliceRecentInto(seconds float64, dst []complex64) ([]complex64, int, float64) {
+	if m == nil {
+		return dst[:0], 0, 0
+	}
+	m.mu.RLock()
+	ring := m.ring
+	sr := m.sampleRate
+	center := m.centerHz
+	m.mu.RUnlock()
+	if ring == nil || sr <= 0 {
+		return dst[:0], 0, 0
+	}
+	end := time.Now()
+	start := end.Add(-time.Duration(seconds * float64(time.Second)))
+	iq := ring.SliceInto(start, end, dst)
+	return iq, sr, center
+}
+
 // FeedSnippets is called once per DSP frame with pre-extracted IQ snippets
 // (GPU-accelerated FreqShift+FIR+Decimate). The Streamer handles demod with
 // persistent state (overlap-save, stereo decode, de-emphasis) asynchronously.
