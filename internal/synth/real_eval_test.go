@@ -447,6 +447,57 @@ func TestRealParamSweep(t *testing.T) {
 	}
 }
 
+// liveBaseConfig mirrors the operator's config.autosave.yaml detector block (the
+// config that actually runs live) so we can validate the candidate change on the
+// EXACT live base, not on the GOSCA test baseline.
+func liveBaseConfig() config.DetectorConfig {
+	c := detectorConfig()
+	c.CFARMode = "CASO"
+	c.EdgeMarginDb = 6
+	c.CFARTrainHz = 100000
+	c.HysteresisDb = 10
+	c.MinStableFrames = 4
+	// ema/hold/gap are temporal/tracking; left near defaults (do not affect raw
+	// per-frame detection materially in this harness).
+	return c
+}
+
+// TestRealLiveConfigCheck validates the candidate known-good change on the live
+// base config: does cfar_scale 7->12 + merge 20k->5k improve precision/over-widening
+// on the live (CASO) base the same way it did on the GOSCA baseline? Relative
+// comparison on the same base, so harness/ema limitations cancel.
+func TestRealLiveConfigCheck(t *testing.T) {
+	caches := loadOracles(t)
+	if len(caches) == 0 {
+		t.Skip("no oracles available")
+	}
+	const fft = 65536 // live autosave fft_size
+	type variant struct {
+		name         string
+		mode         string
+		scale, merge float64
+	}
+	variants := []variant{
+		{"live-now  CASO sc7/mg20k", "CASO", 7, 20e3},
+		{"cand-CASO  sc12/mg5k", "CASO", 12, 5e3},
+		{"cand-GOSCA sc12/mg5k", "GOSCA", 12, 5e3},
+	}
+	for _, v := range variants {
+		cfg := liveBaseConfig()
+		cfg.CFARMode = v.mode
+		cfg.CFARScaleDb = v.scale
+		cfg.MergeGapHz = v.merge
+		t.Logf("== %s (CASO base, fft=%d) ==", v.name, fft)
+		for _, c := range caches {
+			binWidth := float64(c.fs) / float64(fft)
+			clusters := realSceneFrames(c.iq, c.fs, fft, cfg, 48, 12)
+			m := scoreReal(c.refs, c.floor, clusters, binWidth)
+			t.Logf("  %s Rs_n=%.2f Rs_w=%.2f Rw=%.2f P=%.2f maxBw=%6.0fk oWide=%d frag=%d",
+				c.name, m.recStrongNarrow, m.recStrongWide, m.recWeak, m.precision, m.maxBwK, m.overWide, m.fragmented)
+		}
+	}
+}
+
 // matchCluster returns the nearest cluster to centerHz within tolerance, or nil.
 func matchCluster(centerHz, bwHz float64, clusters []detCluster, binWidth float64) *detCluster {
 	best, bestD := -1, math.MaxFloat64
