@@ -686,6 +686,11 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal, adaptiveAlpha f
 		}
 		signalUsed[bestIdx] = true
 		used[id] = true
+		// Write the stable tracker ID back into the returned raw signal so the
+		// pipeline (candidates -> refinement -> updateRDS) keys off a stable,
+		// non-zero ID. Without this, detected signals stay ID=0 and the RDS/stereo
+		// long-window path early-returns on key==0 (never decodes).
+		signals[bestIdx].ID = id
 		s := signals[bestIdx]
 		ev.lastSeen = now
 		ev.stableHits++
@@ -723,6 +728,7 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal, adaptiveAlpha f
 		}
 		id := d.nextID
 		d.nextID++
+		signals[i].ID = id // propagate the new stable ID into the returned signal
 		d.active[id] = &activeEvent{
 			id:         id,
 			start:      now,

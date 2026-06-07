@@ -17,6 +17,7 @@ import (
 
 	"os"
 
+	"sdr-wideband-suite/internal/classifier"
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
 	"sdr-wideband-suite/internal/dsp"
@@ -80,6 +81,52 @@ func TestRealTargetPilot(t *testing.T) {
 }
 
 func conj64(c complex64) complex64 { return complex(real(c), -imag(c)) }
+
+// TestStereoPilotLongWindow validates classifier.StereoPilotPresent (the OI-24
+// long-window pilot lock) against the real capture: the two strong stations must
+// lock, and an empty band slot (90.0 MHz, no station) must not.
+//
+//	go test -tags bench -run TestStereoPilotLongWindow ./internal/synth/ -v
+func TestStereoPilotLongWindow(t *testing.T) {
+	const path = "../../data/snapshots/fm_bc.cf32"
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("snapshot not present (%s)", path)
+	}
+	iq, meta, err := iqfile.Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseband := func(tgtMHz float64) ([]complex64, int) {
+		offset := tgtMHz*1e6 - meta.CenterHz
+		n := meta.SampleRate * 3 / 2
+		if n > len(iq) {
+			n = len(iq)
+		}
+		shifted := dsp.FreqShift(iq[:n], meta.SampleRate, offset)
+		decim := meta.SampleRate / 256000
+		if decim < 1 {
+			decim = 1
+		}
+		lp := dsp.LowpassFIR(float64(meta.SampleRate/decim)/2.0*0.8, meta.SampleRate, 101)
+		return dsp.Decimate(dsp.ApplyFIR(shifted, lp), decim), meta.SampleRate / decim
+	}
+	for _, tc := range []struct {
+		mhz  float64
+		want bool
+	}{
+		{100.6, true},
+		{102.5, true},
+		{90.0, false}, // empty band slot (within capture span, no station)
+	} {
+		base, rate := baseband(tc.mhz)
+		got := classifier.StereoPilotPresent(base, rate)
+		if got != tc.want {
+			t.Errorf("%.1f MHz: StereoPilotPresent=%v, want %v", tc.mhz, got, tc.want)
+		} else {
+			t.Logf("%.1f MHz: StereoPilotPresent=%v (ok)", tc.mhz, got)
+		}
+	}
+}
 
 // liveDetectorConfig mirrors the user's aggressive live CFAR (from autosave):
 // high scale + wide guard, which over-detects strong signals.

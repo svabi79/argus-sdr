@@ -32,6 +32,7 @@ type rdsState struct {
 	busy       int32
 	mu         sync.Mutex
 	iqBuf      []complex64 // reused ring-slice buffer (only touched by the busy goroutine)
+	stereo     bool        // 19 kHz pilot present in the last long-window decode (OI-24)
 }
 
 var forceFixedStreamReadSamples = func() int {
@@ -915,32 +916,36 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 			}
 			pll := classifier.PLLResult{}
 			if i < len(snips) && snips[i] != nil && len(snips[i]) > 256 {
+				// Short-window PLL: kept only for the exact-frequency (carrier offset)
+				// estimate. Its .Stereo is NOT trusted — the ~1 ms snippet cannot
+				// separate the 19 kHz pilot from noise (OI-24). Stereo lock is driven
+				// by the long-window detection in updateRDS below.
 				pll = classifier.EstimateExactFrequency(snips[i], snipRate, signals[i].CenterHz, cls.ModType)
 				cls.PLL = &pll
 				signals[i].PLL = &pll
-				if cls.ModType == classifier.ClassWFMStereo {
-					// Sticky lock: hold "locked" for a few seconds after each pilot
-					// detection so a single missed frame (residual center jitter
-					// nudging the pilot) does not flicker the indicator.
-					id := signals[i].ID
-					if rt.stereoHold == nil {
-						rt.stereoHold = map[int64]time.Time{}
-					}
-					if pll.Stereo {
-						rt.stereoHold[id] = art.now.Add(4 * time.Second)
-					}
-					if until, ok := rt.stereoHold[id]; ok && art.now.Before(until) {
-						signals[i].StereoState = "locked"
-					} else if signals[i].StereoState == "" {
-						signals[i].StereoState = "searching"
-					}
-					signals[i].PlaybackMode = string(classifier.ClassWFMStereo)
-					signals[i].DemodName = string(classifier.ClassWFMStereo)
+			}
+			if cls.ModType == classifier.ClassWFMStereo {
+				signals[i].PlaybackMode = string(classifier.ClassWFMStereo)
+				signals[i].DemodName = string(classifier.ClassWFMStereo)
+				if signals[i].StereoState == "" {
+					signals[i].StereoState = "searching"
 				}
 			}
 			if cls.ModType == classifier.ClassWFMStereo && rec != nil {
+				// updateRDS runs the stereo pilot + RDS decode on a multi-second ring
+				// slice and sets signals[i].PLL.Stereo / .RDSStation.
 				rt.updateRDS(art.now, rec, extractMgr, &signals[i], cls)
-				if signals[i].PLL != nil && signals[i].PLL.RDSStation != "" {
+				// Sticky lock: the long-window decode only refreshes every few
+				// seconds (RDS cadence), so hold "locked" between refreshes to keep
+				// the indicator from flickering.
+				id := signals[i].ID
+				if rt.stereoHold == nil {
+					rt.stereoHold = map[int64]time.Time{}
+				}
+				if signals[i].PLL != nil && (signals[i].PLL.Stereo || signals[i].PLL.RDSStation != "") {
+					rt.stereoHold[id] = art.now.Add(6 * time.Second)
+				}
+				if until, ok := rt.stereoHold[id]; ok && art.now.Before(until) {
 					signals[i].StereoState = "locked"
 				}
 			}
@@ -1040,6 +1045,14 @@ func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, extractMgr
 				decimated = dsp.Decimate(f2, decim2)
 				actualRate = rate1 / decim2
 			}
+			// Long-window stereo pilot lock (OI-24): the per-frame snippet PLL only
+			// sees ~1 ms and cannot separate the 19 kHz pilot from noise. Reuse this
+			// same multi-second baseband (carrier at DC after the shift) — the pilot
+			// is tens of dB over the floor here.
+			stereo := classifier.StereoPilotPresent(decimated, actualRate)
+			st.mu.Lock()
+			st.stereo = stereo
+			st.mu.Unlock()
 			rdsBase := demod.RDSBasebandComplex(decimated, actualRate)
 			if len(rdsBase.Samples) == 0 {
 				return
@@ -1054,22 +1067,31 @@ func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, extractMgr
 	}
 	st.mu.Lock()
 	ps := st.result.PS
+	stereo := st.stereo
 	st.mu.Unlock()
-	if ps != "" && sig.PLL != nil {
-		sig.PLL.RDSStation = strings.TrimSpace(ps)
-		cls.PLL = sig.PLL
+	if sig.PLL == nil {
+		sig.PLL = &classifier.PLLResult{ExactHz: sig.CenterHz, Method: "pilot"}
 	}
+	sig.PLL.Stereo = stereo
+	if ps != "" {
+		sig.PLL.RDSStation = strings.TrimSpace(ps)
+	}
+	cls.PLL = sig.PLL
 }
 
 func (rt *dspRuntime) maintenance(displaySignals []detector.Signal, rec *recorder.Manager) {
 	if len(rt.rdsMap) > 0 {
+		// rt.rdsMap is keyed by the stable tracker ID (see updateRDS, OI-25). Prune
+		// by that same ID — a previous frequency-quantized key (keyHz/25000) never
+		// matched the ID keys, so every rdsState was deleted every frame: the async
+		// pilot/RDS decode wrote to an orphaned state, the next frame recreated a
+		// fresh one (stereo=false, lastDecode=0 → relaunch), so stereo never stuck
+		// and the RDS decoder state never accumulated.
 		activeIDs := make(map[int64]bool, len(displaySignals))
 		for _, s := range displaySignals {
-			keyHz := s.CenterHz
-			if s.PLL != nil && s.PLL.ExactHz != 0 {
-				keyHz = s.PLL.ExactHz
+			if s.ID != 0 {
+				activeIDs[s.ID] = true
 			}
-			activeIDs[int64(math.Round(keyHz/25000.0))] = true
 		}
 		for id := range rt.rdsMap {
 			if !activeIDs[id] {

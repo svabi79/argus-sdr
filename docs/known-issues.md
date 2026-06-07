@@ -55,7 +55,30 @@ Status values used here:
 - Source: live testing 2026-06-07.
 
 ### OI-24 — WFM stereo lock unreliable (PLL integration window too short)
-- Status: `root-cause-found` (real bug fixed; reliability blocked on a longer PLL window)
+- Status: `resolved` — confirmed live (DLF 100.6 + Radio 7 102.5: stereo=locked,
+  RDS PS "Dlf"/"RADIO 7"). Three independent root causes, all required:
+  1. **Long-window pilot (the documented OI-24 blocker).** The stereo pilot test no
+     longer runs on the ~1 ms per-frame snippet. `classifier.StereoPilotPresent`
+     runs the 19 kHz pilot test on the SAME multi-second ring slice (~250 kHz
+     baseband) that `updateRDS` already pulls for RDS, where the pilot is 43-47 dB
+     over the floor (live ratio ~1000-1975 vs the 4.0 threshold). The short-snippet
+     PLL is kept only for the exact-frequency estimate; its `.Stereo` is ignored.
+  2. **Detected signals carried ID=0.** `detector.matchSignals` matched raw
+     per-frame detections to tracked events but never wrote the stable event ID
+     back into the returned `[]Signal`. So candidates -> refinement signals were all
+     ID=0, and `updateRDS` early-returned on `key == 0` — the stereo/RDS long-window
+     path NEVER ran live. Fixed: write `signals[i].ID = id` on both match and
+     new-event branches.
+  3. **`maintenance()` deleted every rdsState every frame.** `rt.rdsMap` is keyed by
+     tracker ID (OI-25) but `maintenance()` still pruned it with a stale
+     frequency-quantized key (`keyHz/25000`), which never matched the ID keys. So
+     the async pilot/RDS decode wrote to an orphaned state, the next frame recreated
+     a fresh one (stereo=false, lastDecode=0 → relaunch every frame), so stereo
+     never stuck and the RDS decoder state never accumulated. Fixed to prune by
+     `s.ID`. This also fixed RDS (PS names now decode) and the per-frame GPU RDS
+     re-extraction churn.
+- Validated offline: `TestStereoPilotLongWindow` locks 100.6 + 102.5 MHz and rejects
+  an empty slot (90.0 MHz); `pilotLockRatio` 4.0 separates them cleanly.
 - Update 2026-06-07 (offline replay oracle): the chain was diagnosed end to end.
   1. CPU starvation removed (OI-26) — necessary but not sufficient.
   2. Center jitter reduced 3x (Slice A, alpha-beta + peak anchor) — necessary but

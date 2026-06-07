@@ -9,11 +9,12 @@ import (
 )
 
 // pilotLockRatio is the min (pilot magnitude / band-median) to declare a stereo
-// lock. INTERIM placeholder: with the current ~512-sample PLL snippet the pilot
-// cannot be reliably separated from noise (a real station's ratio ~2 is below
-// noise spikes ~5), so this is set high to avoid false-lock spam rather than to
-// lock real stations. The real fix is a longer integration window (OI-24);
-// recalibrate this against the replay capture once that lands.
+// lock. It is now applied on the long-window path (StereoPilotPresent, OI-24
+// fixed): over a >=100 ms ring slice a real 19 kHz pilot sits hundreds of times
+// over the band median while an empty slot stays ~1-2x, so 4.0 separates them
+// cleanly (validated on the fm_bc capture: 100.6/102.5 lock, 90.0 does not).
+// The short ~1 ms snippet path still calls estimateWFMPilot for the exact-
+// frequency estimate, but its .Stereo is deliberately ignored by the caller.
 // Override at runtime with SDRD_PILOT_RATIO.
 var pilotLockRatio = 4.0
 
@@ -69,6 +70,20 @@ func EstimateExactFrequency(iq []complex64, sampleRate int, detectedHz float64, 
 	default:
 		return PLLResult{ExactHz: detectedHz, Method: "none"}
 	}
+}
+
+// StereoPilotPresent reports whether a 19 kHz stereo pilot is present in the
+// FM-multiplex baseband iq (complex, carrier at DC). Unlike the per-frame
+// snippet PLL (~1 ms / ~512 samples), this is meant to run on a long (>=100 ms)
+// ring slice where the pilot integrates tens of dB over the noise floor — on the
+// fm_bc capture the pilot is 43-47 dB over the floor at 1.5 s, vs being
+// indistinguishable from noise spikes at 1 ms (OI-24). The analysis window is
+// capped to bound cost; the caller already throttles this to the RDS cadence.
+func StereoPilotPresent(iq []complex64, sampleRate int) bool {
+	if max := sampleRate / 2; max > 0 && len(iq) > max {
+		iq = iq[len(iq)-max:]
+	}
+	return estimateWFMPilot(iq, sampleRate, 0).Stereo
 }
 
 func estimateWFMPilot(iq []complex64, sampleRate int, detectedHz float64) PLLResult {
