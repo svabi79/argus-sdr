@@ -572,4 +572,32 @@ func TestRealRecallDiagnosis(t *testing.T) {
 			}
 		}
 	}
+
+	t.Logf("=== D. blending stage: MaxSignalBwHz caps EXPANSION (small cap splits cluster => expansion is the culprit) ===")
+	for _, c := range caches {
+		binWidth := float64(c.fs) / float64(fft)
+		var sn []refSig
+		for _, r := range c.refs {
+			if r.peakDb >= refStrongDb && r.bwHz < narrowMaxBwHz {
+				sn = append(sn, r)
+			}
+		}
+		for _, mx := range []float64{2e3, 5e3, 20e3, 260e3} {
+			cfg := best
+			cfg.MaxSignalBwHz = mx
+			clusters := realSceneFrames(c.iq, c.fs, fft, cfg, 96, 24)
+			// median detBw of matched strong-narrow clusters + how many resolved
+			var detBws []float64
+			hit := 0
+			for _, r := range sn {
+				if cl := matchCluster(r.centerHz, r.bwHz, clusters, binWidth); cl != nil {
+					hit++
+					detBws = append(detBws, cl.bw)
+				}
+			}
+			m := scoreReal(c.refs, c.floor, clusters, binWidth)
+			t.Logf("  %s maxBw=%6.0fk Rs_n=%.2f Rs_w=%.2f narrowHit=%2d/%2d medDetBw=%.2fk",
+				c.name, mx/1e3, m.recStrongNarrow, m.recStrongWide, hit, len(sn), medianf(detBws)/1e3)
+		}
+	}
 }
