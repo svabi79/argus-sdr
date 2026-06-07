@@ -58,3 +58,35 @@ func TestRingSampleCapacityVariablePushSizes(t *testing.T) {
 		t.Fatalf("last sample mismatch: got %d want %d", got, want)
 	}
 }
+
+// Pushing many blocks forces eviction and buffer recycling (#26). Mutating the
+// caller's slice right after Push verifies Push still copies (no alias to the
+// caller) and that recycled buffers do not corrupt retained data.
+func TestRingPushCopiesAndRecyclesSafely(t *testing.T) {
+	r := NewRing(100, 10, 1) // 100 samples capacity
+	base := time.Unix(1700002000, 0)
+	const block = 15
+	offset := 0
+	for i := 0; i < 40; i++ {
+		s := make([]complex64, block)
+		for j := range s {
+			s[j] = complex(float32(offset+j), 0)
+		}
+		t0 := base.Add(time.Duration(float64(offset) / 100.0 * float64(time.Second)))
+		r.Push(t0, s)
+		for j := range s { // poison the caller buffer after Push
+			s[j] = complex(-999, -999)
+		}
+		offset += block
+	}
+	out := r.Slice(base, base.Add(time.Hour))
+	if got, want := len(out), 100; got != want {
+		t.Fatalf("len: got %d want %d", got, want)
+	}
+	wantFirst := offset - 100 // retained window = last maxSamples
+	for i, v := range out {
+		if got, want := int(real(v)), wantFirst+i; got != want {
+			t.Fatalf("sample %d: got %d want %d (recycling aliased or corrupted data)", i, got, want)
+		}
+	}
+}
