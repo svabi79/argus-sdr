@@ -263,6 +263,10 @@ decoder:
 debug:
   audio_dump_enabled: false
   cpu_monitoring: false
+  # Cap how often the heavy spectrum Debug payload is built+broadcast (#19).
+  # Spectrum/waterfall/signals are unaffected. Set >= frame_rate (or env
+  # SDRD_DEBUG_HZ) for full rate while developing. Live-adjustable via /api/config.
+  spectrum_debug_hz: 3
   telemetry:
     enabled: true
     heavy_enabled: false

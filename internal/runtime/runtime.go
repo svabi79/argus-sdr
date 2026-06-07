@@ -66,6 +66,13 @@ type ConfigUpdate struct {
 	Resources      *ResourcesUpdate    `json:"resources"`
 	Detector       *DetectorUpdate     `json:"detector"`
 	Recorder       *RecorderUpdate     `json:"recorder"`
+	Debug          *DebugUpdate        `json:"debug"`
+}
+
+type DebugUpdate struct {
+	// SpectrumDebugHz live-adjusts the heavy spectrum Debug broadcast rate (#19).
+	// <= 0 or >= frame_rate means every frame (full rate, e.g. while developing).
+	SpectrumDebugHz *int `json:"spectrum_debug_hz"`
 }
 
 type DetectorUpdate struct {
@@ -171,6 +178,9 @@ func (m *Manager) ApplyConfig(update ConfigUpdate) (config.Config, error) {
 	}
 	if update.UseGPUFFT != nil {
 		next.UseGPUFFT = *update.UseGPUFFT
+	}
+	if update.Debug != nil && update.Debug.SpectrumDebugHz != nil {
+		next.Debug.SpectrumDebugHz = *update.Debug.SpectrumDebugHz
 	}
 	if update.ClassifierMode != nil {
 		mode := *update.ClassifierMode
