@@ -188,6 +188,12 @@ type detCluster struct {
 // frame's periodogram to the detector (advancing time so the EMA/hold logic runs),
 // and returns the union of post-warmup raw detections clustered by center.
 func realScene(iq []complex64, fs, fftSize int, cfg config.DetectorConfig) []detCluster {
+	return realSceneFrames(iq, fs, fftSize, cfg, sweepFrames, sweepWarm)
+}
+
+// realSceneFrames is realScene with an explicit frame count + warmup, so the
+// diagnosis can test recall sensitivity to the number of frames (non-stationarity).
+func realSceneFrames(iq []complex64, fs, fftSize int, cfg config.DetectorConfig, frames, warm int) []detCluster {
 	d := detector.New(cfg, fs, fftSize)
 	win := fftutil.Hann(fftSize)
 	binWidth := float64(fs) / float64(fftSize)
@@ -196,18 +202,18 @@ func realScene(iq []complex64, fs, fftSize int, cfg config.DetectorConfig) []det
 		return nil
 	}
 	stride := 0
-	if sweepFrames > 1 {
-		stride = maxStart / (sweepFrames - 1)
+	if frames > 1 {
+		stride = maxStart / (frames - 1)
 	}
 	now := time.Unix(0, 0)
 	type det struct{ c, b float64 }
 	var all []det
-	for f := 0; f < sweepFrames; f++ {
+	for f := 0; f < frames; f++ {
 		start := f * stride
 		spec := fftutil.Spectrum(iq[start:start+fftSize], win)
 		now = now.Add(sweepFrameMs * time.Millisecond)
 		_, raw := d.Process(now, spec, 0)
-		if f < sweepWarm {
+		if f < warm {
 			continue
 		}
 		for _, g := range raw {
@@ -437,6 +443,133 @@ func TestRealParamSweep(t *testing.T) {
 			c.CFARGuardHz = 15e3
 			c.MergeGapHz = mg
 			runRealRow(t, fmt.Sprintf("merge=%.0fk/sc=%.0f", mg/1e3, sc), caches, 32768, c)
+		}
+	}
+}
+
+// matchCluster returns the nearest cluster to centerHz within tolerance, or nil.
+func matchCluster(centerHz, bwHz float64, clusters []detCluster, binWidth float64) *detCluster {
+	best, bestD := -1, math.MaxFloat64
+	for i, c := range clusters {
+		tol := math.Max(bwHz, c.bw)/2 + 2*binWidth
+		d := math.Abs(c.center - centerHz)
+		if d <= tol && d < bestD {
+			best, bestD = i, d
+		}
+	}
+	if best < 0 {
+		return nil
+	}
+	return &clusters[best]
+}
+
+// TestRealRecallDiagnosis (#55 step 1) separates measurement artifacts from a real
+// recall failure before any detector change:
+//
+//	A. reference robustness — does each reference emission reappear when the Welch
+//	   is computed on the first vs second half of the capture? A real signal does;
+//	   a noise/spur spike does not. Splits the narrow reference into confirmed vs
+//	   likely-noise, per tier.
+//	B. frame-count sensitivity — does narrow recall climb with more frames (a
+//	   duty-cycle / non-stationarity artifact) or plateau (a genuine miss)?
+//	C. per-signal duty cycle — at 96 frames, how many frames is each strong-narrow
+//	   reference actually detected in? hits=0 is a real miss; low hits is bursty.
+func TestRealRecallDiagnosis(t *testing.T) {
+	caches := loadOracles(t)
+	if len(caches) == 0 {
+		t.Skip("no oracles available")
+	}
+	best := detectorConfig()
+	best.CFARScaleDb = 12
+	best.CFARGuardHz = 15e3
+	best.MergeGapHz = 0
+	const fft = 32768
+
+	t.Logf("=== A. reference robustness (split-half: confirmed in BOTH halves = real) ===")
+	for _, c := range caches {
+		half := len(c.iq) / 2
+		r1, _ := welchReference(c.iq[:half], c.fs, refSeg, refMinPeakDb, refAboveFloor)
+		r2, _ := welchReference(c.iq[half:], c.fs, refSeg, refMinPeakDb, refAboveFloor)
+		binHz := float64(c.fs) / float64(refSeg)
+		tol := func() float64 { return 3 * binHz }
+		in := func(center float64, rs []refSig) bool {
+			for _, r := range rs {
+				if math.Abs(r.centerHz-center) <= math.Max(tol(), r.bwHz/2) {
+					return true
+				}
+			}
+			return false
+		}
+		var sBoth, sNarrowBoth, sNarrow, wBoth, w int
+		for _, r := range c.refs {
+			strong := r.peakDb >= refStrongDb
+			narrow := r.bwHz < narrowMaxBwHz
+			both := in(r.centerHz, r1) && in(r.centerHz, r2)
+			if strong {
+				if narrow {
+					sNarrow++
+					if both {
+						sNarrowBoth++
+					}
+				}
+				if both {
+					sBoth++
+				}
+			} else {
+				w++
+				if both {
+					wBoth++
+				}
+			}
+		}
+		t.Logf("  %s strong: %d confirmed-both | strong-narrow: %d/%d confirmed | weak: %d/%d confirmed",
+			c.name, sBoth, sNarrowBoth, sNarrow, wBoth, w)
+	}
+
+	t.Logf("=== B. frame-count sensitivity (best cfg merge0/sc12/fft32768) ===")
+	for _, c := range caches {
+		binWidth := float64(c.fs) / float64(fft)
+		for _, fr := range []int{24, 48, 96} {
+			clusters := realSceneFrames(c.iq, c.fs, fft, best, fr, fr/4)
+			m := scoreReal(c.refs, c.floor, clusters, binWidth)
+			t.Logf("  %s frames=%-3d Rs_n=%.2f Rs_w=%.2f Rw=%.2f P=%.2f",
+				c.name, fr, m.recStrongNarrow, m.recStrongWide, m.recWeak, m.precision)
+		}
+	}
+
+	t.Logf("=== C. per-signal duty cycle @ 96 frames (strong-narrow refs) ===")
+	for _, c := range caches {
+		binWidth := float64(c.fs) / float64(fft)
+		clusters := realSceneFrames(c.iq, c.fs, fft, best, 96, 24)
+		// sort strong-narrow refs by peak for readability
+		var sn []refSig
+		for _, r := range c.refs {
+			if r.peakDb >= refStrongDb && r.bwHz < narrowMaxBwHz {
+				sn = append(sn, r)
+			}
+		}
+		sort.Slice(sn, func(a, b int) bool { return sn[a].peakDb > sn[b].peakDb })
+		miss, hitN := 0, 0
+		for _, r := range sn {
+			cl := matchCluster(r.centerHz, r.bwHz, clusters, binWidth)
+			if cl == nil {
+				miss++
+			} else {
+				hitN++
+			}
+		}
+		t.Logf("  %s strong-narrow: %d detected / %d total (%d missed)", c.name, hitN, len(sn), miss)
+		// detail for the first few (peak, bw, detected hits/72)
+		for i, r := range sn {
+			if i >= 8 {
+				break
+			}
+			cl := matchCluster(r.centerHz, r.bwHz, clusters, binWidth)
+			if cl == nil {
+				t.Logf("    off=%+8.1fk bw=%.2fk peak=+%.1f  -> MISSED", r.centerHz/1e3, r.bwHz/1e3, r.peakDb)
+			} else {
+				t.Logf("    off=%+8.1fk bw=%.2fk peak=+%.1f  -> hits=%d detBw=%.2fk", r.centerHz/1e3, r.bwHz/1e3, r.peakDb, cl.hits, cl.bw/1e3)
+			}
 		}
 	}
 }
