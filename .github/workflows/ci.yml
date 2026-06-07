@@ -1,0 +1,56 @@
+name: CI
+
+# Tier-1 gate (hosted, no GPU/SDR hardware): vet + tagless build + tagless tests.
+# This is the required check for branch protection on master.
+# The full GPU build (build-sdrplay.ps1) and the -tags bench replay-oracle tests
+# run on the self-hosted Windows+CUDA runner — see ci-hardware.yml (Tier 2).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: vet · build · test (tagless)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: go build (tagless)
+        run: go build ./...
+      - name: go test (tagless)
+        run: go test ./...
+
+  gofmt:
+    name: gofmt (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt -l
+        # Informational only (not a required check yet): the tree has pre-existing
+        # import-ordering drift. A dedicated "gofmt the repo" PR will make this
+        # clean, after which this step can be promoted to `exit 1`.
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^$' || true)
+          if [ -n "$unformatted" ]; then
+            echo "::warning::Files are not gofmt-clean:"
+            echo "$unformatted"
+          else
+            echo "All files gofmt-clean."
+          fi

@@ -3,6 +3,9 @@ package gpudemod
 import "testing"
 
 func TestStreamingGPUUsesSafeProductionDefault(t *testing.T) {
+	if !Available() {
+		t.Skip("requires the cufft GPU build (gpudemod.Available()==false); covered by the self-hosted GPU runner")
+	}
 	r := &BatchRunner{eng: &Engine{sampleRate: 4000000}, streamState: make(map[int64]*ExtractStreamState)}
 	job := StreamingExtractJob{
 		SignalID:   1,

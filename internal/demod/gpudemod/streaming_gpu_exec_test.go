@@ -3,6 +3,9 @@ package gpudemod
 import "testing"
 
 func TestStreamingExtractGPUExecUsesSafeDefaultMode(t *testing.T) {
+	if !Available() {
+		t.Skip("requires the cufft GPU build (gpudemod.Available()==false); covered by the self-hosted GPU runner")
+	}
 	r := &BatchRunner{eng: &Engine{sampleRate: 4000000}, streamState: make(map[int64]*ExtractStreamState)}
 	job := StreamingExtractJob{
 		SignalID:   1,
@@ -28,6 +31,9 @@ func TestStreamingExtractGPUExecUsesSafeDefaultMode(t *testing.T) {
 }
 
 func TestStreamingGPUExecMatchesCPUOracleAcrossChunkPatterns(t *testing.T) {
+	if !Available() {
+		t.Skip("requires the cufft GPU build (gpudemod.Available()==false); covered by the self-hosted GPU runner")
+	}
 	job := StreamingExtractJob{
 		SignalID:   1,
 		OffsetHz:   12500,
@@ -57,6 +63,9 @@ func TestStreamingGPUExecMatchesCPUOracleAcrossChunkPatterns(t *testing.T) {
 }
 
 func TestStreamingGPUExecLifecycleMatchesCPUOracle(t *testing.T) {
+	if !Available() {
+		t.Skip("requires the cufft GPU build (gpudemod.Available()==false); covered by the self-hosted GPU runner")
+	}
 	r := &BatchRunner{
 		eng:         &Engine{sampleRate: 4000000},
 		streamState: make(map[int64]*ExtractStreamState),

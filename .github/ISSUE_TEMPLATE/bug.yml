@@ -1,0 +1,49 @@
+name: Bug
+description: Something is wrong in the running system or the code.
+labels: ["kind:bug", "status:triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: skim `docs/known-issues.md` — it may already track this (OI-NN).
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: What is wrong, observed where (live API, UI, logs, a test)?
+      placeholder: e.g. 102.5 MHz shows stereo=searching despite a strong clean signal.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: |
+        How to reproduce. Prefer the offline replay oracle (Constitution IV):
+        `sdrd -replay data/snapshots/...` or a `-tags bench` test. Note if it
+        only reproduces on live hardware.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, API JSON, profile, screenshot — the observed fact, not a guess.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - dsp
+        - detector
+        - classifier
+        - recorder
+        - gpu
+        - web
+        - telemetry
+        - build
+        - other
+    validations:
+      required: true

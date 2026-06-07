@@ -9,6 +9,9 @@ Read it before making changes.
 > test, branch, debug, what not to commit); the constitution is the *spine* it
 > serves. Where the two disagree, the constitution wins and this file is
 > corrected. Tool entry files (`CLAUDE.md`, …) are thin pointers back here.
+>
+> **How work flows** (issues → claim → PR → CI → operator merge) is in
+> [`docs/agent-workflow.md`](docs/agent-workflow.md).
 
 ---
 

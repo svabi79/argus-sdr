@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project governance
+    url: https://github.com/svabi79/argus-sdr/blob/master/CONSTITUTION.md
+    about: The inviolable principles every contribution must uphold. Read before filing.
+  - name: How agents work here
+    url: https://github.com/svabi79/argus-sdr/blob/master/docs/agent-workflow.md
+    about: The autonomous-agent workflow (issues → claim → PR → CI → operator merge).

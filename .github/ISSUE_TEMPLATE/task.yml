@@ -1,0 +1,60 @@
+name: Task / Feature (spec)
+description: A unit of work for an agent or human. Becomes "ready" once the spec is complete.
+labels: ["status:triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An implementation agent only picks up issues labeled `status:ready`.
+        An issue is `ready` when the three sections below are filled — that is
+        the spec (Constitution VI: understand the direction before coding).
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What outcome this delivers and why it serves the project direction.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Concrete, checkable conditions for "done".
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification method (Constitution V)
+      description: |
+        Exactly how the result will be proven by running it — which test,
+        replay command, or live API/log observation. No verification plan ⇒ not ready.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Constraints / notes
+      description: Relevant principles, files, prior art, autonomy-boundary flags.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - dsp
+        - detector
+        - classifier
+        - recorder
+        - gpu
+        - web
+        - telemetry
+        - build
+        - docs
+        - other
+    validations:
+      required: true
