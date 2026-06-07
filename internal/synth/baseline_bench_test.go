@@ -24,6 +24,7 @@ import (
 	"sdr-wideband-suite/internal/estimate"
 	fftutil "sdr-wideband-suite/internal/fft"
 	"sdr-wideband-suite/internal/iqfile"
+	"sdr-wideband-suite/internal/pipeline"
 	"sdr-wideband-suite/internal/synth"
 )
 
@@ -994,6 +995,89 @@ func safeDiv(a, b int) float64 {
 		return math.NaN()
 	}
 	return float64(a) / float64(b)
+}
+
+// sharpDetectorConfig is a fine/separating CFAR pass (small guard): it separates
+// close emissions but under-measures wide ones — the complement of the coarse
+// pass. See pipeline.FuseScaleAware and docs/detection-architecture.md (L1).
+func sharpDetectorConfig() config.DetectorConfig {
+	c := detectorConfig()
+	c.CFARScaleDb = 10
+	c.CFARGuardHz = 8000
+	c.CFARTrainHz = 60000
+	return c
+}
+
+// TestScaleAwareFusionResolvesBridging proves L1 step A on the breathing scene:
+// fusing a coarse (bridging) pass with a sharp (separating) pass via
+// pipeline.FuseScaleAware resolves two close strong WFM stations into TWO bounded
+// candidates instead of one ~312k bridged blob (see TestBandwidthBridgingRepro-
+// duction), while keeping a lone wide WFM as ONE candidate at ~its coarse width
+// (the sharp pass alone chops it to ~35k). Coarse = the aggressive live CFAR;
+// sharp = sharpDetectorConfig.
+//
+//	go test -tags bench -run TestScaleAwareFusionResolvesBridging ./internal/synth/ -v
+func TestScaleAwareFusionResolvesBridging(t *testing.T) {
+	const fft = 16384
+	measure := func(signals []synth.SignalSpec) (avgCount, maxBwK float64) {
+		dc := detector.New(liveDetectorConfig(), benchFs, fft)  // coarse: bridges
+		ds := detector.New(sharpDetectorConfig(), benchFs, fft) // sharp: separates
+		win := fftutil.Hann(fft)
+		now := time.Unix(0, 0)
+		var cntSum, mx float64
+		n := 0
+		for f := 0; f < 40; f++ {
+			scene := synth.Scene{SampleRate: benchFs, Seed: 3000 + int64(f), NoiseStd: 1.0, Signals: signals}
+			spec := fftutil.Spectrum(scene.Generate(fft), win)
+			now = now.Add(83 * time.Millisecond)
+			_, coarseRaw := dc.Process(now, spec, 0)
+			_, sharpRaw := ds.Process(now, spec, 0)
+			if f < 10 {
+				continue
+			}
+			n++
+			coarse := pipeline.CandidatesFromSignals(coarseRaw, "coarse")
+			fine := pipeline.CandidatesFromSignals(sharpRaw, "sharp")
+			fused := pipeline.FuseScaleAware(coarse, fine, pipeline.ScaleFuseOptions{})
+			cntSum += float64(len(fused))
+			for _, c := range fused {
+				if c.BandwidthHz > mx {
+					mx = c.BandwidthHz
+				}
+			}
+		}
+		return cntSum / float64(n), mx / 1e3
+	}
+
+	pair := []synth.SignalSpec{
+		{Kind: synth.KindWFM, CenterHz: -100e3, BandwidthHz: 180e3, SNRdB: 55, Dynamic: true},
+		{Kind: synth.KindWFM, CenterHz: 100e3, BandwidthHz: 180e3, SNRdB: 55, Dynamic: true},
+	}
+	lone := []synth.SignalSpec{{Kind: synth.KindWFM, CenterHz: 0, BandwidthHz: 180e3, SNRdB: 55, Dynamic: true}}
+
+	pairCount, pairMaxBw := measure(pair)
+	loneCount, loneMaxBw := measure(lone)
+	t.Logf("fused pair200k: avgCount=%.1f maxBw=%.0fk (want ~2, bounded)", pairCount, pairMaxBw)
+	t.Logf("fused loneWFM:  avgCount=%.1f maxBw=%.0fk (want ~1, NOT chopped to ~35k)", loneCount, loneMaxBw)
+
+	// The core L1-A win: the bridged pair resolves into TWO emissions (correct
+	// count + centers, which is what detunes the pilot PLL / corrupts RDS, OI-27),
+	// instead of one ~312k blob; and a lone wide WFM stays ONE and is not chopped
+	// to the sharp pass's ~35k. Per-child WIDTH still inherits half the coarse
+	// extent (incl. the outer skirt) — tightening the outer edge is a follow-up
+	// refinement, so the bound here only asserts it is clearly below the bridge.
+	if pairCount < 1.8 {
+		t.Errorf("pair not resolved: avgCount %.1f, want >=1.8 (bridging not fixed)", pairCount)
+	}
+	if pairMaxBw >= 300 {
+		t.Errorf("fused pair still ~bridged: maxBw %.0fk, want <300k (bridged single was ~312k)", pairMaxBw)
+	}
+	if loneCount > 1.4 {
+		t.Errorf("lone WFM fragmented: avgCount %.1f, want ~1", loneCount)
+	}
+	if loneMaxBw < 80 {
+		t.Errorf("lone WFM chopped: maxBw %.0fk, want >=80k (coarse width kept, not the ~35k sharp value)", loneMaxBw)
+	}
 }
 
 var _ = fmt.Sprintf
