@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| **Version** | 1.1.0 |
+| **Version** | 1.2.0 |
 | **Status** | `STABLE` |
 | **Applies to** | All Argus SDR contributions: source code, documentation, automation, commits — produced by any human or AI agent |
 | **Project** | Argus SDR (Go module / working tree: `sdr-wideband-suite`) |
@@ -205,6 +205,28 @@ proposed gating extraction to active listeners for a ~14x reduction. That
 reduction is real and it deletes the product. The CPU/GC cost is fixed by making
 the path allocation-free and GPU-batched, not by decoding fewer signals — the
 budget is the thing to solve, not the signal count to avoid.*
+
+### XII. One Issue, One Pull Request
+
+Each unit of work is a single tracked issue resolved by a single pull request: a
+PR closes exactly one issue (`Fixes #N`) and does not bundle unrelated fixes,
+refactors, or scope discovered along the way. Work that surfaces mid-change — an
+adjacent bug, a tempting cleanup, a deeper architectural follow-up — is filed as
+its own issue and sequenced, not folded into the current PR. This includes
+governance: a change to this constitution is its own issue and PR, separate from
+the feature work that prompted it.
+
+*Why this is inviolable: the operator's merge click is the only review gate (no
+second human reviewer exists — `agent-workflow.md`, Principle VIII), and that
+gate only works if one merge corresponds to one reviewable, revertible unit. A PR
+that bundles scopes buries the real change, forces an all-or-nothing merge
+decision, and makes a later revert collateral-damage the unrelated work. This was
+adopted by explicit operator decision after completing OI-22 (#2) surfaced a
+non-stationary FM-generator enhancement that belongs to OI-23 (#4): folding it in
+would have mixed a finished deliverable with open modeling work. It is the
+constitutional spine under what `AGENTS.md` §4 and `agent-workflow.md` already
+state operationally ("one issue = one unit of work = one PR"), and it generalizes
+Principle VI's discarded bundle-without-a-tracked-issue branch.*
 
 ---
 
