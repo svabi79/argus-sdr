@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,36 @@ import (
 	"sdr-wideband-suite/internal/recorder"
 	"sdr-wideband-suite/internal/telemetry"
 )
+
+// SDRD_DEBUG_HZ overrides the configured spectrum_debug_hz at startup (dev knob;
+// the config value stays live-adjustable via /api/config). Parsed once.
+var (
+	debugHzEnvVal int
+	debugHzEnvSet bool
+)
+
+func init() {
+	if raw := strings.TrimSpace(os.Getenv("SDRD_DEBUG_HZ")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil {
+			debugHzEnvVal, debugHzEnvSet = v, true
+		}
+	}
+}
+
+// debugEmitEveryN maps a target Debug rate (hz) and the frame rate (fps) to a
+// frame stride. hz <= 0 or hz >= fps means every frame (full rate). The heavy
+// spectrum Debug payload (#19) is only built+broadcast on those frames; the
+// spectrum/waterfall/signals stream every frame regardless.
+func debugEmitEveryN(hz, fps int) uint64 {
+	if hz <= 0 || fps <= 0 || hz >= fps {
+		return 1
+	}
+	n := fps / hz
+	if n < 1 {
+		n = 1
+	}
+	return uint64(n)
+}
 
 func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *detector.Detector, window []float64, h *hub, eventFile *os.File, eventMu *sync.RWMutex, updates <-chan dspUpdate, gpuState *gpuStatus, rec *recorder.Manager, sigSnap *signalSnapshot, extractMgr *extractionManager, phaseSnap *phaseSnapshot, coll *telemetry.Collector) {
 	defer func() {
@@ -266,17 +297,30 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				rec.OnEvents(evCopy)
 			}
 			var debugInfo *SpectrumDebug
+			// Cadence-limit the heavy Debug payload (#19): only build + broadcast it
+			// at ~spectrum_debug_hz instead of every frame. SDRD_DEBUG_HZ overrides
+			// the live-adjustable config value. Skipping it drops both the build
+			// allocations below and the per-frame json.Marshal in the broadcast.
+			debugHz := rt.cfg.Debug.SpectrumDebugHz
+			if debugHzEnvSet {
+				debugHz = debugHzEnvVal
+			}
+			emitDebug := frameID%debugEmitEveryN(debugHz, rt.cfg.FrameRate) == 0
 			plan := state.refinement.Input.Plan
-			windowSummary := buildWindowSummary(plan, state.refinement.Input.Windows, state.surveillance.Candidates, state.refinement.Input.WorkItems, state.refinement.Result.Decisions)
+			var windowSummary *WindowSummary
 			var windowStats *RefinementWindowStats
 			var monitorSummary []pipeline.MonitorWindowStats
-			if windowSummary != nil {
-				windowStats = windowSummary.Refinement
-				monitorSummary = windowSummary.MonitorWindows
+			var hasPlan, hasWindows bool
+			if emitDebug {
+				windowSummary = buildWindowSummary(plan, state.refinement.Input.Windows, state.surveillance.Candidates, state.refinement.Input.WorkItems, state.refinement.Result.Decisions)
+				if windowSummary != nil {
+					windowStats = windowSummary.Refinement
+					monitorSummary = windowSummary.MonitorWindows
+				}
+				hasPlan = plan.TotalCandidates > 0 || plan.Budget > 0 || plan.DroppedBySNR > 0 || plan.DroppedByBudget > 0
+				hasWindows = windowStats != nil && windowStats.Count > 0
 			}
-			hasPlan := plan.TotalCandidates > 0 || plan.Budget > 0 || plan.DroppedBySNR > 0 || plan.DroppedByBudget > 0
-			hasWindows := windowStats != nil && windowStats.Count > 0
-			if len(thresholds) > 0 || len(displaySignals) > 0 || noiseFloor != 0 || hasPlan || hasWindows {
+			if emitDebug && (len(thresholds) > 0 || len(displaySignals) > 0 || noiseFloor != 0 || hasPlan || hasWindows) {
 				scoreDebug := make([]map[string]any, 0, len(displaySignals))
 				for _, s := range displaySignals {
 					if s.Class == nil || len(s.Class.Scores) == 0 {

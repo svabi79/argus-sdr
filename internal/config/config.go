@@ -103,7 +103,12 @@ type DecoderConfig struct {
 type DebugConfig struct {
 	AudioDumpEnabled bool `yaml:"audio_dump_enabled" json:"audio_dump_enabled"`
 	CPUMonitoring    bool `yaml:"cpu_monitoring" json:"cpu_monitoring"`
-	Telemetry        TelemetryConfig `yaml:"telemetry" json:"telemetry"`
+	// SpectrumDebugHz caps how often the heavy per-frame spectrum Debug payload is
+	// built and broadcast (#19); spectrum/waterfall/signals are unaffected. Default
+	// 3 Hz keeps normal runs cheap; set >= frame_rate (or use SDRD_DEBUG_HZ) for full
+	// rate while developing. Live-adjustable via /api/config.
+	SpectrumDebugHz int             `yaml:"spectrum_debug_hz" json:"spectrum_debug_hz"`
+	Telemetry       TelemetryConfig `yaml:"telemetry" json:"telemetry"`
 }
 
 type TelemetryConfig struct {
@@ -736,6 +741,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.Debug.Telemetry.KeepFiles <= 0 {
 		cfg.Debug.Telemetry.KeepFiles = 8
+	}
+	if cfg.Debug.SpectrumDebugHz == 0 {
+		cfg.Debug.SpectrumDebugHz = 3
 	}
 	return cfg
 }
