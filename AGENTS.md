@@ -159,6 +159,24 @@ One-off investigation output belongs in `docs/` or should be deleted.
 
 ## 7. Build and test rules
 
+### Core DSP rule — GPU first (2026-06-07)
+**Any DSP that can run on the GPU must run on the GPU.** This is a deliberately
+hot-path, many-signals system (e.g. decode + RDS for every signal across the band),
+so per-signal CPU DSP does not scale and starves the DSP loop.
+
+Concretely:
+- Shift / filter / decimate / FFT / demod / RDS-baseband extraction for per-signal
+  work should route through the GPU batch path (`internal/demod/gpudemod`,
+  `BatchRunner.ShiftFilterDecimate*`), not bespoke `dsp.ApplyFIR` / `dsp.FreqShift`
+  / `dsp.Decimate` loops on the CPU.
+- CPU implementations stay only as: an explicit oracle/validation reference, or a
+  fallback when `gpudemod.Available()` is false (mock / no GPU).
+- When adding a new per-signal processing path, ask first: "can the GPU batch
+  runner do this shift/filter/decimate?" If yes, use it.
+- Profile before declaring done: a CPU profile should not show `dsp.ApplyFIR`
+  (or similar) dominating for work that the GPU could do. (How this rule was found:
+  a CPU profile showed `updateRDS` doing CPU FIR at ~52% of total CPU — OI-26.)
+
 ### General rule
 Prefer the repo's own scripts and established workflow over ad-hoc raw build commands.
 

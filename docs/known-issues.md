@@ -14,6 +14,24 @@ Status values used here:
 
 ## High Priority
 
+### OI-26 — RDS decode runs its DSP chain on the CPU (root of OI-25)
+- Status: `resolved` (RDS shift/filter/decimate moved to the GPU batch runner;
+  CPU ~14 -> ~3.5 cores, RSS ~3.6 GB -> ~1.2 GB, and WFM stereo now locks — OI-24)
+- Severity: High
+- Category: performance / gpu
+- File: `cmd/sdrd/pipeline_runtime.go` (`updateRDS`)
+- Summary: `updateRDS` extracts the RDS baseband per WFM signal by doing
+  `dsp.FreqShift` + `dsp.ApplyFIR` (51 then 101 taps) + `dsp.Decimate` over ~4 s
+  of full-rate IQ (~16 M samples) on the CPU, in a goroutine per signal. A CPU
+  profile attributes ~52% of total CPU (150 s / 290 s, ApplyFIR) to
+  `updateRDS.func1`. With many BC-FM stations this saturates ~8 cores and is the
+  primary driver of OI-25, and likely starves the DSP loop (OI-24 no stereo lock).
+- Recommended fix (per the GPU-first rule, AGENTS §7): route the RDS
+  shift/filter/decimate through the `gpudemod.BatchRunner` like the audio
+  extraction path, with the CPU chain kept only as fallback when the GPU is
+  unavailable.
+- Source: pprof CPU profile, 2026-06-07.
+
 ### OI-25 — Very high CPU (~13-16 cores) and memory (~3-4 GB) at runtime
 - Status: `open`
 - Severity: High

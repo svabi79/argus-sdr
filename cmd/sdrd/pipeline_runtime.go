@@ -926,7 +926,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 				}
 			}
 			if cls.ModType == classifier.ClassWFMStereo && rec != nil {
-				rt.updateRDS(art.now, rec, &signals[i], cls)
+				rt.updateRDS(art.now, rec, extractMgr, &signals[i], cls)
 				if signals[i].PLL != nil && signals[i].PLL.RDSStation != "" {
 					signals[i].StereoState = "locked"
 				}
@@ -949,7 +949,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	return pipeline.RefinementResult{Level: input.Level, Signals: signals, Decisions: decisions, Candidates: selectedCandidates}
 }
 
-func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, sig *detector.Signal, cls *classifier.Classification) {
+func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, extractMgr *extractionManager, sig *detector.Signal, cls *classifier.Classification) {
 	if sig == nil || cls == nil {
 		return
 	}
@@ -973,23 +973,39 @@ func (rt *dspRuntime) updateRDS(now time.Time, rec *recorder.Manager, sig *detec
 				return
 			}
 			offset := sigHz - ringCenter
-			shifted := dsp.FreqShift(ringIQ, ringSR, offset)
-			decim1 := ringSR / 1000000
-			if decim1 < 1 {
-				decim1 = 1
+			var decimated []complex64
+			var actualRate int
+			// GPU-first (OI-26 / AGENTS §7): shift+filter+decimate on the GPU.
+			// The GPU polyphase extractor needs an integer decimation factor, so
+			// derive an out-rate that divides the sample rate evenly (~250 kHz).
+			rdsDecim := ringSR / 250000
+			if rdsDecim < 1 {
+				rdsDecim = 1
 			}
-			lp1 := dsp.LowpassFIR(float64(ringSR/decim1)/2.0*0.8, ringSR, 51)
-			f1 := dsp.ApplyFIR(shifted, lp1)
-			d1 := dsp.Decimate(f1, decim1)
-			rate1 := ringSR / decim1
-			decim2 := rate1 / 250000
-			if decim2 < 1 {
-				decim2 = 1
+			rdsOutRate := ringSR / rdsDecim
+			if out, rate, ok := extractMgr.extractRDS(ringIQ, ringSR, offset, 200000, rdsOutRate); ok {
+				decimated = out
+				actualRate = rate
+			} else {
+				// CPU fallback (no GPU / mock).
+				shifted := dsp.FreqShift(ringIQ, ringSR, offset)
+				decim1 := ringSR / 1000000
+				if decim1 < 1 {
+					decim1 = 1
+				}
+				lp1 := dsp.LowpassFIR(float64(ringSR/decim1)/2.0*0.8, ringSR, 51)
+				f1 := dsp.ApplyFIR(shifted, lp1)
+				d1 := dsp.Decimate(f1, decim1)
+				rate1 := ringSR / decim1
+				decim2 := rate1 / 250000
+				if decim2 < 1 {
+					decim2 = 1
+				}
+				lp2 := dsp.LowpassFIR(float64(rate1/decim2)/2.0*0.8, rate1, 101)
+				f2 := dsp.ApplyFIR(d1, lp2)
+				decimated = dsp.Decimate(f2, decim2)
+				actualRate = rate1 / decim2
 			}
-			lp2 := dsp.LowpassFIR(float64(rate1/decim2)/2.0*0.8, rate1, 101)
-			f2 := dsp.ApplyFIR(d1, lp2)
-			decimated := dsp.Decimate(f2, decim2)
-			actualRate := rate1 / decim2
 			rdsBase := demod.RDSBasebandComplex(decimated, actualRate)
 			if len(rdsBase.Samples) == 0 {
 				return

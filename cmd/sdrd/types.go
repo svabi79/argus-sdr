@@ -118,6 +118,14 @@ type extractionManager struct {
 	mu         sync.Mutex
 	runner     *gpudemod.BatchRunner
 	maxSamples int
+
+	// Dedicated runner for RDS extraction. RDS slices several seconds of
+	// full-rate IQ (much larger than the per-frame audio window), runs from
+	// background goroutines, and must not thrash or race the audio runner — so
+	// it gets its own GPU runner guarded by its own mutex.
+	rdsMu         sync.Mutex
+	rdsRunner     *gpudemod.BatchRunner
+	rdsMaxSamples int
 }
 
 type dspUpdate struct {

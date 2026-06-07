@@ -114,6 +114,48 @@ func extractSignalIQ(iq []complex64, sampleRate int, centerHz float64, sigHz flo
 	return results[0]
 }
 
+// extractRDS performs the RDS baseband shift/filter/decimate on the GPU (one
+// job) instead of the per-signal CPU FIR chain. Returns ok=false when the GPU is
+// unavailable so the caller can fall back to the CPU path. Guarded by rdsMu and
+// using a dedicated runner so concurrent RDS goroutines and the audio path do
+// not race or thrash the GPU buffers (GPU-first rule, OI-26).
+func (m *extractionManager) extractRDS(iq []complex64, sampleRate int, offsetHz, bw float64, outRate int) ([]complex64, int, bool) {
+	if m == nil || len(iq) == 0 || sampleRate <= 0 || !gpudemod.Available() {
+		return nil, 0, false
+	}
+	m.rdsMu.Lock()
+	defer m.rdsMu.Unlock()
+	if m.rdsRunner != nil && len(iq) > m.rdsMaxSamples {
+		m.rdsRunner.Close()
+		m.rdsRunner = nil
+	}
+	if m.rdsRunner == nil {
+		allocSize := len(iq) + 1024
+		r, err := gpudemod.NewBatchRunner(allocSize, sampleRate)
+		if err != nil {
+			log.Printf("gpudemod: RDS batch runner init failed: %v", err)
+			return nil, 0, false
+		}
+		m.rdsRunner = r
+		m.rdsMaxSamples = allocSize
+	}
+	jobs := []gpudemod.ExtractJob{{OffsetHz: offsetHz, BW: bw, OutRate: outRate}}
+	outs, rates, err := m.rdsRunner.ShiftFilterDecimateBatch(iq, jobs)
+	if err != nil || len(outs) != 1 || len(outs[0]) == 0 {
+		outLen := -1
+		if len(outs) == 1 {
+			outLen = len(outs[0])
+		}
+		log.Printf("RDS GPU extract failed (in=%d outs=%d outLen=%d): %v", len(iq), len(outs), outLen, err)
+		return nil, 0, false
+	}
+	rate := outRate
+	if len(rates) == 1 && rates[0] > 0 {
+		rate = rates[0]
+	}
+	return outs[0], rate, true
+}
+
 func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleRate int, centerHz float64, signals []detector.Signal) ([][]complex64, []int) {
 	out := make([][]complex64, len(signals))
 	rates := make([]int, len(signals))
