@@ -37,7 +37,7 @@ func Classify(input SignalInput, spectrum []float64, sampleRate int, fftSize int
 	case ModeMath:
 		if len(iq) > 0 {
 			mf := ExtractMathFeatures(iq)
-			cls = MathClassify(mf, feat.BW3dB, input.CenterHz, input.SNRDb)
+			cls = MathClassify(mf, hardBW, input.CenterHz, input.SNRDb)
 			cls.Features = feat
 		} else {
 			cls = RuleClassify(feat, input.CenterHz, input.SNRDb)
@@ -45,7 +45,7 @@ func Classify(input SignalInput, spectrum []float64, sampleRate int, fftSize int
 	case ModeCombined:
 		if len(iq) > 0 {
 			mf := ExtractMathFeatures(iq)
-			cls = CombinedClassify(feat, mf, input.CenterHz, input.SNRDb)
+			cls = CombinedClassify(feat, mf, hardBW, input.CenterHz, input.SNRDb)
 		} else {
 			cls = RuleClassify(feat, input.CenterHz, input.SNRDb)
 		}

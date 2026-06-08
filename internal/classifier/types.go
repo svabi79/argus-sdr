@@ -4,21 +4,21 @@ package classifier
 type SignalClass string
 
 const (
-	ClassAM      SignalClass = "AM"
-	ClassNFM     SignalClass = "NFM"
-	ClassWFM     SignalClass = "WFM"
+	ClassAM        SignalClass = "AM"
+	ClassNFM       SignalClass = "NFM"
+	ClassWFM       SignalClass = "WFM"
 	ClassWFMStereo SignalClass = "WFM_STEREO"
-	ClassSSBUSB  SignalClass = "USB"
-	ClassSSBLSB  SignalClass = "LSB"
-	ClassCW      SignalClass = "CW"
-	ClassFSK     SignalClass = "FSK"
-	ClassPSK     SignalClass = "PSK"
-	ClassDMR     SignalClass = "DMR"
-	ClassDStar   SignalClass = "D-STAR"
-	ClassFT8     SignalClass = "FT8"
-	ClassWSPR    SignalClass = "WSPR"
-	ClassNoise   SignalClass = "NOISE"
-	ClassUnknown SignalClass = "UNKNOWN"
+	ClassSSBUSB    SignalClass = "USB"
+	ClassSSBLSB    SignalClass = "LSB"
+	ClassCW        SignalClass = "CW"
+	ClassFSK       SignalClass = "FSK"
+	ClassPSK       SignalClass = "PSK"
+	ClassDMR       SignalClass = "DMR"
+	ClassDStar     SignalClass = "D-STAR"
+	ClassFT8       SignalClass = "FT8"
+	ClassWSPR      SignalClass = "WSPR"
+	ClassNoise     SignalClass = "NOISE"
+	ClassUnknown   SignalClass = "UNKNOWN"
 )
 
 // Features are lightweight spectral features derived from a signal slice.

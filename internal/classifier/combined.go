@@ -1,8 +1,8 @@
 package classifier
 
-func CombinedClassify(feat Features, mf MathFeatures, centerHz float64, snrDb float64) Classification {
+func CombinedClassify(feat Features, mf MathFeatures, bw float64, centerHz float64, snrDb float64) Classification {
 	ruleCls := RuleClassify(feat, centerHz, snrDb)
-	mathCls := MathClassify(mf, feat.BW3dB, centerHz, snrDb)
+	mathCls := MathClassify(mf, bw, centerHz, snrDb)
 	combined := map[SignalClass]float64{}
 	for k, v := range ruleCls.Scores {
 		combined[k] += v * 0.4
