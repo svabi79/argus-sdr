@@ -1584,7 +1584,6 @@ func (sess *streamSession) stereoDecodeStateful(mono []float32, sampleRate int) 
 	minFreq := 2 * math.Pi * 17000 / float64(sampleRate)
 	maxFreq := 2 * math.Pi * 21000 / float64(sampleRate)
 	var pilotPower float64
-	var totalPower float64
 	var errSum float64
 	for i := 0; i < n; i++ {
 		p := float64(pilot[i])
@@ -1607,7 +1606,6 @@ func (sess *streamSession) stereoDecodeStateful(mono []float32, sampleRate int) 
 			phase += 2 * math.Pi
 		}
 
-		totalPower += float64(mono[i]) * float64(mono[i])
 		pilotPower += p * p
 		errSum += math.Abs(err)
 
@@ -1622,15 +1620,19 @@ func (sess *streamSession) stereoDecodeStateful(mono []float32, sampleRate int) 
 
 	lr = sess.stereoLRLPF.ProcessInto(lr, lr)
 
-	pilotRatio := 0.0
-	if totalPower > 0 {
-		pilotRatio = pilotPower / totalPower
+	// Coherent-pilot fraction within the 17-21 kHz pilot band. AUDIO-INDEPENDENT:
+	// the old metric pilotPower/totalPower divided the constant 19 kHz pilot by the
+	// full program power, so during LOUD passages it dropped below the lock floor
+	// even though the pilot was perfectly present — the lock flapped and the audio
+	// switched stereo<->mono (the reported intermittent "rauschen"). Here both terms
+	// live in the clean pilot band (no program audio between 15 and 23 kHz), so
+	// program level cancels: ~0.5 for a coherent pilot, ~0 for noise.
+	coherence := 0.0
+	if pilotPower > 1e-12 {
+		coherence = (iState*iState + qState*qState) * float64(n) / pilotPower
 	}
 	freqHz := sess.pilotFreq * float64(sampleRate) / (2 * math.Pi)
-	// Lock heuristics: pilot power fraction and PLL phase error stability.
-	// Pilot power is a small but stable fraction of composite energy; require
-	// a modest floor plus PLL settling to avoid flapping in noise.
-	locked := pilotRatio > 0.003 && math.Abs(freqHz-19000) < 250 && sess.pilotErrAvg < 0.35
+	locked := coherence > 0.15 && math.Abs(freqHz-19000) < 250 && sess.pilotErrAvg < 0.35
 
 	out := make([]float32, n*2)
 	for i := 0; i < n; i++ {
