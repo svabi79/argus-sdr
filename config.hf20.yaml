@@ -1,0 +1,84 @@
+# HF 20m surveillance config (CW/SSB/digital + 22m AM broadcast). Same regime as
+# config.hf.yaml (40m): narrow signals -> multi-scale detector, band-gated to the
+# band of interest. Band covers the 22m broadcast cluster (13.57-13.87 MHz) plus
+# the 20m ham allocation (14.0-14.35). Validated by replaying hf_20m.cf32; the
+# center/sample-rate come from the file meta.
+bands:
+    - name: 22m-20m
+      start_hz: 13.5e+06
+      end_hz: 14.35e+06
+center_hz: 14.1e+06
+sample_rate: 2000000
+fft_size: 65536
+gain_db: 20
+tuner_bw_khz: 2000
+use_gpu_fft: true
+classifier_mode: combined
+agc: false
+dc_block: true
+iq_balance: true
+pipeline:
+    mode: wideband-balanced
+    profile: wideband-balanced
+    goals:
+        intent: hf-surveillance
+        monitor_start_hz: 13.5e+06
+        monitor_end_hz: 14.35e+06
+        monitor_span_hz: 850000
+        signal_priorities:
+            - cw
+            - ssb
+            - am
+            - digital
+        auto_record_classes: []
+        auto_decode_classes:
+            - CW
+            - USB
+            - LSB
+            - FT8
+surveillance:
+    analysis_fft_size: 65536
+    frame_rate: 12
+    strategy: multi-resolution
+    display_bins: 4096
+    display_fps: 12
+    derived_detection: auto
+    welch_segments: 0
+refinement:
+    enabled: true
+    max_concurrent: 24
+    detail_fft_size: 16384
+    min_candidate_snr_db: 3
+    min_span_hz: 2000
+    max_span_hz: 30000
+    auto_span: true
+    occupied_bw_fraction: 0
+resources:
+    prefer_gpu: true
+    max_refinement_jobs: 24
+    max_recording_streams: 32
+    max_decode_jobs: 5
+    decision_hold_ms: 2000
+detector:
+    threshold_db: -60
+    min_duration_ms: 200
+    hold_ms: 700
+    ema_alpha: 0.05
+    hysteresis_db: 10
+    min_stable_frames: 4
+    gap_tolerance_ms: 2000
+    edge_margin_db: 6
+    max_signal_bw_hz: 260000
+    merge_gap_hz: 1000
+    multi_scale: true
+    ms_k: 24
+    ms_min_snr_db: 6
+    ms_min_bw_hz: 200
+    occupancy_detect: false
+    class_history_size: 10
+    class_switch_ratio: 0.6
+web_addr: :8080
+event_path: data/events_hf20.jsonl
+frame_rate: 12
+waterfall_lines: 200
+web_root: web
