@@ -973,7 +973,13 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	case occBwFraction < 0:
 		occBwFraction = 0 // explicitly disabled
 	}
-	refined := pipeline.RefineCandidates(selectedCandidates, input.Windows, art.detailSpectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode), art.surveillanceSpectrum, occBwFraction)
+	// The classifier reads spectral features at the candidate's FirstBin/LastBin,
+	// which are in SURVEILLANCE-spectrum coordinates — so it must get the surveillance
+	// spectrum, NOT the detail spectrum (a separate FFT plan with a different bin
+	// mapping). On HF the surveillance bins (~31k) fall off the end of the smaller
+	// detail spectrum, so ExtractFeatures silently returned zero features and
+	// classification ran blind on the noisy IQ path (wide AM -> FSK). See issue #83.
+	refined := pipeline.RefineCandidates(selectedCandidates, input.Windows, art.surveillanceSpectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode), art.surveillanceSpectrum, occBwFraction)
 	signals := make([]detector.Signal, 0, len(refined))
 	decisions := make([]pipeline.SignalDecision, 0, len(refined))
 	for i, ref := range refined {
