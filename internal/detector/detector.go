@@ -707,6 +707,13 @@ func (d *Detector) matchSignals(now time.Time, signals []Signal, adaptiveAlpha f
 		residual := s.CenterHz - predicted
 		ev.centerHz = predicted + d.centerAlpha*residual
 		ev.centerVel += d.centerBeta * residual
+		// Write the SMOOTHED center back into the returned signal so the whole
+		// pipeline (refinement -> per-signal extraction -> stereo/RDS PLL) sees the
+		// stable carrier, not the raw per-frame measurement. For a wideband signal
+		// the raw center is the power-weighted centroid, which jitters frame-to-frame
+		// as audio energy sloshes within the channel even though the carrier is
+		// fixed; that jitter was destabilising the RDS/stereo lock.
+		signals[bestIdx].CenterHz = ev.centerHz
 		if ev.bwHz <= 0 {
 			ev.bwHz = s.BWHz
 		} else {
