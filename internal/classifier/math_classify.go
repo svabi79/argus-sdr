@@ -19,6 +19,13 @@ type MathFeatures struct {
 	// centered carrier (AM/CW) and symmetric AM/FM, but net-positive for USB and
 	// net-negative for LSB (energy sits to one side of the suppressed carrier).
 	IFMean float64 `json:"if_mean"`
+	// CarrierDCCentered is CarrierDC re-measured after de-rotating the IQ by IFMean,
+	// which brings a real carrier (AM/CW) to DC even when the extraction left a
+	// residual frequency offset. Plain CarrierDC needs sub-5-Hz centering and so
+	// collapses on live HF (TestCarrierDCOffset); this recovers it. Suppressed-carrier
+	// signals (SSB/FM/digital) have no concentrated carrier for de-rotation to expose,
+	// so it stays ~0 — making this the live-robust AM/CW-vs-rest discriminator.
+	CarrierDCCentered float64 `json:"carrier_dc_centered"`
 }
 
 func ExtractMathFeatures(iq []complex64) MathFeatures {
@@ -94,16 +101,33 @@ func ExtractMathFeatures(iq []complex64) MathFeatures {
 	modes := countHistogramPeaks(instFreq, 32)
 	amIndex := envCoV / math.Max(ifStd, 0.001)
 	fmIndex := ifStd / math.Max(envCoV, 0.001)
+	// De-rotate by IFMean and re-measure the DC power fraction. powMean is invariant
+	// under rotation, so reuse it. (See the CarrierDCCentered field doc.)
+	var cdcRe, cdcIm float64
+	for i, v := range iq {
+		th := ifMean * float64(i)
+		c, s := math.Cos(th), math.Sin(th)
+		re, im := float64(real(v)), float64(imag(v))
+		cdcRe += re*c + im*s
+		cdcIm += im*c - re*s
+	}
+	cdcRe /= float64(n)
+	cdcIm /= float64(n)
+	carrierDCCentered := 0.0
+	if powMean > 1e-20 {
+		carrierDCCentered = (cdcRe*cdcRe + cdcIm*cdcIm) / powMean
+	}
 	return MathFeatures{
-		EnvCoV:        envCoV,
-		EnvKurtosis:   envKurtosis,
-		InstFreqStd:   ifStd,
-		InstFreqRange: ifRange,
-		AMIndex:       amIndex,
-		FMIndex:       fmIndex,
-		InstFreqModes: modes,
-		CarrierDC:     carrierDC,
-		IFMean:        ifMean,
+		EnvCoV:            envCoV,
+		EnvKurtosis:       envKurtosis,
+		InstFreqStd:       ifStd,
+		InstFreqRange:     ifRange,
+		AMIndex:           amIndex,
+		FMIndex:           fmIndex,
+		InstFreqModes:     modes,
+		CarrierDC:         carrierDC,
+		IFMean:            ifMean,
+		CarrierDCCentered: carrierDCCentered,
 	}
 }
 
@@ -195,10 +219,15 @@ func MathClassify(mf MathFeatures, bw float64, centerHz float64, snrDb float64) 
 	//     (NFM ~0.034, WFM ~0.25, stable vs SNR) while a plain carrier (AM ~0.011)
 	//     does not -> this is what splits FM from AM/CW.
 	// Digital signals have BOTH high EnvCoV and high InstFreqStd, so the no-carrier
-	// gate must be tested before the FM gate. CarrierDC/IFMean are offset-SENSITIVE
-	// (TestCarrierDCOffset: CarrierDC collapses 0.98->0.04 at 5 Hz) so they only
-	// add confirming bonuses, never gate the backbone.
-	carrier := mf.CarrierDC > 0.5    // a strong real carrier sits at center (AM/CW)
+	// gate must be tested before the FM gate. The carrier cue is max(CarrierDC,
+	// CarrierDCCentered): plain CarrierDC is offset-SENSITIVE (collapses 0.98->0.04 at
+	// a 5 Hz offset), but CarrierDCCentered de-rotates by IFMean and recovers an
+	// off-center carrier, so the pair gates reliably even on live HF where the
+	// extraction leaves a residual offset. 0.4 separates AM/CW (synth 0.52-1.0) from
+	// carrier-less SSB/FSK/PSK/digital (<=0.11, TestClassifierFeatureDump); see #82.
+	// (IFMean stays offset-sensitive and is used only to refine SSB sideband, below.)
+	carrierCue := math.Max(mf.CarrierDC, mf.CarrierDCCentered)
+	carrier := carrierCue > 0.4      // a real carrier (AM/CW), centering-robust
 	highEnv := mf.EnvCoV >= 0.20     // no carrier: large amplitude variation
 	fmLike := mf.InstFreqStd >= 0.02 // genuine frequency modulation
 
