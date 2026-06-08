@@ -57,8 +57,6 @@ type dspRuntime struct {
 	nextDerivedBase  int64
 	window           []float64
 	plan             *fftutil.CmplxPlan
-	detailWindow     []float64
-	detailPlan       *fftutil.CmplxPlan
 	detailFFT        int
 	survWindows      map[int][]float64
 	survPlans        map[int]*fftutil.CmplxPlan
@@ -86,7 +84,6 @@ type spectrumArtifacts struct {
 	surveillanceSpectrum []float64
 	surveillanceSpectra  []pipeline.SurveillanceLevelSpectrum
 	surveillancePlan     surveillancePlan
-	detailSpectrum       []float64
 	finished             []detector.Event
 	detected             []detector.Signal
 	sharpDetected        []detector.Signal // L1-B: fine/sharp pass on the same survSpectrum (nil when off)
@@ -143,8 +140,6 @@ func newDSPRuntime(cfg config.Config, det *detector.Detector, window []float64, 
 		nextDerivedBase:  -derivedIDBlock,
 		window:           window,
 		plan:             fftutil.NewCmplxPlan(cfg.FFTSize),
-		detailWindow:     fftutil.Hann(detailFFT),
-		detailPlan:       fftutil.NewCmplxPlan(detailFFT),
 		detailFFT:        detailFFT,
 		survWindows:      map[int][]float64{},
 		survPlans:        map[int]*fftutil.CmplxPlan{},
@@ -239,8 +234,6 @@ func (rt *dspRuntime) applyUpdate(upd dspUpdate, srcMgr *sourceManager, rec *rec
 	}
 	if detailFFT != prevDetailFFT {
 		rt.detailFFT = detailFFT
-		rt.detailWindow = fftutil.Hann(detailFFT)
-		rt.detailPlan = fftutil.NewCmplxPlan(detailFFT)
 	}
 	if prevSampleRate != rt.cfg.SampleRate {
 		rt.survFIR = map[int][]float64{}
@@ -628,11 +621,6 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	rt.lastAllIQTail = tailWindowComplex(allIQ, 32)
 	survSpectrum := rt.surveillanceSpectrumFromIQ(allIQ, survIQ, gpuState)
 	sanitizeSpectrum(survSpectrum)
-	detailSpectrum := survSpectrum
-	if !sameIQBuffer(detailIQ, survIQ) {
-		detailSpectrum = rt.spectrumFromIQWithPlan(detailIQ, rt.detailWindow, rt.detailPlan, gpuState, false)
-		sanitizeSpectrum(detailSpectrum)
-	}
 	policy := pipeline.PolicyFromConfig(rt.cfg)
 	plan := rt.buildSurveillancePlan(policy)
 	surveillanceSpectra := make([]pipeline.SurveillanceLevelSpectrum, 0, len(plan.Specs))
@@ -696,7 +684,6 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 		surveillanceSpectrum: survSpectrum,
 		surveillanceSpectra:  surveillanceSpectra,
 		surveillancePlan:     plan,
-		detailSpectrum:       detailSpectrum,
 		finished:             finished,
 		detected:             detected,
 		sharpDetected:        sharpDetected,
@@ -954,13 +941,9 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 		})
 	}
 	sampleRate := input.SampleRate
-	fftSize := input.FFTSize
 	centerHz := input.CenterHz
 	if sampleRate <= 0 {
 		sampleRate = rt.cfg.SampleRate
-	}
-	if fftSize <= 0 {
-		fftSize = rt.cfg.FFTSize
 	}
 	if centerHz == 0 {
 		centerHz = rt.cfg.CenterHz
@@ -973,13 +956,9 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 	case occBwFraction < 0:
 		occBwFraction = 0 // explicitly disabled
 	}
-	// The classifier reads spectral features at the candidate's FirstBin/LastBin,
-	// which are in SURVEILLANCE-spectrum coordinates — so it must get the surveillance
-	// spectrum, NOT the detail spectrum (a separate FFT plan with a different bin
-	// mapping). On HF the surveillance bins (~31k) fall off the end of the smaller
-	// detail spectrum, so ExtractFeatures silently returned zero features and
-	// classification ran blind on the noisy IQ path (wide AM -> FSK). See issue #83.
-	refined := pipeline.RefineCandidates(selectedCandidates, input.Windows, art.surveillanceSpectrum, sampleRate, fftSize, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode), art.surveillanceSpectrum, occBwFraction)
+	// RefineCandidates classifies from the surveillance spectrum (the coordinate
+	// owner of the candidate FirstBin/LastBin); see its doc and issue #83.
+	refined := pipeline.RefineCandidates(selectedCandidates, input.Windows, sampleRate, snips, snipRates, classifier.ClassifierMode(rt.cfg.ClassifierMode), art.surveillanceSpectrum, occBwFraction)
 	signals := make([]detector.Signal, 0, len(refined))
 	decisions := make([]pipeline.SignalDecision, 0, len(refined))
 	for i, ref := range refined {

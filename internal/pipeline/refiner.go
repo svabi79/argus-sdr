@@ -14,9 +14,10 @@ import (
 // re-estimation (e.g. 0.99); <=0 disables it and keeps the coarse detector
 // bandwidth.
 // survSpectrum is the surveillance spectrum the detector ran on; the candidate
-// FirstBin/LastBin are in its coordinates, so it (not the lower-resolution detail
-// spectrum) is used for occupied-bandwidth re-estimation.
-func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectrum []float64, sampleRate int, fftSize int, snippets [][]complex64, snippetRates []int, mode classifier.ClassifierMode, survSpectrum []float64, occupiedBwFraction float64) []Refinement {
+// FirstBin/LastBin are in its coordinates, so it is used both for occupied-
+// bandwidth re-estimation AND for the classifier's spectral features (the
+// lower-resolution detail spectrum has a different bin mapping — see issue #83).
+func RefineCandidates(candidates []Candidate, windows []RefinementWindow, sampleRate int, snippets [][]complex64, snippetRates []int, mode classifier.ClassifierMode, survSpectrum []float64, occupiedBwFraction float64) []Refinement {
 	out := make([]Refinement, 0, len(candidates))
 	estBinWidth := 0.0
 	if len(survSpectrum) > 0 {
@@ -37,7 +38,7 @@ func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectr
 		// spectrum (candidate bins are in its coordinates). Guarded: only applied
 		// when the estimate is valid and within a sane factor of the coarse
 		// bandwidth, otherwise the coarse value is kept. FirstBin/LastBin are left
-		// untouched (they feed the classifier's detail-spectrum feature path).
+		// untouched (they index survSpectrum for the classifier's spectral features).
 		if occupiedBwFraction > 0 && estBinWidth > 0 && len(survSpectrum) > 0 &&
 			c.FirstBin >= 0 && c.LastBin < len(survSpectrum) && c.LastBin >= c.FirstBin {
 			ref := estimate.RefineFromSpectrum(survSpectrum, c.FirstBin, c.LastBin, estBinWidth, occupiedBwFraction)
@@ -69,7 +70,7 @@ func RefineCandidates(candidates []Candidate, windows []RefinementWindow, spectr
 			SNRDb:    sig.SNRDb,
 			CenterHz: sig.CenterHz,
 			BWHz:     sig.BWHz,
-		}, spectrum, sampleRate, fftSize, snip, mode)
+		}, survSpectrum, sampleRate, len(survSpectrum), snip, mode)
 		sig.Class = cls
 		if cls != nil && cls.ModType == classifier.ClassWFM {
 			cls.ModType = classifier.ClassWFMStereo
