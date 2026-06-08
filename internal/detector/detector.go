@@ -101,13 +101,14 @@ type Signal struct {
 func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	// Bound fftSize defensively: it drives the per-bin allocations (the EMA buffer
 	// and, downstream, the scratch buffers) and comes from config, so a malformed
-	// value must not request an unbounded allocation (CWE-770).
-	if fftSize > 1<<22 { // 4 Mi-bin sanity ceiling — upper-bounds the allocation
-		fftSize = 1 << 22
+	// value must not request an unbounded allocation (CWE-770). Use a sanitised
+	// value that is provably within [1, maxFFTBins] on every path.
+	const maxFFTBins = 4194304 // 4 Mi bins
+	sanitizedFFT := 65536
+	if fftSize > 0 && fftSize <= maxFFTBins {
+		sanitizedFFT = fftSize
 	}
-	if fftSize <= 0 {
-		fftSize = 65536
-	}
+	fftSize = sanitizedFFT
 	minDur := time.Duration(detCfg.MinDurationMs) * time.Millisecond
 	hold := time.Duration(detCfg.HoldMs) * time.Millisecond
 	gapTolerance := time.Duration(detCfg.GapToleranceMs) * time.Millisecond
