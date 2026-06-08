@@ -17,6 +17,7 @@ type BatchRunner struct {
 	streamState map[int64]*ExtractStreamState
 	nativeState map[int64]*nativeStreamingSignalState
 	outRings    map[int64]*streamOutRing // reused per-signal output buffers (#20)
+	outPool     outBufPool               // cross-signal free list, recycled on prune
 }
 
 func NewBatchRunner(maxSamples int, sampleRate int) (*BatchRunner, error) {
@@ -43,6 +44,7 @@ func (r *BatchRunner) Close() {
 	r.streamState = nil
 	r.nativeState = nil
 	r.outRings = nil
+	r.outPool = outBufPool{}
 }
 
 func (r *BatchRunner) prepare(jobs []ExtractJob) {
