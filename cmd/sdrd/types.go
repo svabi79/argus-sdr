@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"sync"
 	"time"
 
@@ -93,6 +94,12 @@ type hub struct {
 	clients   map[*client]struct{}
 	frameCnt  int64
 	lastLogTs time.Time
+	// jsonBuf is reused across frames to marshal the per-frame signals+debug JSON
+	// once (not per decimation level), avoiding the per-frame json.Marshal growth
+	// that dominated steady-state allocation. broadcast() is called from the single
+	// DSP goroutine, so the buffer needs no lock; its bytes are copied into each
+	// per-client frame before the next broadcast, so reuse is race-free.
+	jsonBuf bytes.Buffer
 }
 
 type gpuStatus struct {
