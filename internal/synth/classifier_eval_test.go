@@ -163,9 +163,9 @@ func TestClassifierFeatureDump(t *testing.T) {
 	seeds := []int64{1, 2, 3}
 	for _, snr := range []float64{15, 30, 45} {
 		t.Logf("=== SNR %.0f dB ===", snr)
-		t.Logf("%-8s %6s %8s %8s %9s %8s", "kind", "envCoV", "ifStd", "carrDC", "ifMean", "ifModes")
+		t.Logf("%-8s %6s %8s %8s %9s %9s %8s", "kind", "envCoV", "ifStd", "carrDC", "carrCent", "ifMean", "ifModes")
 		for _, kc := range classifierCases() {
-			var envCoV, ifStd, carr, ifMean float64
+			var envCoV, ifStd, carr, carrCent, ifMean float64
 			var modes int
 			for _, seed := range seeds {
 				sc := synth.Scene{SampleRate: kc.fs, Seed: seed, NoiseStd: 1.0, Signals: []synth.SignalSpec{
@@ -175,11 +175,12 @@ func TestClassifierFeatureDump(t *testing.T) {
 				envCoV += mf.EnvCoV
 				ifStd += mf.InstFreqStd
 				carr += mf.CarrierDC
+				carrCent += mf.CarrierDCCentered
 				ifMean += mf.IFMean
 				modes += mf.InstFreqModes
 			}
 			k := float64(len(seeds))
-			t.Logf("%-8s %6.3f %8.4f %8.3f %9.4f %6d", kc.kind, envCoV/k, ifStd/k, carr/k, ifMean/k, modes/len(seeds))
+			t.Logf("%-8s %6.3f %8.4f %8.3f %9.3f %9.4f %6d", kc.kind, envCoV/k, ifStd/k, carr/k, carrCent/k, ifMean/k, modes/len(seeds))
 		}
 	}
 }

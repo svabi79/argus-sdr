@@ -88,3 +88,40 @@ func TestCombinedClassify(t *testing.T) {
 		t.Errorf("expected NFM, got %s (scores: %v)", cls.ModType, cls.Scores)
 	}
 }
+
+// makeChirpIQ is a constant-envelope frequency sweep: it has spread (not
+// concentrated) energy and no carrier, so de-rotating by its mean instantaneous
+// frequency must NOT manufacture a DC term.
+func makeChirpIQ(n int) []complex64 {
+	iq := make([]complex64, n)
+	phase := 0.0
+	for i := range iq {
+		f := -0.1 + 0.2*float64(i)/float64(n) // sweep across the band
+		phase += 2 * math.Pi * f
+		iq[i] = complex(float32(math.Cos(phase)), float32(math.Sin(phase)))
+	}
+	return iq
+}
+
+// TestCarrierDCCenteredRecoversOffset is the live-HF AM fix (#82): a real carrier
+// offset from center collapses plain CarrierDC (it needs sub-bin centering) but
+// CarrierDCCentered de-rotates by IFMean and recovers it — without manufacturing a
+// carrier for genuinely carrier-less signals.
+func TestCarrierDCCenteredRecoversOffset(t *testing.T) {
+	centered := makeToneIQ(4096, 0.0, 0.8) // AM carrier at DC
+	offset := makeToneIQ(4096, 0.02, 0.8)  // same AM, carrier offset 2% of fs
+	mc := ExtractMathFeatures(centered)
+	mo := ExtractMathFeatures(offset)
+	if mc.CarrierDC < 0.5 {
+		t.Fatalf("sanity: centered AM should have high CarrierDC, got %.3f", mc.CarrierDC)
+	}
+	if mo.CarrierDC > 0.2 {
+		t.Errorf("offset AM: plain CarrierDC should collapse, got %.3f", mo.CarrierDC)
+	}
+	if mo.CarrierDCCentered < 0.5 {
+		t.Errorf("offset AM: CarrierDCCentered should recover the carrier, got %.3f", mo.CarrierDCCentered)
+	}
+	if ms := ExtractMathFeatures(makeChirpIQ(4096)); ms.CarrierDCCentered > 0.2 {
+		t.Errorf("chirp (no carrier): CarrierDCCentered should stay low, got %.3f", ms.CarrierDCCentered)
+	}
+}
