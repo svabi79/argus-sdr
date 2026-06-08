@@ -136,12 +136,15 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 			noiseFloor := state.surveillance.NoiseFloor
 			var displaySignals []detector.Signal
 			if len(art.detailIQ) > 0 {
-				displaySignals = state.refinement.Result.Signals
+				// Display every tracked signal (markers), including weak ham-band
+				// signals the refinement budget does not admit: detection + tracking
+				// are cheap and run for all signals, only the per-signal extraction/
+				// refine is budgeted. Previously displaySignals showed only the
+				// refined (budgeted) subset, so strong broadcast crowded out weak
+				// 7.0-7.2 MHz signals that were in fact detected and even extracted.
 				stableSignals := rt.det.StableSignals()
-				streamSignals := displaySignals
-				if len(stableSignals) > 0 {
-					streamSignals = stableSignals
-				}
+				displaySignals = stableSignals
+				streamSignals := stableSignals
 				if rec != nil && len(art.allIQ) > 0 {
 					if art.streamDropped {
 						rt.streamOverlap = &streamIQOverlap{}
