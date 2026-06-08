@@ -92,7 +92,7 @@ func TestClassifierProfiles(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cls := RuleClassify(tt.feat, tt.centerHz, tt.snrDb)
+			cls := RuleClassify(tt.feat, tt.feat.BW3dB, tt.centerHz, tt.snrDb)
 			if cls.ModType != tt.wantBest {
 				t.Errorf("got %s (conf=%.2f), want %s. Scores: %v", cls.ModType, cls.Confidence, tt.wantBest, cls.Scores)
 			}
@@ -102,7 +102,7 @@ func TestClassifierProfiles(t *testing.T) {
 
 func TestLowSNRConfidence(t *testing.T) {
 	feat := Features{BW3dB: 3000, SpectralFlat: 0.5, PeakToAvg: 1.5}
-	cls := RuleClassify(feat, 14.2e6, 5)
+	cls := RuleClassify(feat, feat.BW3dB, 14.2e6, 5)
 	if cls.Confidence > 0.5 {
 		t.Errorf("low SNR should have low confidence: got %.2f", cls.Confidence)
 	}

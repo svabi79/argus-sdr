@@ -8,7 +8,7 @@
 bands:
     - name: 40m-41m
       start_hz: 7.0e+06
-      end_hz: 7.45e+06
+      end_hz: 7.75e+06
 center_hz: 7.1e+06
 sample_rate: 2000000
 fft_size: 65536
@@ -25,8 +25,8 @@ pipeline:
     goals:
         intent: hf-surveillance
         monitor_start_hz: 7.0e+06
-        monitor_end_hz: 7.45e+06
-        monitor_span_hz: 450000
+        monitor_end_hz: 7.75e+06
+        monitor_span_hz: 750000
         signal_priorities:
             - cw
             - ssb

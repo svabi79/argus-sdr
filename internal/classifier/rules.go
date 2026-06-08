@@ -2,11 +2,20 @@ package classifier
 
 import "math"
 
-func RuleClassify(feat Features, centerHz float64, snrDb float64) Classification {
-	bw := feat.BW3dB
+func RuleClassify(feat Features, occBW float64, centerHz float64, snrDb float64) Classification {
+	// Width decisions use the OCCUPIED bandwidth (the channel width). feat.BW3dB is
+	// the 3 dB PEAK width — for a carrier-bearing signal it is just the carrier spike,
+	// so keying CW/SSB/AM off it mislabels a wide AM channel as CW (the live-HF bug).
+	bw := occBW
+	if bw <= 0 {
+		bw = feat.BW3dB
+	}
 	flat := feat.SpectralFlat
 	sym := feat.Symmetry
 	p2a := feat.PeakToAvg
+	// A carrier spike: a narrow 3 dB peak well above the channel average. Robust on
+	// live HF (the carrier dominates the strongest bin) where IQ CarrierDC washes out.
+	sharpCarrier := feat.BW3dB > 0 && feat.BW3dB <= 200 && p2a >= 6
 
 	scores := map[SignalClass]float64{}
 	add := func(c SignalClass, w float64) {
@@ -26,30 +35,44 @@ func RuleClassify(feat Features, centerHz float64, snrDb float64) Classification
 		add(ClassWFM, 1.4)
 		add(ClassNFM, 0.8)
 	case bw >= 6e3 && bw < 25e3:
-		add(ClassNFM, 1.2)
+		if sharpCarrier {
+			add(ClassAM, 1.6) // wide channel + carrier spike = AM broadcast
+		} else {
+			add(ClassNFM, 1.2)
+		}
 	case bw >= 3e3 && bw < 6e3:
-		add(ClassSSBUSB, 0.6)
-		add(ClassSSBLSB, 0.6)
-		if p2a > 2.5 && flat < 0.5 {
-			add(ClassAM, 1.1)
+		if sharpCarrier {
+			add(ClassAM, 1.6)
+		} else {
+			add(ClassSSBUSB, 0.6)
+			add(ClassSSBLSB, 0.6)
 		}
-	case bw >= 500 && bw < 3e3:
-		add(ClassSSBUSB, 0.8)
-		add(ClassSSBLSB, 0.8)
-		if p2a > 3 && flat < 0.4 {
-			add(ClassAM, 1.0)
+	case bw >= 700 && bw < 3e3:
+		if sharpCarrier {
+			add(ClassAM, 1.2)
+		} else {
+			add(ClassSSBUSB, 0.8)
+			add(ClassSSBLSB, 0.8)
 		}
-	case bw >= 150 && bw < 500:
-		add(ClassFSK, 0.5)
-		add(ClassPSK, 0.5)
+	case bw >= 150 && bw < 700:
+		if sharpCarrier {
+			add(ClassCW, 1.4) // narrow channel + carrier spike = CW
+		} else {
+			add(ClassFSK, 0.5)
+			add(ClassPSK, 0.5)
+		}
 	case bw < 150:
 		add(ClassCW, 1.6)
 	}
 
-	if sym > 0.2 {
-		add(ClassSSBUSB, 1.2)
-	} else if sym < -0.2 {
-		add(ClassSSBLSB, 1.2)
+	// SSB sideband from spectral asymmetry — only for suppressed-carrier signals
+	// (a carrier spike makes this meaningless, and CW/AM read strongly asymmetric).
+	if !sharpCarrier {
+		if sym > 0.2 {
+			add(ClassSSBUSB, 1.2)
+		} else if sym < -0.2 {
+			add(ClassSSBLSB, 1.2)
+		}
 	}
 
 	rollAvg := (feat.RolloffLeft + feat.RolloffRight) / 2.0
