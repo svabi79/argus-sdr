@@ -120,6 +120,12 @@ type surveillancePlan struct {
 
 const derivedIDBlock = int64(1_000_000_000)
 
+// wfmMinBwForRDSHz gates the WFM stereo/RDS path: a signal must occupy at least
+// this much bandwidth to carry the FM multiplex (19 kHz pilot + 57 kHz RDS).
+// Below it, the spectrum-only classifier's "WFM" label is a misclassification of
+// a narrow signal and the expensive updateRDS path must not run.
+const wfmMinBwForRDSHz = 100000.0
+
 // sharpIDBase is the fixed ID block for L1-B sharp-pass candidates: far below the
 // derived pool (which only ever reaches a few * -derivedIDBlock) so sharp IDs
 // never collide with primary (positive) or derived IDs (Principle II).
@@ -969,7 +975,15 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 		decision := pipeline.DecideSignalAction(policy, ref.Candidate, cls)
 		decisions = append(decisions, decision)
 		if cls != nil {
-			if cls.ModType == classifier.ClassWFM {
+			// WFM stereo/RDS only exists in a wideband-FM multiplex (19 kHz pilot,
+			// 57 kHz RDS subcarrier), so it requires a WFM-scale occupied bandwidth.
+			// The spectrum-only classifier mislabels narrow HF signals (CW/SSB) as
+			// WFM; without this gate updateRDS ran the expensive multi-second
+			// ring-slice + pilot/RDS decode on every such signal (a major GC/CPU
+			// driver on the ham bands). Constitution III: bandwidth is the demod
+			// prerequisite here, independent of frequency band.
+			isWFMWidth := signals[i].BWHz >= wfmMinBwForRDSHz
+			if cls.ModType == classifier.ClassWFM && isWFMWidth {
 				cls.ModType = classifier.ClassWFMStereo
 				signals[i].PlaybackMode = string(classifier.ClassWFMStereo)
 				signals[i].DemodName = string(classifier.ClassWFMStereo)
@@ -992,7 +1006,7 @@ func (rt *dspRuntime) refineSignals(art *spectrumArtifacts, input pipeline.Refin
 					signals[i].StereoState = "searching"
 				}
 			}
-			if cls.ModType == classifier.ClassWFMStereo && rec != nil {
+			if cls.ModType == classifier.ClassWFMStereo && rec != nil && isWFMWidth {
 				// updateRDS runs the stereo pilot + RDS decode on a multi-second ring
 				// slice and sets signals[i].PLL.Stereo / .RDSStation.
 				rt.updateRDS(art.now, rec, extractMgr, &signals[i], cls)
