@@ -279,6 +279,7 @@ func (ev *activeEvent) updateClass(newCls *classifier.Classification, historySiz
 	if threshold < 1 {
 		threshold = 1
 	}
+	prevPLL := ev.class.PLL // captured before the (possible) class switch below
 	if majorityCount >= threshold && majority != ev.class.ModType {
 		clone := *newCls
 		clone.ModType = majority
@@ -289,9 +290,20 @@ func (ev *activeEvent) updateClass(newCls *classifier.Classification, historySiz
 		ev.class.SecondBest = newCls.SecondBest
 		ev.class.Scores = newCls.Scores
 	}
-	// Always update PLL — RDS station name accumulates over time
+	// Update PLL but HOLD the accumulated RDS station name: the per-frame refined
+	// PLL is a fresh short-window estimate (and a frame whose 4 s RDS decode hasn't
+	// (re)filled the name carries an empty RDSStation). Overwriting the event PLL
+	// with that empty name made the DISPLAYED station name flicker even though it is
+	// sticky upstream (rdsState.result). Keep the last good name; a fresh non-empty
+	// decode still replaces it.
 	if newCls.PLL != nil {
-		ev.class.PLL = newCls.PLL
+		if prevPLL != nil && newCls.PLL.RDSStation == "" && prevPLL.RDSStation != "" {
+			merged := *newCls.PLL
+			merged.RDSStation = prevPLL.RDSStation
+			ev.class.PLL = &merged
+		} else {
+			ev.class.PLL = newCls.PLL
+		}
 	}
 }
 
