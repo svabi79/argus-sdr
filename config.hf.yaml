@@ -1,0 +1,86 @@
+# HF 40m surveillance config (CW/SSB/AM/digital). Mirrors the FM-BC playbook but
+# for the opposite regime: HF emissions are NARROW (CW 0.18-0.9 kHz, SSB 2-3 kHz,
+# AM broadcast 5-10 kHz), so the occupancy ("waterfall") detector — which is built
+# for wide contiguous channels like FM — is the wrong tool here. The multi-scale
+# baseline detector (OI-21) is what recalls the narrow signals: on the hf_40m
+# oracle it gets ~0.78 recall vs CFAR's ~0.44 (TestStrategyDetect). Validated by
+# replaying data/snapshots/hf_40m.cf32; center/sample-rate come from the file meta.
+bands:
+    - name: 40m-41m
+      start_hz: 7.0e+06
+      end_hz: 7.45e+06
+center_hz: 7.1e+06
+sample_rate: 2000000
+fft_size: 65536
+gain_db: 20
+tuner_bw_khz: 2000
+use_gpu_fft: true
+classifier_mode: combined
+agc: false
+dc_block: true
+iq_balance: true
+pipeline:
+    mode: wideband-balanced
+    profile: wideband-balanced
+    goals:
+        intent: hf-surveillance
+        monitor_start_hz: 7.0e+06
+        monitor_end_hz: 7.45e+06
+        monitor_span_hz: 450000
+        signal_priorities:
+            - cw
+            - ssb
+            - am
+            - digital
+        auto_record_classes: []
+        auto_decode_classes:
+            - CW
+            - USB
+            - LSB
+            - FT8
+surveillance:
+    analysis_fft_size: 65536
+    frame_rate: 12
+    strategy: multi-resolution
+    display_bins: 4096
+    display_fps: 12
+    derived_detection: auto
+    welch_segments: 0
+refinement:
+    enabled: true
+    max_concurrent: 24
+    detail_fft_size: 16384
+    min_candidate_snr_db: 3
+    min_span_hz: 2000
+    max_span_hz: 30000
+    auto_span: true
+    occupied_bw_fraction: 0
+resources:
+    prefer_gpu: true
+    max_refinement_jobs: 24
+    max_recording_streams: 32
+    max_decode_jobs: 5
+    decision_hold_ms: 2000
+detector:
+    threshold_db: -60
+    min_duration_ms: 200
+    hold_ms: 700
+    ema_alpha: 0.05
+    hysteresis_db: 10
+    min_stable_frames: 4
+    gap_tolerance_ms: 2000
+    edge_margin_db: 6
+    max_signal_bw_hz: 260000
+    merge_gap_hz: 1000
+    multi_scale: true
+    ms_k: 24
+    ms_min_snr_db: 6
+    ms_min_bw_hz: 200
+    occupancy_detect: false
+    class_history_size: 10
+    class_switch_ratio: 0.6
+web_addr: :8080
+event_path: data/events_hf.jsonl
+frame_rate: 12
+waterfall_lines: 200
+web_root: web
