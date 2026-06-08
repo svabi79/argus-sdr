@@ -191,7 +191,7 @@ func extractSignalIQBatch(extractMgr *extractionManager, iq []complex64, sampleR
 			} else if bw < 20000 {
 				bw = 20000
 			}
-			jobs[i] = gpudemod.ExtractJob{OffsetHz: sig.CenterHz - centerHz, BW: bw, OutRate: jobOutRate}
+			jobs[i] = gpudemod.ExtractJob{OffsetHz: sig.CenterHz - centerHz, BW: bw, OutRate: snapOutRate(sampleRate, jobOutRate)}
 		}
 		if gpuOuts, gpuRates, err := runner.ShiftFilterDecimateBatch(iq, jobs); err == nil && len(gpuOuts) == len(signals) {
 			// batch extraction OK (silent)
@@ -270,8 +270,8 @@ type streamIQOverlap struct {
 
 // extractionConfig holds audio quality settings for signal extraction.
 type extractionConfig struct {
-	firTaps   int     // AQ-3: FIR tap count (default 101)
-	bwMult    float64 // AQ-5: BW multiplier (default 1.2)
+	firTaps int     // AQ-3: FIR tap count (default 101)
+	bwMult  float64 // AQ-5: BW multiplier (default 1.2)
 }
 
 const streamOverlapLen = 512 // must be >= FIR tap count with margin
@@ -279,6 +279,35 @@ const (
 	wfmStreamOutRate = 512000
 	wfmStreamMinBW   = 250000
 )
+
+// snapOutRate returns the extraction out-rate nearest `target` whose decimation
+// factor divides sampleRate evenly, so the GPU polyphase extractor's integer-
+// decimation requirement (ExactIntegerDecimation, Constitution XIII phase
+// fidelity) is always met. Without this, e.g. sampleRate=4.096 MS/s with the NFM
+// target 200 kHz gives a 20.48 non-integer factor, the GPU path rejects every
+// signal, and the per-signal CPU overlap+trim fallback runs every frame (a CPU
+// flood that scales with signal count). The decimation factor is searched among
+// divisors of sampleRate; the resulting rate (e.g. 204800) is close enough and
+// downstream uses the actual returned rate.
+func snapOutRate(sampleRate, target int) int {
+	if sampleRate <= 0 || target <= 0 {
+		return target
+	}
+	ideal := float64(sampleRate) / float64(target)
+	bestDecim, bestErr := 0, math.MaxFloat64
+	for d := 1; d <= 256 && d <= sampleRate; d++ {
+		if sampleRate%d != 0 {
+			continue
+		}
+		if e := math.Abs(float64(d) - ideal); e < bestErr {
+			bestErr, bestDecim = e, d
+		}
+	}
+	if bestDecim < 1 {
+		return target
+	}
+	return sampleRate / bestDecim
+}
 
 var forceCPUStreamExtract = func() bool {
 	raw := strings.TrimSpace(os.Getenv("SDR_FORCE_CPU_STREAM_EXTRACT"))
@@ -446,7 +475,7 @@ func extractForStreaming(
 		jobs[i] = gpudemod.ExtractJob{
 			OffsetHz:   sig.CenterHz - centerHz,
 			BW:         bw,
-			OutRate:    jobOutRate,
+			OutRate:    snapOutRate(sampleRate, jobOutRate),
 			PhaseStart: gpuPhaseStart,
 		}
 		if coll != nil {
@@ -456,14 +485,14 @@ func extractForStreaming(
 			coll.SetGauge("iq.extract.input_head.first_nonzero_index", float64(inputHead.firstNonZeroIndex), tags)
 			coll.SetGauge("iq.extract.input_head.max_step", inputHead.maxStep, tags)
 			coll.Event("extract_input_head_probe", "info", "extractor input head probe", tags, map[string]any{
-				"mags": inputHead.mags,
-				"zero_count": inputHead.zeroCount,
+				"mags":                inputHead.mags,
+				"zero_count":          inputHead.zeroCount,
 				"first_nonzero_index": inputHead.firstNonZeroIndex,
-				"head_max_step": inputHead.maxStep,
-				"center_offset_hz": jobs[i].OffsetHz,
-				"bandwidth_hz": bw,
-				"out_rate": jobOutRate,
-				"trim_samples": (overlapLen + int(math.Max(1, math.Round(float64(sampleRate)/float64(jobOutRate)))) - 1) / int(math.Max(1, math.Round(float64(sampleRate)/float64(jobOutRate)))),
+				"head_max_step":       inputHead.maxStep,
+				"center_offset_hz":    jobs[i].OffsetHz,
+				"bandwidth_hz":        bw,
+				"out_rate":            jobOutRate,
+				"trim_samples":        (overlapLen + int(math.Max(1, math.Round(float64(sampleRate)/float64(jobOutRate)))) - 1) / int(math.Max(1, math.Round(float64(sampleRate)/float64(jobOutRate)))),
 			})
 		}
 	}
@@ -479,13 +508,13 @@ func extractForStreaming(
 		if coll != nil && len(gpuIQ) > 0 {
 			inputProbe := probeHead(gpuIQ, 16, 1e-6)
 			coll.Event("gpu_kernel_input_head_probe", "info", "gpu kernel input head probe", nil, map[string]any{
-				"mags": inputProbe.mags,
-				"zero_count": inputProbe.zeroCount,
+				"mags":                inputProbe.mags,
+				"zero_count":          inputProbe.zeroCount,
 				"first_nonzero_index": inputProbe.firstNonZeroIndex,
-				"head_max_step": inputProbe.maxStep,
-				"gpuIQ_len": len(gpuIQ),
-				"sample_rate": sampleRate,
-				"signals": len(signals),
+				"head_max_step":       inputProbe.maxStep,
+				"gpuIQ_len":           len(gpuIQ),
+				"sample_rate":         sampleRate,
+				"signals":             len(signals),
 			})
 		}
 		results, err := runner.ShiftFilterDecimateBatchWithPhase(gpuIQ, jobs)
@@ -528,13 +557,13 @@ func extractForStreaming(
 					tags := telemetry.TagsFromPairs("signal_id", fmt.Sprintf("%d", signals[i].ID), "path", "gpu")
 					kernelProbe := probeHead(res.IQ, 16, 1e-6)
 					coll.Event("gpu_kernel_output_head_probe", "info", "gpu kernel output head probe", tags, map[string]any{
-						"mags": kernelProbe.mags,
-						"zero_count": kernelProbe.zeroCount,
+						"mags":                kernelProbe.mags,
+						"zero_count":          kernelProbe.zeroCount,
 						"first_nonzero_index": kernelProbe.firstNonZeroIndex,
-						"head_max_step": kernelProbe.maxStep,
-						"raw_len": rawLen,
-						"out_rate": outRate,
-						"trim_samples": trimSamples,
+						"head_max_step":       kernelProbe.maxStep,
+						"raw_len":             rawLen,
+						"out_rate":            outRate,
+						"trim_samples":        trimSamples,
 					})
 					stats := computeIQHeadStats(iq, 64)
 					coll.SetGauge("iq.extract.output.length", float64(len(iq)), tags)
@@ -554,11 +583,11 @@ func extractForStreaming(
 						coll.SetGauge("iq.extract.raw.first_nonzero_index", float64(rawHead.firstNonZeroIndex), tags)
 						coll.SetGauge("iq.extract.raw.head_max_step", rawHead.maxStep, tags)
 						coll.Event("extract_raw_head_probe", "info", "raw extractor head probe", tags, map[string]any{
-							"mags": rawHead.mags,
-							"zero_count": rawHead.zeroCount,
+							"mags":                rawHead.mags,
+							"zero_count":          rawHead.zeroCount,
 							"first_nonzero_index": rawHead.firstNonZeroIndex,
-							"head_max_step": rawHead.maxStep,
-							"trim_samples": trimSamples,
+							"head_max_step":       rawHead.maxStep,
+							"trim_samples":        trimSamples,
 						})
 					}
 					if len(iq) > 0 {
@@ -569,11 +598,11 @@ func extractForStreaming(
 						coll.SetGauge("iq.extract.trimmed.first_nonzero_index", float64(trimmedHead.firstNonZeroIndex), tags)
 						coll.SetGauge("iq.extract.trimmed.head_max_step", trimmedHead.maxStep, tags)
 						coll.Event("extract_trimmed_head_probe", "info", "trimmed extractor head probe", tags, map[string]any{
-							"mags": trimmedHead.mags,
-							"zero_count": trimmedHead.zeroCount,
+							"mags":                trimmedHead.mags,
+							"zero_count":          trimmedHead.zeroCount,
 							"first_nonzero_index": trimmedHead.firstNonZeroIndex,
-							"head_max_step": trimmedHead.maxStep,
-							"trim_samples": trimSamples,
+							"head_max_step":       trimmedHead.maxStep,
+							"trim_samples":        trimSamples,
 						})
 					}
 					if rb := rawBoundary[signals[i].ID]; rb.set && rawLen > 0 {
@@ -582,9 +611,9 @@ func extractForStreaming(
 						coll.SetGauge("iq.extract.raw.boundary.prev_tail_mag", prevMag, tags)
 						coll.SetGauge("iq.extract.raw.boundary.curr_head_mag", currMag, tags)
 						coll.Event("extract_raw_boundary", "info", "raw extractor boundary", tags, map[string]any{
-							"delta_mag": math.Abs(currMag - prevMag),
+							"delta_mag":    math.Abs(currMag - prevMag),
 							"trim_samples": trimSamples,
-							"raw_len": rawLen,
+							"raw_len":      rawLen,
 						})
 					}
 					if tb := trimmedBoundary[signals[i].ID]; tb.set && len(iq) > 0 {
@@ -593,9 +622,9 @@ func extractForStreaming(
 						coll.SetGauge("iq.extract.trimmed.boundary.prev_tail_mag", prevMag, tags)
 						coll.SetGauge("iq.extract.trimmed.boundary.curr_head_mag", currMag, tags)
 						coll.Event("extract_trimmed_boundary", "info", "trimmed extractor boundary", tags, map[string]any{
-							"delta_mag": math.Abs(currMag - prevMag),
+							"delta_mag":    math.Abs(currMag - prevMag),
 							"trim_samples": trimSamples,
-							"out_len": len(iq),
+							"out_len":      len(iq),
 						})
 					}
 				}

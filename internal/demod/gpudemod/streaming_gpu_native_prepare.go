@@ -79,7 +79,7 @@ func (r *BatchRunner) executeStreamingGPUNativePrepared(invocations []StreamingG
 		// crosses the async streamer feed channel, so a single reused buffer would
 		// race — the ring (depth streamOutRingDepth) guarantees the producer never
 		// overwrites a slot the consumer still holds.
-		outHost := r.outRingFor(inv.SignalID).next(int(nOut))
+		outHost := r.outRingFor(inv.SignalID).next(int(nOut), &r.outPool)
 		if len(outHost) > 0 {
 			if bridgeMemcpyD2H(unsafe.Pointer(&outHost[0]), state.dOut, uintptr(len(outHost))*unsafe.Sizeof(complex64(0))) != 0 {
 				return nil, ErrUnavailable
