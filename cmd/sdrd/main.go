@@ -17,8 +17,8 @@ import (
 	"sdr-wideband-suite/internal/config"
 	"sdr-wideband-suite/internal/detector"
 	fftutil "sdr-wideband-suite/internal/fft"
-	"sdr-wideband-suite/internal/iqfile"
 	"sdr-wideband-suite/internal/fft/gpufft"
+	"sdr-wideband-suite/internal/iqfile"
 	"sdr-wideband-suite/internal/logging"
 	"sdr-wideband-suite/internal/mock"
 	"sdr-wideband-suite/internal/recorder"
@@ -29,13 +29,22 @@ import (
 )
 
 func main() {
-	// Reduce GC target to limit peak memory. Default GOGC=100 lets heap
-	// grow to 2× live set before collecting. GOGC=50 triggers GC at 1.5×,
-	// halving the memory swings at a small CPU cost.
-	debug.SetGCPercent(50)
-	// Soft memory limit — GC will be more aggressive near this limit.
-	// 1 GB is generous for 5 WFM-stereo signals + FFT + recordings.
-	debug.SetMemoryLimit(1024 * 1024 * 1024)
+	// GC tuning (env-overridable: GOGC / GOMEMLIMIT take precedence).
+	//
+	// The previous values (GOGC=50, 1 GB soft limit) were tuned for ~5 WFM-stereo
+	// signals. A soft memory limit BELOW the real working set is pathological: the
+	// GC can never satisfy it, so it runs essentially every cycle — this was ~60%
+	// of total CPU (gcDrain) once the multi-scale detector (OI-21) raised the
+	// active-signal count and the working set well past 1 GB. Use the default GC
+	// pace and a safety cap that sits ABOVE the working set, not under it. Most of
+	// the resident bytes are pointer-free IQ buffers (recorder ring, extraction
+	// snippets) that are cheap to scan, so the higher cap costs little.
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(100)
+	}
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(4 * 1024 * 1024 * 1024) // 4 GB safety cap: must sit above the ~2.5-3 GB working set (260 signals + IQ buffers) or the GC thrashes; env GOMEMLIMIT to tune
+	}
 
 	var cfgPath string
 	var mockFlag bool
