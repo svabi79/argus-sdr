@@ -25,45 +25,56 @@ type Event struct {
 }
 
 type Detector struct {
-	ThresholdDb     float64
-	MinDuration     time.Duration
-	Hold            time.Duration
-	EmaAlpha        float64
-	HysteresisDb    float64
-	MinStableFrames int
-	GapTolerance    time.Duration
-	CFARScaleDb     float64
-	EdgeMarginDb    float64
-	MaxSignalBwHz   float64
-	MergeGapHz      float64
+	ThresholdDb      float64
+	MinDuration      time.Duration
+	Hold             time.Duration
+	EmaAlpha         float64
+	HysteresisDb     float64
+	MinStableFrames  int
+	GapTolerance     time.Duration
+	CFARScaleDb      float64
+	EdgeMarginDb     float64
+	MaxSignalBwHz    float64
+	MergeGapHz       float64
 	classHistorySize int
 	classSwitchRatio float64
-	centerAlpha     float64 // alpha-beta position gain for carrier-center tracking
-	centerBeta      float64 // alpha-beta velocity gain (0 = treat center as stationary)
-	binWidth        float64
-	nbins           int
-	sampleRate      int
+	centerAlpha      float64 // alpha-beta position gain for carrier-center tracking
+	centerBeta       float64 // alpha-beta velocity gain (0 = treat center as stationary)
+	binWidth         float64
+	nbins            int
+	sampleRate       int
 
-	ema            []float64
-	active         map[int64]*activeEvent
-	nextID         int64
-	cfarEngine     cfar.CFAR
-	lastThresholds []float64
-	lastNoiseFloor float64
+	ema             []float64
+	active          map[int64]*activeEvent
+	nextID          int64
+	cfarEngine      cfar.CFAR
+	multiScale      bool
+	occupancy       bool
+	occThreshDb     float64
+	occMinPeakDb    float64
+	occMergeGapBins int
+	occBwDropDb     float64
+	occMinBwHz      float64
+	occMaxBwBins    int
+	msParams        MultiScaleParams
+	msScr           *msScratch
+	msFinal         []msRun
+	lastThresholds  []float64
+	lastNoiseFloor  float64
 	lastProcessTime time.Time
 }
 
 type activeEvent struct {
-	id         int64
-	start      time.Time
-	lastSeen   time.Time
-	centerHz   float64
-	centerVel  float64 // alpha-beta velocity estimate (Hz/frame)
-	bwHz       float64
-	peakDb     float64
-	snrDb      float64
-	firstBin   int
-	lastBin    int
+	id           int64
+	start        time.Time
+	lastSeen     time.Time
+	centerHz     float64
+	centerVel    float64 // alpha-beta velocity estimate (Hz/frame)
+	bwHz         float64
+	peakDb       float64
+	snrDb        float64
+	firstBin     int
+	lastBin      int
 	class        *classifier.Classification
 	stableHits   int
 	missedFrames int // Consecutive frames without a matching raw signal
@@ -72,7 +83,7 @@ type activeEvent struct {
 }
 
 type Signal struct {
-	ID           int64                       `json:"id"`
+	ID           int64                      `json:"id"`
 	FirstBin     int                        `json:"first_bin"`
 	LastBin      int                        `json:"last_bin"`
 	CenterHz     float64                    `json:"center_hz"`
@@ -113,6 +124,26 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 	mergeGapHz := detCfg.MergeGapHz
 	classHistorySize := detCfg.ClassHistorySize
 	classSwitchRatio := detCfg.ClassSwitchRatio
+
+	// Occupancy detection (the "waterfall" detector): contiguous occupied-band runs
+	// over a GLOBAL floor, so a wide signal (WFM plateau) is ONE signal, not the
+	// many fragments a local CFAR/multi-scale peak detector produces.
+	occThreshDb := detCfg.OccThreshDb
+	if occThreshDb <= 0 {
+		occThreshDb = 6 // occupied-width threshold over the floor
+	}
+	occMinPeakDb := detCfg.OccMinPeakDb
+	if occMinPeakDb <= 0 {
+		occMinPeakDb = 10 // a run must peak this far over the floor to be a signal
+	}
+	occMergeGapBins := 0
+	if detCfg.OccMergeGapHz > 0 {
+		occMergeGapBins = int(math.Round(detCfg.OccMergeGapHz / binWidth))
+	}
+	occMaxBwBins := 0
+	if detCfg.OccMaxBwHz > 0 {
+		occMaxBwBins = int(math.Round(detCfg.OccMaxBwHz / binWidth))
+	}
 
 	// Carrier-center tracking gains (alpha-beta filter). See matchSignals.
 	// "quiet" treats the center as stationary (beta=0) with heavy smoothing;
@@ -177,28 +208,45 @@ func New(detCfg config.DetectorConfig, sampleRate int, fftSize int) *Detector {
 		})
 	}
 	return &Detector{
-		ThresholdDb:     thresholdDb,
-		MinDuration:     minDur,
-		Hold:            hold,
-		EmaAlpha:        emaAlpha,
-		HysteresisDb:    hysteresis,
-		MinStableFrames: minStable,
-		GapTolerance:    gapTolerance,
-		CFARScaleDb:     cfarScaleDb,
-		EdgeMarginDb:    edgeMarginDb,
-		MaxSignalBwHz:   maxSignalBwHz,
-		MergeGapHz:      mergeGapHz,
+		ThresholdDb:      thresholdDb,
+		MinDuration:      minDur,
+		Hold:             hold,
+		EmaAlpha:         emaAlpha,
+		HysteresisDb:     hysteresis,
+		MinStableFrames:  minStable,
+		GapTolerance:     gapTolerance,
+		CFARScaleDb:      cfarScaleDb,
+		EdgeMarginDb:     edgeMarginDb,
+		MaxSignalBwHz:    maxSignalBwHz,
+		MergeGapHz:       mergeGapHz,
 		classHistorySize: classHistorySize,
 		classSwitchRatio: classSwitchRatio,
-		centerAlpha:     centerAlpha,
-		centerBeta:      centerBeta,
-		binWidth:        float64(sampleRate) / float64(fftSize),
-		nbins:           fftSize,
-		sampleRate:      sampleRate,
-		ema:             make([]float64, fftSize),
-		active:          map[int64]*activeEvent{},
-		nextID:          1,
-		cfarEngine:      cfarEngine,
+		centerAlpha:      centerAlpha,
+		centerBeta:       centerBeta,
+		binWidth:         float64(sampleRate) / float64(fftSize),
+		nbins:            fftSize,
+		sampleRate:       sampleRate,
+		ema:              make([]float64, fftSize),
+		active:           map[int64]*activeEvent{},
+		nextID:           1,
+		cfarEngine:       cfarEngine,
+		multiScale:       detCfg.MultiScale,
+		occupancy:        detCfg.OccupancyDetect,
+		occThreshDb:      occThreshDb,
+		occMinPeakDb:     occMinPeakDb,
+		occMergeGapBins:  occMergeGapBins,
+		occBwDropDb:      detCfg.OccBwDropDb,
+		occMinBwHz:       detCfg.OccMinBwHz,
+		occMaxBwBins:     occMaxBwBins,
+		msParams: MultiScaleParams{
+			OpeningHz: detCfg.MSOpeningHz,
+			ScalesHz:  detCfg.MSScalesHz,
+			K:         detCfg.MSK,
+			MinSNRDb:  detCfg.MSMinSNRDb,
+			CutMult:   detCfg.MSCutMult,
+			MinGapHz:  detCfg.MSMinGapHz,
+			MinBwHz:   detCfg.MSMinBwHz,
+		},
 	}
 }
 
@@ -341,6 +389,21 @@ func (d *Detector) detectSignals(spectrum []float64, centerHz float64, adaptiveA
 		return nil
 	}
 	smooth := d.smoothSpectrum(spectrum, adaptiveAlpha)
+	if d.occupancy {
+		// Occupancy ("waterfall") detection: one contiguous occupied band = one
+		// signal. Bypasses CFAR/multi-scale peak hunting entirely.
+		d.lastThresholds = d.lastThresholds[:0]
+		d.lastNoiseFloor = median(smooth)
+		return d.detectOccupancy(smooth, centerHz)
+	}
+	if d.multiScale {
+		// Multi-scale baseline detection (OI-21): bandwidth-agnostic, finds
+		// narrow + wide + diffuse signals where one CFAR config cannot. Bypasses
+		// the CFAR threshold-crossing + edge-expansion path; segments are final.
+		d.lastThresholds = d.lastThresholds[:0]
+		d.lastNoiseFloor = median(smooth)
+		return d.detectMultiScale(smooth, centerHz)
+	}
 	var thresholds []float64
 	if d.cfarEngine != nil {
 		thresholds = d.cfarEngine.Thresholds(smooth)
@@ -625,6 +688,97 @@ func (d *Detector) makeSignal(first, last int, peak float64, peakBin int, noise 
 		SNRDb:    snr,
 		NoiseDb:  noise,
 	}
+}
+
+// detectOccupancy finds signals as contiguous runs of bins above a GLOBAL floor
+// (the band median) + occThreshDb — the machine equivalent of reading bandwidth off
+// a waterfall: a real emission is a persistent contiguous band, so a wide WFM
+// plateau becomes ONE signal instead of the many fragments a local-threshold peak
+// detector (CFAR/multi-scale) carves from its internal MPX structure. Small dips
+// inside a band (< occMergeGapBins) are bridged; a run qualifies only if it peaks at
+// least occMinPeakDb over the floor (drops pure-noise wiggles). Operates on the
+// already time-integrated (EMA-smoothed) spectrum.
+func (d *Detector) detectOccupancy(smooth []float64, centerHz float64) []Signal {
+	n := len(smooth)
+	if n == 0 {
+		return nil
+	}
+	floor := median(smooth)
+	thr := floor + d.occThreshDb
+	minPeak := floor + d.occMinPeakDb
+
+	var signals []Signal
+	i := 0
+	for i < n {
+		if smooth[i] < thr {
+			i++
+			continue
+		}
+		// Walk the contiguous above-threshold run, bridging gaps up to
+		// occMergeGapBins of below-threshold bins (momentary dips inside one band).
+		j := i
+		peak := smooth[i]
+		peakBin := i
+		gap := 0
+		last := i
+		for j < n {
+			if smooth[j] >= thr {
+				if smooth[j] > peak {
+					peak = smooth[j]
+					peakBin = j
+				}
+				last = j
+				gap = 0
+			} else {
+				gap++
+				if gap > d.occMergeGapBins {
+					break
+				}
+			}
+			j++
+		}
+		first, end := i, last
+		if d.occBwDropDb > 0 {
+			// Trim to a PEAK-relative level so the reported band is SNR-invariant: a
+			// strong station's skirts stay above floor+thresh far out (over-wide box
+			// that bridges neighbours), but relative to its own peak the occupied
+			// band is consistent. Walk in from both ends of the run to the first bin
+			// within occBwDropDb of the peak.
+			cut := peak - d.occBwDropDb
+			for first < peakBin && smooth[first] < cut {
+				first++
+			}
+			for end > peakBin && smooth[end] < cut {
+				end--
+			}
+		}
+		if d.occMaxBwBins > 0 && end-first+1 > d.occMaxBwBins {
+			// Cap the width centred on the band midpoint (the carrier for a symmetric
+			// channel): a strong WFM's floor-relative run balloons past its channel
+			// and bridges neighbours, but the MPX (pilot/RDS) only needs ~120 kHz, so
+			// a fixed ~180 kHz cap keeps RDS while un-bridging. SNR-invariant.
+			mid := (first + end) / 2
+			half := d.occMaxBwBins / 2
+			first = mid - half
+			end = mid + half
+			if first < 0 {
+				first = 0
+			}
+			if end >= n {
+				end = n - 1
+			}
+		}
+		bw := float64(end-first+1) * d.binWidth
+		if peak >= minPeak && bw >= d.occMinBwHz {
+			signals = append(signals, d.makeSignal(first, end, peak, peakBin, floor, centerHz, smooth))
+		}
+		i = last + 1
+	}
+	for i := range signals {
+		signals[i].CenterHz = d.powerWeightedCenter(smooth, signals[i].FirstBin, signals[i].LastBin, centerHz)
+		signals[i].BWHz = float64(signals[i].LastBin-signals[i].FirstBin+1) * d.binWidth
+	}
+	return signals
 }
 
 func (d *Detector) smoothSpectrum(spectrum []float64, alpha float64) []float64 {

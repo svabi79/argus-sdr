@@ -28,26 +28,61 @@ type MonitorWindow struct {
 }
 
 type DetectorConfig struct {
-	ThresholdDb      float64 `yaml:"threshold_db" json:"threshold_db"`
-	MinDurationMs    int     `yaml:"min_duration_ms" json:"min_duration_ms"`
-	HoldMs           int     `yaml:"hold_ms" json:"hold_ms"`
-	EmaAlpha         float64 `yaml:"ema_alpha" json:"ema_alpha"`
-	HysteresisDb     float64 `yaml:"hysteresis_db" json:"hysteresis_db"`
-	MinStableFrames  int     `yaml:"min_stable_frames" json:"min_stable_frames"`
-	GapToleranceMs   int     `yaml:"gap_tolerance_ms" json:"gap_tolerance_ms"`
-	CFARMode         string  `yaml:"cfar_mode" json:"cfar_mode"`
-	CFARGuardHz      float64 `yaml:"cfar_guard_hz" json:"cfar_guard_hz"`
-	CFARTrainHz      float64 `yaml:"cfar_train_hz" json:"cfar_train_hz"`
-	CFARGuardCells   int     `yaml:"cfar_guard_cells,omitempty" json:"cfar_guard_cells,omitempty"`
-	CFARTrainCells   int     `yaml:"cfar_train_cells,omitempty" json:"cfar_train_cells,omitempty"`
-	CFARRank         int     `yaml:"cfar_rank" json:"cfar_rank"`
-	CFARScaleDb      float64 `yaml:"cfar_scale_db" json:"cfar_scale_db"`
-	CFARWrapAround   bool    `yaml:"cfar_wrap_around" json:"cfar_wrap_around"`
-	EdgeMarginDb     float64 `yaml:"edge_margin_db" json:"edge_margin_db"`
-	MaxSignalBwHz    float64 `yaml:"max_signal_bw_hz" json:"max_signal_bw_hz"`
-	MergeGapHz       float64 `yaml:"merge_gap_hz" json:"merge_gap_hz"`
-	ClassHistorySize int     `yaml:"class_history_size" json:"class_history_size"`
-	ClassSwitchRatio float64 `yaml:"class_switch_ratio" json:"class_switch_ratio"`
+	ThresholdDb     float64 `yaml:"threshold_db" json:"threshold_db"`
+	MinDurationMs   int     `yaml:"min_duration_ms" json:"min_duration_ms"`
+	HoldMs          int     `yaml:"hold_ms" json:"hold_ms"`
+	EmaAlpha        float64 `yaml:"ema_alpha" json:"ema_alpha"`
+	HysteresisDb    float64 `yaml:"hysteresis_db" json:"hysteresis_db"`
+	MinStableFrames int     `yaml:"min_stable_frames" json:"min_stable_frames"`
+	GapToleranceMs  int     `yaml:"gap_tolerance_ms" json:"gap_tolerance_ms"`
+	CFARMode        string  `yaml:"cfar_mode" json:"cfar_mode"`
+	CFARGuardHz     float64 `yaml:"cfar_guard_hz" json:"cfar_guard_hz"`
+	CFARTrainHz     float64 `yaml:"cfar_train_hz" json:"cfar_train_hz"`
+	CFARGuardCells  int     `yaml:"cfar_guard_cells,omitempty" json:"cfar_guard_cells,omitempty"`
+	CFARTrainCells  int     `yaml:"cfar_train_cells,omitempty" json:"cfar_train_cells,omitempty"`
+	CFARRank        int     `yaml:"cfar_rank" json:"cfar_rank"`
+	CFARScaleDb     float64 `yaml:"cfar_scale_db" json:"cfar_scale_db"`
+	CFARWrapAround  bool    `yaml:"cfar_wrap_around" json:"cfar_wrap_around"`
+	EdgeMarginDb    float64 `yaml:"edge_margin_db" json:"edge_margin_db"`
+	MaxSignalBwHz   float64 `yaml:"max_signal_bw_hz" json:"max_signal_bw_hz"`
+	MergeGapHz      float64 `yaml:"merge_gap_hz" json:"merge_gap_hz"`
+	// MultiScale selects the multi-scale baseline detector (OI-21) over the
+	// sliding-window CFAR path: bandwidth-agnostic detection that finds narrow
+	// (CW/FT8) and wide (SSB/NFM/WFM) signals with one sensitivity knob. The MS*
+	// fields are optional overrides (zero = built-in default).
+	MultiScale       bool      `yaml:"multi_scale" json:"multi_scale"`
+	MSOpeningHz      float64   `yaml:"ms_opening_hz,omitempty" json:"ms_opening_hz,omitempty"`
+	MSScalesHz       []float64 `yaml:"ms_scales_hz,omitempty" json:"ms_scales_hz,omitempty"`
+	MSK              float64   `yaml:"ms_k,omitempty" json:"ms_k,omitempty"`
+	MSMinSNRDb       float64   `yaml:"ms_min_snr_db,omitempty" json:"ms_min_snr_db,omitempty"`
+	MSCutMult        float64   `yaml:"ms_cut_mult,omitempty" json:"ms_cut_mult,omitempty"`
+	MSMinGapHz       float64   `yaml:"ms_min_gap_hz,omitempty" json:"ms_min_gap_hz,omitempty"`
+	MSMinBwHz        float64   `yaml:"ms_min_bw_hz,omitempty" json:"ms_min_bw_hz,omitempty"`
+	// OccupancyDetect selects the occupancy ("waterfall") detector: signals are
+	// contiguous occupied-band runs over a global noise floor, so a wide signal is
+	// ONE detection rather than the many fragments CFAR/multi-scale peak detectors
+	// carve from internal structure. Occ* are optional overrides (zero = default).
+	OccupancyDetect bool    `yaml:"occupancy_detect" json:"occupancy_detect"`
+	OccThreshDb     float64 `yaml:"occ_thresh_db,omitempty" json:"occ_thresh_db,omitempty"`
+	OccMinPeakDb    float64 `yaml:"occ_min_peak_db,omitempty" json:"occ_min_peak_db,omitempty"`
+	OccMergeGapHz   float64 `yaml:"occ_merge_gap_hz,omitempty" json:"occ_merge_gap_hz,omitempty"`
+	// OccBwDropDb trims each detection's reported band to where the spectrum is
+	// within this many dB of the run's PEAK (not the floor). Floor-relative width
+	// over-widens strong signals (the skirts stay above floor+thresh far out) and
+	// bridges neighbours; peak-relative width is SNR-invariant. 0 = no trim.
+	OccBwDropDb float64 `yaml:"occ_bw_drop_db,omitempty" json:"occ_bw_drop_db,omitempty"`
+	// OccMinBwHz drops detections narrower than this (sub-structure / spurious
+	// blips). Band-dependent: useful on FM-BC (stations are ~150-200 kHz) but must
+	// stay 0 on HF where CW/FT8 are genuinely narrow. 0 = keep all.
+	OccMinBwHz float64 `yaml:"occ_min_bw_hz,omitempty" json:"occ_min_bw_hz,omitempty"`
+	// OccMaxBwHz caps a detection's width (centred on the band midpoint = carrier)
+	// so a strong WFM doesn't balloon past its channel and bridge neighbours, while
+	// staying wide enough for the full MPX (stereo pilot 19 kHz + RDS 57 kHz) — a
+	// too-tight box clips RDS. SNR-invariant. 0 = no cap. (Set ~180 kHz on FM-BC;
+	// harmless on HF where nothing is that wide.)
+	OccMaxBwHz float64 `yaml:"occ_max_bw_hz,omitempty" json:"occ_max_bw_hz,omitempty"`
+	ClassHistorySize int       `yaml:"class_history_size" json:"class_history_size"`
+	ClassSwitchRatio float64   `yaml:"class_switch_ratio" json:"class_switch_ratio"`
 	// CenterTrackMode selects the carrier-center tracking regime:
 	//   "quiet"    (default) — heavy smoothing, treats the center as stationary
 	//   "tracking"           — follows real frequency drift (e.g. LEO Doppler)
