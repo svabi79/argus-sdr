@@ -143,6 +143,11 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				// refined (budgeted) subset, so strong broadcast crowded out weak
 				// 7.0-7.2 MHz signals that were in fact detected and even extracted.
 				stableSignals := rt.det.StableSignals()
+				// Band-gate the tracked-signal snapshot (issue #80): rt.det tracks every
+				// signal it sees, including out-of-band; the display, recorder, and
+				// extraction paths should all honour the configured band(s) of interest,
+				// consistent with the refinement gate. No-op when Bands is empty.
+				stableSignals = pipeline.GateSignalsToBands(stableSignals, rt.cfg.Bands)
 				displaySignals = stableSignals
 				streamSignals := stableSignals
 				if rec != nil && len(art.allIQ) > 0 {
@@ -247,7 +252,7 @@ func runDSP(ctx context.Context, srcMgr *sourceManager, cfg config.Config, det *
 				}
 				rt.maintenance(displaySignals, rec)
 			} else {
-				displaySignals = rt.det.StableSignals()
+				displaySignals = pipeline.GateSignalsToBands(rt.det.StableSignals(), rt.cfg.Bands)
 			}
 			if rec != nil && len(displaySignals) > 0 {
 				runtimeInfo := rec.RuntimeInfoBySignalID()

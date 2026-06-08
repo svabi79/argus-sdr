@@ -1,7 +1,7 @@
 bands:
     - name: uk-fm-broadcast
-      start_hz: 5e+06
-      end_hz: 9.2e+06
+      start_hz: 87.5e+06
+      end_hz: 108e+06
 center_hz: 1.02e+08
 sample_rate: 4096000
 fft_size: 65536

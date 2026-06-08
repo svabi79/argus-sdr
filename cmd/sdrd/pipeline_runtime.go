@@ -668,15 +668,24 @@ func (rt *dspRuntime) captureSpectrum(srcMgr *sourceManager, rec *recorder.Manag
 	}
 	now := time.Now()
 	finished, detected := rt.det.Process(now, survSpectrum, rt.cfg.CenterHz)
+	// Gate to the configured band(s) of interest (issue #80): when cfg.Bands is set,
+	// drop detections whose center is out-of-band so the refinement/classification
+	// budget isn't flooded by adjacent-band carriers and the fragments the peak
+	// detectors carve from them. No-op when Bands is empty (full-span surveillance).
+	rawDetected := len(detected)
+	detected = pipeline.GateSignalsToBands(detected, rt.cfg.Bands)
 	// L1-B: fine/sharp pass on the SAME spectrum to separate close emissions; the
 	// scale-aware fusion (buildSurveillanceResult) reconciles it with the coarse
 	// primary. Phase-agnostic (power spectrum), so Principle XIII does not apply here.
 	var sharpDetected []detector.Signal
 	if rt.detSharp != nil {
 		_, sharpDetected = rt.detSharp.Process(now, survSpectrum, rt.cfg.CenterHz)
+		sharpDetected = pipeline.GateSignalsToBands(sharpDetected, rt.cfg.Bands)
 	}
 	if rt.telemetry != nil {
 		rt.telemetry.SetGauge("signals.detected.count", float64(len(detected)), nil)
+		rt.telemetry.SetGauge("signals.detected.raw", float64(rawDetected), nil)
+		rt.telemetry.SetGauge("signals.gated.count", float64(rawDetected-len(detected)), nil)
 		rt.telemetry.SetGauge("signals.finished.count", float64(len(finished)), nil)
 	}
 	return &spectrumArtifacts{
