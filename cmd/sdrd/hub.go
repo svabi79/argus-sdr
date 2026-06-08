@@ -69,6 +69,21 @@ func (h *hub) broadcast(frame SpectrumFrame) {
 	}
 	var binCache []binCacheEntry
 
+	// Marshal signals+debug once per frame into the reused hub buffer (shared by
+	// every binary decimation level), avoiding per-frame json.Marshal growth.
+	var jsonPart []byte
+	frameJSON := func() []byte {
+		if jsonPart == nil {
+			h.jsonBuf.Reset()
+			_ = json.NewEncoder(&h.jsonBuf).Encode(struct {
+				Signals []detector.Signal `json:"signals"`
+				Debug   *SpectrumDebug    `json:"debug,omitempty"`
+			}{Signals: frame.Signals, Debug: frame.Debug})
+			jsonPart = h.jsonBuf.Bytes()
+		}
+		return jsonPart
+	}
+
 	h.mu.Lock()
 	clients := make([]*client, 0, len(h.clients))
 	for c := range h.clients {
@@ -99,7 +114,7 @@ func (h *hub) broadcast(frame SpectrumFrame) {
 				}
 			}
 			if encoded == nil {
-				encoded = encodeBinaryFrame(frame, bins)
+				encoded = encodeBinaryFrame(frame, bins, frameJSON())
 				binCache = append(binCache, binCacheEntry{bins: bins, data: encoded})
 			}
 			select {
@@ -152,7 +167,7 @@ func (h *hub) broadcast(frame SpectrumFrame) {
 
 const binaryHeaderSize = 32
 
-func encodeBinaryFrame(frame SpectrumFrame, targetBins int) []byte {
+func encodeBinaryFrame(frame SpectrumFrame, targetBins int, jsonPart []byte) []byte {
 	spectrum := frame.Spectrum
 	srcBins := len(spectrum)
 	if targetBins <= 0 || targetBins > srcBins {
@@ -167,23 +182,16 @@ func encodeBinaryFrame(frame SpectrumFrame, targetBins int) []byte {
 		targetBins = srcBins
 	}
 
-	// JSON-encode signals + debug (full fidelity)
-	jsonPart, _ := json.Marshal(struct {
-		Signals []detector.Signal `json:"signals"`
-		Debug   *SpectrumDebug   `json:"debug,omitempty"`
-	}{
-		Signals: frame.Signals,
-		Debug:   frame.Debug,
-	})
-
+	// jsonPart (signals + debug) is marshaled once per frame by the caller and
+	// passed in (reused buffer), so it is not re-encoded per decimation level.
 	specBytes := targetBins * 2
 	jsonOffset := uint32(binaryHeaderSize + specBytes)
 	totalSize := int(jsonOffset) + len(jsonPart)
 	buf := make([]byte, totalSize)
 
 	// Header
-	buf[0] = 0x53 // 'S'
-	buf[1] = 0x50 // 'P'
+	buf[0] = 0x53                              // 'S'
+	buf[1] = 0x50                              // 'P'
 	binary.LittleEndian.PutUint16(buf[2:4], 4) // version 4
 	binary.LittleEndian.PutUint64(buf[4:12], uint64(frame.Timestamp))
 	binary.LittleEndian.PutUint64(buf[12:20], math.Float64bits(frame.CenterHz))
@@ -237,5 +245,3 @@ func decimateSpectrum(spectrum []float64, targetBins int) []float64 {
 	}
 	return out
 }
-
-
