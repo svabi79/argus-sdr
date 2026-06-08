@@ -10,6 +10,15 @@ type MathFeatures struct {
 	AMIndex       float64 `json:"am_index"`
 	FMIndex       float64 `json:"fm_index"`
 	InstFreqModes int     `json:"inst_freq_modes"`
+	// CarrierDC is the fraction of power in the DC component (|mean(iq)|^2 /
+	// mean|iq|^2) of the centered baseband. A signal with a real carrier at its
+	// center (AM, CW) has a strong DC term; a suppressed-carrier/offset signal
+	// (SSB, FM, digital) has ~0. This is the AM/CW-vs-rest discriminator.
+	CarrierDC float64 `json:"carrier_dc"`
+	// IFMean is the signed mean instantaneous frequency (rad/sample): ~0 for a
+	// centered carrier (AM/CW) and symmetric AM/FM, but net-positive for USB and
+	// net-negative for LSB (energy sits to one side of the suppressed carrier).
+	IFMean float64 `json:"if_mean"`
 }
 
 func ExtractMathFeatures(iq []complex64) MathFeatures {
@@ -19,12 +28,24 @@ func ExtractMathFeatures(iq []complex64) MathFeatures {
 	n := len(iq)
 	env := make([]float64, n)
 	var envMean float64
+	var dcRe, dcIm, powMean float64
 	for i, v := range iq {
-		a := math.Hypot(float64(real(v)), float64(imag(v)))
+		re, im := float64(real(v)), float64(imag(v))
+		a := math.Hypot(re, im)
 		env[i] = a
 		envMean += a
+		dcRe += re
+		dcIm += im
+		powMean += re*re + im*im
 	}
 	envMean /= float64(n)
+	dcRe /= float64(n)
+	dcIm /= float64(n)
+	powMean /= float64(n)
+	carrierDC := 0.0
+	if powMean > 1e-20 {
+		carrierDC = (dcRe*dcRe + dcIm*dcIm) / powMean
+	}
 	var envVar, envM4 float64
 	for _, a := range env {
 		d := a - envMean
@@ -81,6 +102,8 @@ func ExtractMathFeatures(iq []complex64) MathFeatures {
 		AMIndex:       amIndex,
 		FMIndex:       fmIndex,
 		InstFreqModes: modes,
+		CarrierDC:     carrierDC,
+		IFMean:        ifMean,
 	}
 }
 
@@ -141,67 +164,114 @@ func countHistogramPeaks(vals []float64, bins int) int {
 	return peaks
 }
 
+// MathClassify decides modulation from IQ-derived features. bw is the OCCUPIED
+// bandwidth (detector edge-expanded), NOT the 3 dB peak width — a sharp AM/CW
+// carrier has a tiny 3 dB width but a wide occupancy, and using the peak width
+// here was the bug that labelled wide AM as CW.
+//
+// The backbone is built from features that are INVARIANT to center-estimate
+// error, because the live extraction only approximately centers each signal. A
+// residual frequency offset multiplies the IQ by e^{jwt}: that leaves the
+// envelope magnitude unchanged (EnvCoV invariant) and only adds a constant to
+// the instantaneous frequency (InstFreqStd invariant). CarrierDC and IFMean are
+// NOT invariant — TestCarrierDCOffset shows CarrierDC collapsing from ~0.98 to
+// ~0.04 at a mere 5 Hz offset — so they only refine, never gate.
+//
+// Decision backbone (each cue is a physical signature, not a frequency prior):
+//   - constant envelope (EnvCoV very low) -> angle modulation: WFM/NFM by width,
+//     or a clean keyed carrier (CW) if the frequency is also constant.
+//   - moderate envelope modulation -> a carrier with AM: AM (occupied) vs CW
+//     (narrow). CarrierDC, when centering is good, confirms the real carrier.
+//   - high envelope variation, no carrier -> SSB (voice-width, one-sided, low
+//     inst-freq spread; sideband from the sign of IFMean) or generic digital.
 func MathClassify(mf MathFeatures, bw float64, centerHz float64, snrDb float64) Classification {
 	scores := map[SignalClass]float64{}
-	if bw < 500 && mf.InstFreqStd < 0.15 {
-		scores[ClassCW] += 3.0
-	}
-	if mf.AMIndex > 3.0 {
-		scores[ClassAM] += 2.0
-	} else if mf.AMIndex > 1.5 {
-		scores[ClassAM] += 1.0
-	}
-	if mf.FMIndex > 5.0 && mf.EnvCoV < 0.1 {
-		if bw >= 80e3 {
-			scores[ClassWFM] += 2.5
-		} else if bw >= 6e3 {
-			scores[ClassNFM] += 2.5
+	// Discriminators measured on labelled synth IQ at 15/30/45 dB
+	// (TestClassifierFeatureDump). Two offset-invariant features form the backbone:
+	//   EnvCoV (offset-invariant): suppressed-carrier SSB/digital ~0.45+; AM/CW and
+	//     FM are lower, but in-band noise inflates them at low SNR (NFM 0.04@45dB ->
+	//     0.12@15dB), so EnvCoV only gates the high (no-carrier) end reliably.
+	//   InstFreqStd (offset-invariant): FM has genuine frequency variation
+	//     (NFM ~0.034, WFM ~0.25, stable vs SNR) while a plain carrier (AM ~0.011)
+	//     does not -> this is what splits FM from AM/CW.
+	// Digital signals have BOTH high EnvCoV and high InstFreqStd, so the no-carrier
+	// gate must be tested before the FM gate. CarrierDC/IFMean are offset-SENSITIVE
+	// (TestCarrierDCOffset: CarrierDC collapses 0.98->0.04 at 5 Hz) so they only
+	// add confirming bonuses, never gate the backbone.
+	carrier := mf.CarrierDC > 0.5    // a strong real carrier sits at center (AM/CW)
+	highEnv := mf.EnvCoV >= 0.20     // no carrier: large amplitude variation
+	fmLike := mf.InstFreqStd >= 0.02 // genuine frequency modulation
+
+	switch {
+	case carrier:
+		// A strong DC carrier component is DEFINITIVE: only AM and CW put real power
+		// at the (centered) carrier; SSB/FM/digital are all suppressed-carrier
+		// (CarrierDC ~0). So this is decisive and scored high enough to win the
+		// rule+math blend (CombinedClassify), which otherwise mislabels a wide AM
+		// carrier as CW because its 3 dB spectral peak is narrow. AM (occupied) vs
+		// CW (narrow) by bandwidth. The split is 1 kHz: CW (Morse) occupies at most
+		// a few hundred Hz even with fast keying, so a carrier wider than ~1 kHz is
+		// AM, not CW. (The live detector under-reports AM occupancy — it locks onto
+		// the carrier plus close-in sidebands, ~1.4-6 kHz, not the full channel — so
+		// a higher threshold mislabelled those wide carriers as CW.) Verified live on
+		// the 40m/49m broadcast bands; TestCarrierDCOffset covers the centering this
+		// relies on for AM, whose carrier the extraction locks onto.
+		if bw < 1000 {
+			scores[ClassCW] += 6.0
 		} else {
-			scores[ClassNFM] += 1.5
+			scores[ClassAM] += 6.0
 		}
-	} else if mf.FMIndex > 2.0 && mf.EnvCoV < 0.15 {
-		if bw >= 50e3 {
-			scores[ClassWFM] += 1.5
+	case highEnv:
+		// Suppressed carrier with large envelope variation -> SSB or digital. A
+		// narrow signal here is a weak carrier in in-band noise (CW at low SNR), not
+		// wideband digital.
+		oneSided := math.Abs(mf.IFMean) > 0.015
+		switch {
+		case bw < 1200:
+			scores[ClassCW] += 1.5
+			scores[ClassNoise] += 0.3
+		case oneSided && bw <= 5000 && mf.InstFreqStd < 0.06:
+			// Voice-width, energy on one side of center, low inst-freq spread -> SSB.
+			if mf.IFMean >= 0 {
+				scores[ClassSSBUSB] += 2.5
+			} else {
+				scores[ClassSSBLSB] += 2.5
+			}
+		default:
+			// Generic digital. (The synth FSK/PSK/DIGITAL share one shape; per-kind
+			// digital separation is future work.)
+			scores[ClassFSK] += 2.0
+			scores[ClassPSK] += 1.8
+			if bw >= 10000 && bw <= 14000 {
+				scores[ClassDMR] += 1.5
+			}
+			if bw >= 2000 && bw < 3500 && mf.InstFreqModes >= 3 {
+				scores[ClassFT8] += 1.0
+			}
+		}
+	case fmLike:
+		// Constant-ish envelope with real frequency variation -> FM. WFM by occupied
+		// width or large deviation, else NFM.
+		if bw >= 80e3 || mf.InstFreqStd > 0.15 {
+			scores[ClassWFM] += 3.0
+		} else if bw >= 6000 {
+			scores[ClassNFM] += 3.0
 		} else {
-			scores[ClassNFM] += 1.5
+			scores[ClassNFM] += 2.0
+			scores[ClassCW] += 0.5 // very narrow: could be a keyed carrier
 		}
-	}
-	if mf.AMIndex > 0.5 && mf.AMIndex < 3.0 && mf.FMIndex > 0.5 && mf.FMIndex < 3.0 {
-		if bw >= 2000 && bw <= 4000 {
-			scores[ClassSSBUSB] += 1.5
-			scores[ClassSSBLSB] += 1.5
-		}
-	}
-	if bw < 500 && mf.EnvKurtosis > 5.0 && mf.InstFreqStd < 0.1 {
-		scores[ClassCW] += 2.5
-	} else if bw < 200 && mf.InstFreqStd < 0.15 {
-		scores[ClassCW] += 1.5
-	}
-	if bw < 500 {
-		scores[ClassAM] *= 0.4
-	}
-	if mf.EnvCoV < 0.05 && mf.InstFreqModes >= 2 {
-		if bw >= 10000 && bw <= 14000 {
-			scores[ClassDMR] += 2.0
-		} else if bw >= 5000 && bw <= 8000 {
-			scores[ClassDStar] += 1.8
+	default:
+		// Low envelope variation, no frequency modulation, weak/offset carrier -> a
+		// plain carrier whose DC term washed out (centering error). AM (occupied) vs
+		// CW (narrow).
+		if bw < 1800 {
+			scores[ClassCW] += 3.0
 		} else {
-			scores[ClassFSK] += 1.5
+			scores[ClassAM] += 3.0
+			if bw < 2500 {
+				scores[ClassCW] += 1.0 // ambiguous narrow carrier
+			}
 		}
-	}
-	if mf.EnvCoV < 0.08 && mf.InstFreqModes <= 1 && mf.InstFreqStd < 0.3 {
-		if bw >= 100 && bw < 500 {
-			scores[ClassWSPR] += 1.3
-		}
-		if bw >= 100 && bw < 3000 {
-			scores[ClassPSK] += 1.0
-		}
-	}
-	if mf.EnvCoV < 0.15 && mf.InstFreqModes >= 3 && bw >= 2000 && bw < 3500 {
-		scores[ClassFT8] += 1.8
-	}
-	if mf.AMIndex < 0.5 && mf.FMIndex < 0.5 && bw > 2000 {
-		scores[ClassNoise] += 1.0
 	}
 	best, _, second, _ := top2(scores)
 	if best == "" {
